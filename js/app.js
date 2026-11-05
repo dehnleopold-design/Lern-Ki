@@ -5,7 +5,7 @@ import * as P from './prompts.js';
 import { gradeLabel, gradeOptions, percentToGrade, reachesTarget, scale } from './grades.js';
 import { h, add, md, mdEl, mascot, speech, icon, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '1.2 (5.11.)';
+const APP_VERSION = '1.3 (5.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
