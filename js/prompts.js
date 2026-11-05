@@ -111,62 +111,107 @@ Wenn die Datenlage dünn ist, sag das.
 ${(subject.archive || []).map(fileDigestText).filter(Boolean).join('\n\n')}`;
 }
 
-// ---------- 2. Lernplan ----------
+// ---------- 2. Lernplan (nach Themen) ----------
 export function planPrompt(exam, days) {
   const subject = subjectOf(exam);
   return `Erstelle einen Lernplan für die ${subject.name}-Klausur.
 Klausurtermin: ${exam.date ? exam.date : 'kein Termin (freies Lernen)'}.
 Zielnote: ${gradeLabel(exam.targetGrade)}.
-${days.length ? `Verfügbare Lerntage (jeweils ca. ${state.profile?.minutesPerDay || 30} Min.):\n${days.map((d) => `- ${d.iso} (${d.label})`).join('\n')}` : 'Keine festen Tage: plane 4–8 Einheiten.'}
+${days.length ? `Verfügbare Lerntage (jeweils ca. ${state.profile?.minutesPerDay || 30} Min.):\n${days.map((d) => `- ${d.iso} (${d.label})`).join('\n')}` : 'Keine festen Tage.'}
+
+Jedes Thema wird später nach demselben Prinzip gelernt: 1. Lernzettel, 2. kurzes Fakten-Quiz, 3. Anwendungsaufgaben. Am Ende folgt ein Abschluss (Gesamt-Lernzettel + Probeklassenarbeit) – den musst du NICHT planen.
 
 VORGEHEN
-- Bestimme zuerst die klausurrelevanten Themen aus dem Material und dem Lehrerprofil. Gewichte nach Prüfungsrelevanz, nicht nach Seitenzahl.
-- Gliedere in Abschnitte (je ein Thema/Kompetenz). Jeder Abschnitt hat 2–4 Einheiten.
-- Einheitentypen: "verstehen" (kurzer Input + Verständnisfragen mit Nachfragen), "ueben" (prüfungsnahe Aufgaben AFB I–II), "anwenden" (komplexe Transfer-/Beurteilungsaufgaben AFB II–III), "probeklausur" (komplette Probeklausur im Stil der Lehrkraft).
-- Die letzte Einheit vor dem Termin ist IMMER eine "probeklausur". Bei wenig Zeit: weniger verstehen, mehr üben.
-- Pro Lerntag so viele Einheiten, wie in die Zeit passen (eine Einheit ≈ 15–25 Min.). Verteile auf die Tage, spätere Tage wiederholen frühere Themen kurz (verteiltes Lernen).
-- Zielnote ${gradeLabel(exam.targetGrade)}: je besser die Zielnote, desto mehr AFB III.
+- Bestimme die klausurrelevanten Themen aus Material, Themenangabe und Lehrerprofil. 2–6 Themen, so zugeschnitten, dass jedes in eine Lernsitzung passt. Gewichte nach Prüfungsrelevanz.
+- Reihenfolge so, dass Grundlagen zuerst kommen.
+- Ordne jedem Thema einen Lerntag zu (bei wenig Tagen mehrere Themen pro Tag). Der letzte Lerntag bleibt möglichst für den Abschluss frei.
 
 Gib NUR JSON zurück:
 {
- "titel": "z. B. Spanisch Klausur",
+ "titel": "z. B. Geography Klausur",
  "themenUebersicht": "2–4 Sätze: was drankommt und worauf es laut Material/Lehrkraft ankommt",
  "luecken": ["Was im Material fehlt oder unklar ist und der Schüler klären sollte"],
- "abschnitte": [
-  { "titel": "Thema", "einheiten": [ { "titel": "kurzer Titel", "typ": "verstehen|ueben|anwenden|probeklausur", "ziel": "was danach sicher sitzen muss", "tag": "YYYY-MM-DD oder null" } ] }
- ]
+ "themen": [ { "titel": "kurzer Thementitel", "beschreibung": "was genau dazugehört (1–2 Sätze)", "schwerpunkte": ["…"], "tag": "YYYY-MM-DD oder null" } ]
 }
 
 KONTEXT:
 ${examContext(exam)}`;
 }
 
-// ---------- 3. Aufgaben für eine Einheit ----------
-export function sessionPrompt(exam, unit, previousTitles) {
-  const isExam = unit.typ === 'probeklausur';
-  const typeRules = {
-    verstehen: 'Schreibe zuerst einen KURZEN Input (max. 200 Wörter, nur das Nötigste, auf das Material gestützt). Danach 3 Aufgaben, die echtes Verständnis prüfen (erklären, begründen, Zusammenhänge) – keine reinen Wiedergabefragen.',
-    ueben: 'Kein Input. 3–4 prüfungsnahe Aufgaben, AFB I und II, wie sie in der Klausur dieser Lehrkraft vorkommen würden.',
-    anwenden: 'Kein Input. 2–3 anspruchsvolle Aufgaben AFB II–III mit eigenem Material (kurzer Text, Daten, Fallbeispiel, Quelle), Transfer und Beurteilung.',
-    probeklausur: 'Erstelle eine KOMPLETTE Probeklausur im exakten Stil der alten Klausuren / des Lehrerprofils: gleicher Aufbau, gleiche Operatoren, gleiche Punkteverteilung und realistischer Umfang für die übliche Bearbeitungszeit. Mit eigenem Material, falls die Lehrkraft Material verwendet.',
-  }[unit.typ] || '';
-  return `Erstelle die Lerneinheit "${unit.titel}" (Typ: ${unit.typ}). Ziel: ${unit.ziel || '-'}.
-${typeRules}
-${previousTitles.length ? `Bereits gestellte Aufgaben (NICHT wiederholen, aber Schwächen erneut prüfen):\n${previousTitles.slice(-25).map((t) => `- ${t}`).join('\n')}` : ''}
+const TEACHER_STYLE = `SPRACHE & STIL DER LEHRKRAFT: Formuliere so, wie die Lehrkraft in alten Klausuren und auf den Arbeitsblättern formuliert – gleiche Anrede (du/Sie/unpersönlich), gleicher Satzbau, gleiche Nummerierung (z. B. "1 a)"), gleiche Fachbegriffe und Operator-Schreibweise, gleiche Länge. Übernimm typische Wendungen. Liegt kein Material dazu vor, nutze den üblichen Stil von Klassenarbeiten dieser Stufe.`;
 
-Jede Aufgabe:
-- beginnt mit einem Operator und ist so formuliert, wie es in der echten Klausur stünde,
-- hat einen Erwartungshorizont (stichpunktartig, was für volle Punkte nötig ist – wird erst nach der Abgabe gezeigt),
-- hat eine realistische Punktzahl und Bearbeitungszeit.
+// ---------- 3a. Lernzettel ----------
+export function lernzettelPrompt(exam, topic, isOverall) {
+  const scope = isOverall
+    ? `einen GESAMT-LERNZETTEL für die ganze Klausur (alle Themen: ${(exam.plan?.themen || []).map((t) => t.titel).join(', ')}). Kompakt (max. 2 Seiten), Fokus auf das, was in der Klausur sicher drankommt, plus: wichtige Operatoren mit kurzer Anleitung, was die Lehrkraft erwartet, typische Fehler, Zeitplan für die Klausur.`
+    : `einen LERNZETTEL zum Thema "${topic.titel}" (${topic.beschreibung || ''}${topic.schwerpunkte?.length ? `; Schwerpunkte: ${topic.schwerpunkte.join(', ')}` : ''}).`;
+  return `Schreibe ${scope}
+Der Lernzettel ist die Grundlage für das Quiz und die Anwendungsaufgaben danach. Er muss ALLES enthalten, was man dafür wissen muss – sachlich exakt, aus dem Material, in den Begriffen der Lehrkraft.
+
+Aufbau (Markdown, mit Überschriften "## …", kurze Stichpunkte, **Fettdruck** für Schlüsselbegriffe):
+## Worum geht's (2–3 Sätze)
+## Fachbegriffe (Begriff – kurze, klausurtaugliche Definition)
+## Fakten, Zahlen & Regeln (alles Abfragbare)
+## Zusammenhänge (Ursache → Wirkung, Abläufe, Vergleiche)
+## So gehst du vor (Schritt-für-Schritt-Anleitung für typische Aufgaben, z. B. Diagramm auswerten, Quelle analysieren, Rechenweg)
+## Typische Klausurfragen & worauf es ankommt (mit Operator)
+## Häufige Fehler
+## Merksatz (1–2 Sätze)
+Lass Abschnitte weg, die für das Fach nicht passen. Kein Vorwort, kein Schlusswort. Max. ca. ${isOverall ? 900 : 600} Wörter.
+
+KONTEXT:
+${examContext(exam)}`;
+}
+
+// ---------- 3b. Fakten-Quiz ----------
+export function quizPrompt(exam, topic, lernzettel, previous) {
+  return `Erstelle ein kurzes Quiz (8 Fragen) zum Thema "${topic.titel}". Es prüft schnell abrufbares Wissen: Fachbegriffe, Fakten, Zahlen, Werte, Formeln, Einheiten, Zuordnungen – keine langen Erklärungen. Nur klausurrelevantes Wissen, keine Nebensächlichkeiten.
+Mische die Fragetypen: ca. 4× "mc" (4 Optionen, plausible Falschantworten), 2× "wahrfalsch", 2× "eingabe" (Antwort ist ein Wort, Begriff oder eine Zahl).
+${previous?.length ? `Diese Fragen gab es schon – stelle andere:\n${previous.slice(-20).map((q) => `- ${q}`).join('\n')}` : ''}
+
+Gib NUR JSON zurück:
+{ "fragen": [
+  { "typ": "mc", "frage": "…", "optionen": ["…","…","…","…"], "richtig": 0, "erklaerung": "1 Satz" },
+  { "typ": "wahrfalsch", "frage": "Aussage …", "richtig": true, "erklaerung": "…" },
+  { "typ": "eingabe", "frage": "…", "antworten": ["akzeptierte Antwort", "Variante"], "einheit": "optional, z. B. °C", "erklaerung": "…" }
+] }
+
+LERNZETTEL ZUM THEMA:
+${lernzettel || '(noch keiner – nutze das Material)'}
+
+KONTEXT:
+${examContext(exam)}`;
+}
+
+// ---------- 3c. Anwendungsaufgaben / Probeklassenarbeit ----------
+export function sessionPrompt(exam, unit, previousTitles, extra = {}) {
+  const isExam = unit.typ === 'probeklausur';
+  const typeRules = isExam
+    ? `Erstelle eine KOMPLETTE Probeklassenarbeit über ALLE Themen (${(exam.plan?.themen || []).map((t) => t.titel).join(', ')}) im exakten Stil der alten Klausuren / des Lehrerprofils: gleicher Aufbau, gleiche Operatoren, gleiche Punkteverteilung, realistischer Umfang für die übliche Bearbeitungszeit, mit eigenem Material, falls die Lehrkraft Material verwendet.`
+    : `Erstelle 3 ANWENDUNGSAUFGABEN zum Thema "${extra.topic?.titel || unit.titel}" (AFB II–III, eine darf AFB I sein). Der Schüler hat vorher den Lernzettel gelesen und das Quiz gemacht – wiederhole keine reinen Wissensfragen.
+SEI KREATIV: Nutze mindestens 2 verschiedene Formate, z. B.
+- Fallbeispiel / Szenario aus dem Alltag oder der aktuellen Welt, das mit dem Wissen gelöst werden muss
+- Material auswerten: kurzer Text, Quelle, Zitat, Tabelle mit Daten (als Markdown-Tabelle), Diagrammwerte
+- Fehler finden: eine fehlerhafte "Schülerlösung" prüfen und korrigieren
+- Stellung nehmen / beurteilen / erörtern mit Pro und Contra
+- Perspektivwechsel: Brief, Rede, Zeitungsartikel, Dialog schreiben
+- Vergleichen, Strukturieren, Transfer auf ein neues Beispiel, Rechnen im Kontext
+Die Formate müssen zu dem passen, was die Lehrkraft in Klausuren tatsächlich verlangt.`;
+  return `${typeRules}
+
+WICHTIG:
+- KEINE Lösung, kein Erklärtext und keine Hinweise auf die Lösung in Aufgabenstellung oder Material. Das Wissen steht im Lernzettel.
+- ${TEACHER_STYLE}
+- Jede Aufgabe beginnt mit einem Operator, hat einen Erwartungshorizont (wird erst nach der Abgabe gezeigt), eine realistische Punktzahl und Bearbeitungszeit.
+${previousTitles.length ? `- Bereits gestellte Aufgaben (NICHT wiederholen, aber Schwächen erneut prüfen):\n${previousTitles.slice(-25).map((t) => `  - ${t}`).join('\n')}` : ''}
 
 Gib NUR JSON zurück:
 {
- "input": "Markdown-Text oder leer",
  ${isExam ? '"zeitMinuten": 45,\n ' : ''}"aufgaben": [
-  { "id": "a1", "operator": "Erläutere", "afb": "II", "aufgabe": "vollständige Aufgabenstellung", "material": "optional: Text/Daten/Quelle als Markdown, sonst leer", "punkte": 6, "minuten": 8, "erwartung": ["…", "…"] }
+  { "id": "a1", "operator": "Erläutere", "afb": "II", "format": "Fallbeispiel", "aufgabe": "vollständige Aufgabenstellung im Stil der Lehrkraft", "material": "optional: Text/Daten/Quelle als Markdown, sonst leer", "punkte": 6, "minuten": 8, "erwartung": ["…", "…"] }
  ]
 }
-
+${extra.lernzettel ? `\nLERNZETTEL ZUM THEMA (darauf bauen die Aufgaben auf):\n${extra.lernzettel}\n` : ''}
 KONTEXT:
 ${examContext(exam)}`;
 }

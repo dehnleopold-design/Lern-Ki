@@ -3,9 +3,10 @@ import { generate, aiReady, listGeminiModels, pickDefaultModel, AIError, onAISta
 import { addFile, removeFile, filePart, thumbURL, pickFiles } from './files.js';
 import * as P from './prompts.js';
 import { gradeLabel, gradeOptions, percentToGrade, reachesTarget, scale } from './grades.js';
+import { downloadLernzettel } from './pdf.js';
 import { h, add, md, mdEl, mascot, speech, icon, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '1.3 (5.11.)';
+const APP_VERSION = '1.4 (5.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -20,8 +21,8 @@ const STATES = ['Baden-Württemberg', 'Bayern', 'Berlin', 'Brandenburg', 'Bremen
 const SCHOOL_TYPES = ['Gymnasium', 'Stadtteilschule', 'Gesamtschule', 'Realschule', 'Oberschule', 'Berufliche Schule', 'Andere'];
 const LEARN_STYLES = ['Kurze Erklärungen', 'Aufgaben selbst lösen', 'Probeklausuren', 'Abfragen lassen', 'Selbst erklären (wie mündlich)', 'Beispiele & Musterlösungen'];
 const SECTION_COLORS = ['#3dd68c', '#5b9dff', '#f06fc0', '#ff9f5a', '#a78bfa', '#2dd4bf'];
-const UNIT_ICON = { verstehen: 'book', ueben: 'pencil', anwenden: 'bulb', probeklausur: 'exam' };
-const UNIT_LABEL = { verstehen: 'Verstehen', ueben: 'Üben', anwenden: 'Anwenden', probeklausur: 'Probeklausur' };
+const UNIT_ICON = { lernzettel: 'file', quiz: 'quiz', aufgaben: 'pencil', gesamtzettel: 'book', probeklausur: 'exam', verstehen: 'book', ueben: 'pencil', anwenden: 'bulb' };
+const UNIT_LABEL = { lernzettel: 'Schritt 1 · Lernzettel', quiz: 'Schritt 2 · Quiz', aufgaben: 'Schritt 3 · Anwenden', gesamtzettel: 'Abschluss · Gesamt-Lernzettel', probeklausur: 'Abschluss · Probeklassenarbeit', verstehen: 'Verstehen', ueben: 'Üben', anwenden: 'Anwenden' };
 const PALETTE = ['#5b9dff', '#ff9f5a', '#3dd68c', '#f06fc0', '#a78bfa', '#2dd4bf', '#e0a458', '#ff7a59'];
 
 // ---------------------------------------------------------------- Routing
@@ -310,9 +311,10 @@ function viewPlan() {
 
   const subject = subjectById(exam.subjectId);
   const units = allUnits(exam);
-  const current = units.find((u) => u.status !== 'done');
+  const current = units.find((u) => u.status === 'open' || !u.status);
   const selected = units.find((u) => u.id === ui.selectedUnit) || current || units[units.length - 1];
   const done = units.filter((u) => u.status === 'done').length;
+  const abschlussUnit = units.find((u) => (exam.plan?.abschnitte || [])[u._section]?.abschluss);
 
   const header = h('header', { class: 'topbar' },
     h('div', { class: 'streak' }, icon('check', 18), h('span', {}, `${done}/${units.length}`)),
@@ -326,13 +328,18 @@ function viewPlan() {
       h('div', { class: 'target' }, icon('target', 18), gradeLabel(exam.targetGrade))),
     exam.plan?.themenUebersicht ? h('details', { class: 'details' }, h('summary', {}, 'Was drankommt'), mdEl(exam.plan.themenUebersicht),
       exam.plan.luecken?.length ? h('div', { class: 'warn' }, h('strong', {}, 'Lücken im Material – kläre das mit deiner Lehrkraft oder lade mehr hoch:'), h('ul', {}, exam.plan.luecken.map((l) => h('li', {}, l)))) : null) : null,
-    exam.lastResult ? h('div', { class: 'muted small' }, `Letztes Ergebnis: ${exam.lastResult.percent} % ≈ ${gradeLabel(exam.lastResult.grade)} (Schätzung)`) : null);
+    exam.lastResult ? h('div', { class: 'muted small' }, `Letztes Ergebnis: ${exam.lastResult.percent} % ≈ ${gradeLabel(exam.lastResult.grade)} (Schätzung)`) : null,
+    abschlussUnit ? h('button', { class: 'pill jump', onclick: () => { ui.selectedUnit = abschlussUnit.id; render(); setTimeout(() => document.querySelector('.node.selected')?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 50); } }, icon('flag', 16), 'Direkt zum Abschluss') : null,
+    exam.plan && !exam.plan.themen ? h('div', { class: 'warn small' }, 'Dieser Plan hat noch das alte Format. Über ⋮ → „Plan neu erstellen“ bekommst du Lernzettel, Quiz und Abschluss.') : null);
 
   const path = h('div', { class: 'path' });
   let gi = 0;
   (exam.plan?.abschnitte || []).forEach((sec, si) => {
     const color = SECTION_COLORS[si % SECTION_COLORS.length];
-    add(path, h('div', { class: 'section-banner', style: { background: color } }, h('span', {}, sec.titel), icon('chat', 22)));
+    const secSkipped = sec.einheiten.every((u) => u.status === 'skipped');
+    add(path, h('button', { class: `section-banner ${secSkipped ? 'skipped' : ''} ${sec.abschluss ? 'final' : ''}`, style: { background: sec.abschluss ? undefined : color }, onclick: () => sectionMenu(exam, sec) },
+      h('span', { class: 'row gap' }, sec.abschluss ? icon('flag', 22) : null, h('span', {}, sec.titel)),
+      h('span', { class: 'banner-hint' }, secSkipped ? 'übersprungen' : sec.abschluss ? 'jederzeit offen' : '', icon('skip', 18))));
     let lastDay = null;
     sec.einheiten.forEach((u) => {
       const x = Math.round(Math.sin(gi * 0.9) * 70);
@@ -341,24 +348,27 @@ function viewPlan() {
       const isSel = selected && u.id === selected.id;
       if (u.tag && u.tag !== lastDay) { add(path, h('div', { class: 'day-label' }, `${relDay(u.tag)} · ${fmtDate(u.tag)}`)); lastDay = u.tag; }
       const node = h('button', {
-        class: `node ${u.status === 'done' ? 'done' : ''} ${isSel ? 'selected' : ''} ${isCurrent ? 'current' : ''}`,
-        style: { '--c': color, transform: `translateX(${x}px)` },
+        class: `node ${u.status === 'done' ? 'done' : ''} ${u.status === 'skipped' ? 'skipped' : ''} ${isSel ? 'selected' : ''} ${isCurrent ? 'current' : ''}`,
+        style: { '--c': sec.abschluss ? '#ffd166' : color, transform: `translateX(${x}px)` },
         onclick: () => { ui.selectedUnit = u.id; render(); },
         'aria-label': u.titel,
-      }, icon(u.status === 'done' ? 'check' : UNIT_ICON[u.typ] || 'pencil', 30));
+      }, icon(u.status === 'done' ? 'check' : u.status === 'skipped' ? 'skip' : UNIT_ICON[u.typ] || 'pencil', 30));
       const row = h('div', { class: 'node-row' }, node);
       if (isCurrent) { const m = mascot(56, 'side'); m.classList.add('node-mascot'); m.style.transform = `translateX(${x + 62}px)`; add(row, m); }
       add(path, row);
     });
   });
 
-  const selColor = selected ? SECTION_COLORS[selected._section % SECTION_COLORS.length] : '#3dd68c';
+  const selColor = selected ? ((exam.plan.abschnitte[selected._section]?.abschluss) ? '#ffd166' : SECTION_COLORS[selected._section % SECTION_COLORS.length]) : '#3dd68c';
   const bottom = selected ? h('div', { class: 'bottom-card', style: { '--c': selColor } },
     h('div', { class: 'muted small' }, `${UNIT_LABEL[selected.typ] || ''}${selected.tag ? ` · ${relDay(selected.tag)}` : ''}${selected.score !== undefined ? ` · zuletzt ${selected.score} %` : ''}`),
     h('div', { class: 'bottom-title' }, selected.titel),
     selected.ziel ? h('div', { class: 'muted small' }, selected.ziel) : null,
     h('button', { class: 'btn light block', onclick: () => go('session', { examId: exam.id, unitId: selected.id }) },
-      selected.status === 'done' ? 'Wiederholen' : state.sessions[selected.id]?.aufgaben ? 'Fortsetzen' : current && selected.id !== current.id ? 'Vorspringen' : 'Starten')) : null;
+      selected.status === 'done' ? (/zettel/.test(selected.typ) ? 'Nochmal ansehen' : 'Wiederholen') : state.sessions[selected.id] ? 'Fortsetzen' : current && selected.id !== current.id ? 'Vorspringen' : 'Starten'),
+    selected.status === 'skipped'
+      ? h('button', { class: 'link-small', onclick: () => { setUnitStatus(exam, [selected.id], 'open'); render(); } }, 'Wieder in den Plan aufnehmen')
+      : selected.status !== 'done' && !exam.plan.abschnitte[selected._section]?.abschluss ? h('button', { class: 'link-small', onclick: () => { setUnitStatus(exam, [selected.id], 'skipped'); ui.selectedUnit = null; render(); } }, h('span', { class: 'row gap center' }, icon('skip', 16), 'Überspringen')) : null) : null;
 
   add(screen, header, h('main', { class: 'content narrow' }, info, units.length ? path : h('div', { class: 'card' }, h('p', {}, 'Für diese Klausur gibt es noch keinen Plan.'), h('button', { class: 'btn primary', onclick: () => rebuildPlan(exam) }, 'Plan erstellen'))), bottom, tabbar('plan'));
   return screen;
@@ -369,6 +379,35 @@ function sheet(title, children) {
     h('div', { class: 'sheet' }, h('div', { class: 'sheet-title' }, title), ...children));
   add(document.body, overlay);
   return overlay;
+}
+
+function setUnitStatus(exam, ids, status) {
+  for (const sec of exam.plan?.abschnitte || []) for (const u of sec.einheiten) {
+    if (!ids.includes(u.id)) continue;
+    if (status === 'skipped' && u.status === 'done') continue;
+    u.status = status;
+  }
+  save();
+}
+
+function sectionMenu(exam, sec) {
+  const ids = sec.einheiten.map((u) => u.id);
+  const anySkipped = sec.einheiten.some((u) => u.status === 'skipped');
+  const anyOpen = sec.einheiten.some((u) => u.status === 'open' || !u.status);
+  const o = sheet(sec.titel, [
+    sec.abschluss ? h('p', { class: 'muted' }, 'Der Abschluss ist immer erreichbar – auch wenn du Themen noch nicht gemacht hast.') : null,
+    exam.plan?.themen?.[sec.themaIndex]?.beschreibung ? h('p', { class: 'muted' }, exam.plan.themen[sec.themaIndex].beschreibung) : null,
+    h('div', { class: 'list' },
+      h('button', { class: 'list-item', onclick: () => { o.remove(); ui.selectedUnit = sec.einheiten.find((u) => u.status !== 'done')?.id || ids[0]; render(); setTimeout(() => document.querySelector('.node.selected')?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 50); } }, 'Zu diesem Thema springen'),
+      anyOpen && !sec.abschluss ? h('button', { class: 'list-item', onclick: () => { setUnitStatus(exam, ids, 'skipped'); o.remove(); ui.selectedUnit = null; render(); } }, h('span', { class: 'row gap' }, icon('skip', 18), 'Ganzes Thema überspringen')) : null,
+      anySkipped ? h('button', { class: 'list-item', onclick: () => { setUnitStatus(exam, sec.einheiten.filter((u) => u.status === 'skipped').map((u) => u.id), 'open'); o.remove(); render(); } }, 'Thema wieder aufnehmen') : null),
+  ]);
+}
+
+function nextOpenUnit(exam, afterId) {
+  const units = allUnits(exam);
+  const i = units.findIndex((u) => u.id === afterId);
+  return units.slice(i + 1).find((u) => u.status === 'open' || !u.status) || null;
 }
 
 function examSheet() {
@@ -697,12 +736,29 @@ function learningDays(exam) {
 }
 
 async function createPlan(exam) {
-  const plan = await generate({ system: P.baseSystem(subjectById(exam.subjectId)), parts: [{ text: P.planPrompt(exam, learningDays(exam)) }], json: true, temperature: 0.3 });
-  plan.abschnitte = (plan.abschnitte || []).filter((s) => s.einheiten?.length).map((s) => ({
-    titel: s.titel || 'Thema',
-    einheiten: s.einheiten.map((u) => ({ id: uid(), titel: u.titel || 'Einheit', typ: UNIT_ICON[u.typ] ? u.typ : 'ueben', ziel: u.ziel || '', tag: /^\d{4}-\d{2}-\d{2}$/.test(u.tag || '') ? u.tag : null, status: 'open' })),
-  }));
-  if (!plan.abschnitte.length) throw new AIError('Die KI hat keinen brauchbaren Plan geliefert. Bitte nochmal versuchen.');
+  const days = learningDays(exam);
+  const plan = await generate({ system: P.baseSystem(subjectById(exam.subjectId)), parts: [{ text: P.planPrompt(exam, days) }], json: true, temperature: 0.3 });
+  const isDay = (d) => /^\d{4}-\d{2}-\d{2}$/.test(d || '');
+  const themen = (plan.themen || []).filter((t) => t?.titel).slice(0, 8).map((t) => ({ titel: String(t.titel), beschreibung: t.beschreibung || '', schwerpunkte: t.schwerpunkte || [], tag: isDay(t.tag) ? t.tag : null }));
+  if (!themen.length) throw new AIError('Die KI hat keinen brauchbaren Plan geliefert. Bitte nochmal versuchen.');
+  const lastDay = days.length ? days[days.length - 1].iso : null;
+  const unit = (typ, titel, ziel, tag, themaIndex) => ({ id: uid(), typ, titel, ziel, tag, themaIndex, status: 'open' });
+  plan.themen = themen;
+  plan.abschnitte = [
+    ...themen.map((t, ti) => ({
+      titel: t.titel, themaIndex: ti,
+      einheiten: [
+        unit('lernzettel', `Lernzettel: ${t.titel}`, 'Alles Wichtige zum Thema auf einen Blick – auch als PDF', t.tag, ti),
+        unit('quiz', `Quiz: ${t.titel}`, 'Begriffe, Fakten und Zahlen schnell abrufen', t.tag, ti),
+        unit('aufgaben', `Anwenden: ${t.titel}`, 'Klausurnahe Aufgaben mit strenger Korrektur', t.tag, ti),
+      ],
+    })),
+    { titel: 'Abschluss', abschluss: true, einheiten: [
+      unit('gesamtzettel', 'Gesamt-Lernzettel', 'Die ganze Klausur auf zwei Seiten', lastDay, null),
+      unit('probeklausur', 'Probeklassenarbeit', 'Komplette Klassenarbeit im Stil deiner Lehrkraft', lastDay, null),
+    ] },
+  ];
+  delete plan.abschnitte_alt;
   for (const u of allUnits(exam)) delete state.sessions[u.id];
   exam.plan = plan;
   save();
@@ -728,11 +784,13 @@ function viewSession({ examId, unitId }) {
   const screen = h('div', { class: 'screen' }, topbar({ back: () => go('plan'), title: unit.titel }));
   const main = h('main', { class: 'content narrow' });
   add(screen, main);
+  if (unit.typ === 'lernzettel' || unit.typ === 'gesamtzettel') { viewLernzettel(main, exam, unit); return screen; }
+  if (unit.typ === 'quiz') { viewQuiz(main, exam, unit); return screen; }
 
   if (!sess?.aufgaben) {
     const err0 = ui.busy[`err:${unitId}`];
     if (!err0) {
-      const panel = waitPanel(unit.typ === 'probeklausur' ? 'Ich baue dir eine Probeklausur im Stil deiner Lehrkraft …' : 'Ich erstelle prüfungsnahe Aufgaben aus deinem Material …');
+      const panel = waitPanel(unit.typ === 'probeklausur' ? 'Ich baue dir eine Probeklassenarbeit im Stil deiner Lehrkraft …' : 'Ich denke mir Anwendungsaufgaben aus – im Stil deiner Lehrkraft …');
       panel.setSteps(['Material & Lehrerprofil auswerten', 'Aufgaben formulieren']);
       panel.run(1);
       add(main, panel.el);
@@ -746,7 +804,9 @@ function viewSession({ examId, unitId }) {
     if (!ui.busy[unitId]) {
       ui.busy[unitId] = true;
       const prev = Object.values(state.sessions).filter((s) => s.examId === examId).flatMap((s) => (s.aufgaben || []).map((a) => a.aufgabe.slice(0, 120)));
-      generate({ system: P.baseSystem(subject), parts: [{ text: P.sessionPrompt(exam, unit, prev) }], json: true, temperature: 0.6 })
+      const topic = exam.plan?.themen?.[unit.themaIndex];
+      const lz = topic ? lernzettelText(exam, unit.themaIndex) : null;
+      generate({ system: P.baseSystem(subject), parts: [{ text: P.sessionPrompt(exam, unit, prev, { topic, lernzettel: lz }) }], json: true, temperature: 0.7 })
         .then((res) => {
           const aufgaben = (res.aufgaben || []).map((a, i) => ({ ...a, id: a.id || `a${i + 1}`, punkte: Number(a.punkte) || 4 }));
           if (!aufgaben.length) throw new AIError('Keine Aufgaben erhalten. Bitte nochmal versuchen.');
@@ -798,7 +858,7 @@ function viewSession({ examId, unitId }) {
     add(main, submit);
   } else {
     add(main, h('div', { class: 'stack' },
-      h('button', { class: 'btn primary block', onclick: () => { markDone(exam, unit.id, sess); go('plan'); } }, 'Einheit abschließen'),
+      h('button', { class: 'btn primary block', onclick: () => { markDone(exam, unit.id, sess); const n = nextOpenUnit(exam, unit.id); if (n) ui.selectedUnit = n.id; go('plan'); } }, 'Einheit abschließen'),
       h('button', { class: 'btn ghost block', onclick: async () => { if (await confirmDialog('Neue Aufgaben zu dieser Einheit erstellen? Die aktuellen Antworten werden verworfen.', 'Neue Aufgaben')) { markDone(exam, unit.id, sess, true); delete state.sessions[unit.id]; save(); render(); } } }, h('span', { class: 'row gap center' }, icon('refresh', 18), 'Neue Aufgaben zum selben Ziel'))));
   }
   return screen;
@@ -934,6 +994,171 @@ function markDone(exam, unitId, sess, keepOpen = false) {
   }
   ui.selectedUnit = null;
   save();
+}
+
+// ================================================================ LERNZETTEL & QUIZ
+function lernzettelText(exam, themaIndex) {
+  const sec = (exam.plan?.abschnitte || []).find((x) => x.themaIndex === themaIndex && !x.abschluss);
+  const u = sec?.einheiten.find((x) => x.typ === 'lernzettel');
+  return u ? state.sessions[u.id]?.lernzettel || null : null;
+}
+
+// Startet eine KI-Erzeugung einmal, zeigt solange den Warte-Bildschirm und bei Fehlern "Nochmal".
+function pending(main, key, title, steps, producer) {
+  const err = ui.busy[`err:${key}`];
+  if (err) {
+    add(main, h('div', { class: 'card warn' }, h('p', {}, err)),
+      h('button', { class: 'btn primary block', onclick: () => { delete ui.busy[`err:${key}`]; render(); } }, 'Nochmal versuchen'));
+    return;
+  }
+  const panel = waitPanel(title);
+  panel.setSteps(steps);
+  panel.run(steps.length - 1);
+  add(main, panel.el);
+  if (ui.busy[key]) return;
+  ui.busy[key] = true;
+  const here = route.params.unitId;
+  producer()
+    .then(() => save())
+    .catch((e) => { ui.busy[`err:${key}`] = errorMsg(e); })
+    .finally(() => { delete ui.busy[key]; if (route.name === 'session' && route.params.unitId === here) render(); });
+}
+
+function viewLernzettel(main, exam, unit) {
+  const subject = subjectById(exam.subjectId);
+  const overall = unit.typ === 'gesamtzettel';
+  const topic = overall ? null : exam.plan?.themen?.[unit.themaIndex];
+  const sess = state.sessions[unit.id];
+  if (!sess?.lernzettel) {
+    pending(main, unit.id, overall ? 'Ich fasse die ganze Klausur auf einem Lernzettel zusammen …' : `Ich schreibe deinen Lernzettel zu „${topic?.titel || unit.titel}“ …`,
+      ['Material & Lehrerprofil auswerten', 'Lernzettel schreiben'],
+      async () => {
+        const text = await generate({ system: P.baseSystem(subject), parts: [{ text: P.lernzettelPrompt(exam, topic || { titel: unit.titel }, overall) }], temperature: 0.3 });
+        state.sessions[unit.id] = { examId: exam.id, lernzettel: text, createdAt: Date.now() };
+      });
+    return;
+  }
+  const title = overall ? `${subject?.name}: Gesamt-Lernzettel` : `${subject?.name}: ${topic?.titel || unit.titel}`;
+  const subtitle = `Lernzettel${exam.date ? ` · Klausur am ${fmtDate(exam.date)}` : ''} · erstellt mit Lern-KI`;
+  const dl = h('button', { class: 'btn', onclick: async () => {
+    dl.disabled = true; const old = dl.textContent; dl.textContent = 'Erstelle PDF …';
+    try { await downloadLernzettel(title, subtitle, sess.lernzettel); } catch (e) { toast(errorMsg(e), 'error'); }
+    dl.disabled = false; dl.textContent = old;
+  } }, icon('download', 18), 'Als PDF speichern');
+  const next = nextOpenUnit(exam, unit.id);
+  add(main,
+    h('article', { class: 'card lernzettel' }, h('div', { class: 'lz-head' }, h('div', { class: 'label' }, overall ? 'Gesamt-Lernzettel' : 'Lernzettel'), h('h2', { class: 'lz-title' }, overall ? 'Die ganze Klausur' : topic?.titel || unit.titel)), mdEl(sess.lernzettel)),
+    h('div', { class: 'row gap wrap center' }, dl,
+      h('button', { class: 'btn ghost', onclick: async () => { if (await confirmDialog('Lernzettel neu schreiben lassen?', 'Neu schreiben')) { delete state.sessions[unit.id]; save(); render(); } } }, icon('refresh', 18), 'Neu schreiben')),
+    h('button', { class: 'btn primary block', onclick: () => {
+      setUnitStatus(exam, [unit.id], 'done');
+      if (next && !overall) go('session', { examId: exam.id, unitId: next.id });
+      else { if (next) ui.selectedUnit = next.id; go('plan'); }
+    } }, overall ? 'Gelesen' : next && next.typ === 'quiz' ? 'Gelesen – weiter zum Quiz' : 'Gelesen'));
+}
+
+// Antwortvergleich fürs Eingabe-Quiz: Groß/Klein, Leerzeichen, Komma/Punkt, kleine Tippfehler, Zahlen mit 1 % Toleranz.
+function normAnswer(x) {
+  return String(x ?? '').toLowerCase().replace(/ß/g, 'ss').replace(/,/g, '.').replace(/[^a-z0-9äöü.\-]/g, '');
+}
+function numOf(x) {
+  const m = String(x ?? '').replace(',', '.').match(/-?\d+(?:\.\d+)?/);
+  return m ? parseFloat(m[0]) : null;
+}
+function lev(a, b) {
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  return d[a.length][b.length];
+}
+function checkInput(value, answers) {
+  const v = normAnswer(value);
+  if (!v) return false;
+  return (answers || []).some((ans) => {
+    const n1 = numOf(value), n2 = numOf(ans);
+    if (n2 !== null && /^-?[\d.]+[a-z°%/]*$/.test(normAnswer(ans))) return n1 !== null && Math.abs(n1 - n2) <= Math.max(Math.abs(n2) * 0.01, 1e-9);
+    const a = normAnswer(ans);
+    return v === a || (a.length > 5 && lev(v, a) <= 1);
+  });
+}
+
+function viewQuiz(main, exam, unit) {
+  const subject = subjectById(exam.subjectId);
+  const topic = exam.plan?.themen?.[unit.themaIndex] || { titel: unit.titel };
+  let sess = state.sessions[unit.id];
+  if (!sess?.fragen) {
+    pending(main, unit.id, `Ich stelle dir ein Quiz zu „${topic.titel}“ zusammen …`, ['Lernzettel lesen', 'Fragen ausdenken'], async () => {
+      const prev = (state.sessions[unit.id]?.alteFragen || []);
+      const res = await generate({ system: P.baseSystem(subject), parts: [{ text: P.quizPrompt(exam, topic, lernzettelText(exam, unit.themaIndex), prev) }], json: true, temperature: 0.7 });
+      const fragen = (res.fragen || []).filter((q) => q?.frage && ['mc', 'wahrfalsch', 'eingabe'].includes(q.typ)
+        && (q.typ !== 'mc' || (Array.isArray(q.optionen) && q.optionen.length >= 2 && Number.isInteger(q.richtig))));
+      if (!fragen.length) throw new AIError('Keine brauchbaren Quizfragen erhalten. Bitte nochmal versuchen.');
+      state.sessions[unit.id] = { examId: exam.id, fragen, antworten: {}, idx: 0, alteFragen: [...prev, ...fragen.map((q) => q.frage.slice(0, 100))] };
+    });
+    return;
+  }
+  const qs = sess.fragen;
+  const total = qs.length;
+
+  // ---- Ergebnis
+  if (sess.idx >= total) {
+    const right = qs.filter((_, i) => sess.antworten[i]?.correct).length;
+    const pct = Math.round((right / total) * 100);
+    const wrong = qs.map((q, i) => ({ q, a: sess.antworten[i] })).filter((x) => !x.a?.correct);
+    const correctText = (q) => q.typ === 'mc' ? q.optionen[q.richtig] : q.typ === 'wahrfalsch' ? (q.richtig ? 'Wahr' : 'Falsch') : `${(q.antworten || [])[0] || ''}${q.einheit ? ` ${q.einheit}` : ''}`;
+    const next = nextOpenUnit(exam, unit.id);
+    add(main,
+      h('section', { class: `card summary ${pct >= 75 ? 'good' : 'bad'}` },
+        h('div', { class: 'row between' }, h('div', {}, h('div', { class: 'big-num' }, `${right}/${total}`), h('div', { class: 'muted small' }, 'richtig')), h('div', { class: 'big-num' }, `${pct} %`)),
+        h('p', {}, pct === 100 ? 'Alles richtig. Die Fakten sitzen.' : pct >= 75 ? 'Solide – schau dir die Fehler unten trotzdem an.' : 'Das sitzt noch nicht. Lies den Lernzettel nochmal und mach das Quiz erneut, bevor du an die Aufgaben gehst.')),
+      wrong.length ? h('section', { class: 'card' }, h('div', { class: 'label' }, 'Das musst du dir merken'),
+        h('ul', { class: 'wrong-list' }, wrong.map(({ q, a }) => h('li', {}, h('div', {}, q.frage), h('div', { class: 'small' }, h('span', { class: 'bad-text' }, `Deine Antwort: ${a?.label ?? '–'}`), ' · ', h('strong', {}, `Richtig: ${correctText(q)}`)), q.erklaerung ? h('div', { class: 'muted small' }, q.erklaerung) : null)))) : null,
+      h('button', { class: 'btn primary block', onclick: () => {
+        for (const sec of exam.plan.abschnitte) for (const u of sec.einheiten) if (u.id === unit.id) { u.status = 'done'; u.score = pct; }
+        if (pct < 70) exam.weaknesses = [...new Set([...(exam.weaknesses || []), `Fakten/Begriffe zu „${topic.titel}“ unsicher (Quiz ${pct} %)`])].slice(-30);
+        save();
+        if (next) go('session', { examId: exam.id, unitId: next.id }); else go('plan');
+      } }, next?.typ === 'aufgaben' ? 'Weiter zu den Anwendungsaufgaben' : 'Fertig'),
+      h('div', { class: 'row gap wrap center' },
+        h('button', { class: 'btn ghost', onclick: () => { sess.antworten = {}; sess.idx = 0; save(); render(); } }, 'Gleiches Quiz nochmal'),
+        h('button', { class: 'btn ghost', onclick: () => { state.sessions[unit.id] = { alteFragen: sess.alteFragen }; save(); render(); } }, icon('refresh', 18), 'Neue Fragen')));
+    return;
+  }
+
+  // ---- Frage
+  const i = sess.idx;
+  const q = qs[i];
+  const ans = sess.antworten[i];
+  const answer = (label, correct, value) => { sess.antworten[i] = { label, correct, value }; save(); render(); };
+  const body = h('div', { class: 'quiz-body' });
+  if (q.typ === 'mc') {
+    add(body, h('div', { class: 'quiz-options' }, q.optionen.map((o, oi) => {
+      const st = ans ? (oi === q.richtig ? 'right' : ans.value === oi ? 'wrong' : 'dim') : '';
+      return h('button', { class: `quiz-opt ${st}`, disabled: !!ans, onclick: () => answer(o, oi === q.richtig, oi) }, h('span', { class: 'opt-letter' }, 'ABCD'[oi] || '•'), h('span', {}, o));
+    })));
+  } else if (q.typ === 'wahrfalsch') {
+    add(body, h('div', { class: 'quiz-options two' }, [[true, 'Wahr'], [false, 'Falsch']].map(([v, l]) => {
+      const st = ans ? (v === !!q.richtig ? 'right' : ans.value === v ? 'wrong' : 'dim') : '';
+      return h('button', { class: `quiz-opt ${st}`, disabled: !!ans, onclick: () => answer(l, v === !!q.richtig, v) }, h('span', {}, l));
+    })));
+  } else {
+    const inp = h('input', { class: `input big ${ans ? (ans.correct ? 'right' : 'wrong') : ''}`, placeholder: 'Deine Antwort', value: ans?.label || '', disabled: !!ans, onkeydown: (e) => { if (e.key === 'Enter') btn.click(); } });
+    const btn = h('button', { class: 'btn primary', onclick: () => { if (!inp.value.trim()) return; answer(inp.value.trim(), checkInput(inp.value, q.antworten), inp.value.trim()); } }, 'Prüfen');
+    add(body, h('div', { class: 'row gap' }, inp, q.einheit ? h('span', { class: 'muted' }, q.einheit) : null, ans ? null : btn));
+    if (!ans) setTimeout(() => inp.focus(), 50);
+  }
+  if (ans) {
+    add(body, h('div', { class: `quiz-feedback ${ans.correct ? 'right' : 'wrong'}` },
+      h('strong', {}, ans.correct ? 'Richtig!' : q.typ === 'eingabe' ? `Falsch – richtig ist: ${(q.antworten || [])[0]}${q.einheit ? ` ${q.einheit}` : ''}` : 'Falsch.'),
+      q.erklaerung ? h('div', {}, q.erklaerung) : null,
+      !ans.correct && q.typ === 'eingabe' ? h('button', { class: 'link-small', onclick: () => { ans.correct = true; save(); render(); } }, 'Meine Antwort war doch richtig') : null));
+  }
+  add(main,
+    h('div', { class: 'quiz-top' }, h('div', { class: 'progress' }, h('div', { class: 'progress-fill', style: { width: `${Math.round((i / total) * 100)}%` } })), h('span', { class: 'muted small' }, `${i + 1}/${total}`)),
+    h('section', { class: 'card quiz-card' },
+      h('div', { class: 'label' }, q.typ === 'wahrfalsch' ? 'Wahr oder falsch?' : q.typ === 'eingabe' ? 'Antwort eintippen' : 'Wähle die richtige Antwort'),
+      h('div', { class: 'quiz-q' }, q.frage), body),
+    ans ? h('button', { class: 'btn primary block', onclick: () => { sess.idx = i + 1; save(); render(); } }, i + 1 < total ? 'Weiter' : 'Ergebnis ansehen') : null);
 }
 
 // ================================================================ FÄCHER & KLAUSUR-ARCHIV
@@ -1158,4 +1383,4 @@ async function importBackup() {
 })();
 
 // Für die Konsole/Tests
-window.__lernki = { state: () => state, md };
+window.__lernki = { state: () => state, md, save };

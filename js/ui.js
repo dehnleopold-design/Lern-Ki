@@ -109,6 +109,10 @@ const I = {
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2" />',
   file: '<path d="M6 3h8l4 4v14H6zM14 3v4h4" />',
   refresh: '<path d="M20 11a8 8 0 10-2 6M20 5v6h-6" />',
+  quiz: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 114 2c-1 .6-1.5 1.2-1.5 2.2M12 17h.01" />',
+  skip: '<path d="M5 6l6 6-6 6M13 6l6 6-6 6" />',
+  download: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14" />',
+  flag: '<path d="M5 21V4h11l-2 4 2 4H5" />',
 };
 
 export function icon(name, size = 22) {

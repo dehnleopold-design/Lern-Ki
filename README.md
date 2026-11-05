@@ -3,8 +3,10 @@
 Eine Web-App (läuft auf iPad, Handy und PC), die dich gezielt auf Klassenarbeiten vorbereitet:
 
 - **Fragebogen beim Start**: Klasse, Schulform, Bundesland, Fächer, Unterrichtssprache je Fach, Selbsteinschätzung, Lernzeit, Lernweise, Korrekturstil, Notenskala.
-- **Klausur anlegen**: Fach → Datum → Zielnote → Material hochladen (Fotos, PDFs). Die KI liest jedes Blatt einmal gründlich und erstellt daraus einen **Lernplan** als Pfad, verteilt auf die Tage bis zur Klausur. Die letzte Einheit ist immer eine Probeklausur.
-- **Prüfungsnahe Aufgaben** mit Operatoren (erläutern, analysieren, beurteilen …) und Anforderungsbereichen I–III statt Detail-Quizfragen.
+- **Klausur anlegen**: Fach → Datum → Zielnote → Material hochladen (Fotos, PDFs). Die KI liest jedes Blatt einmal gründlich und teilt den Stoff in **Themen** auf, verteilt auf die Tage bis zur Klausur.
+- **Jedes Thema in 3 Schritten**: 1. **Lernzettel** (auch als PDF speicherbar), 2. **Quiz** mit Begriffen, Fakten und Zahlen (sofort ausgewertet, ohne KI-Wartezeit), 3. **Anwendungsaufgaben**, kreativ (Fallbeispiele, Material auswerten, Fehler finden, Stellung nehmen …) und in der Sprache der Lehrkraft.
+- **Abschluss-Bereich**, jederzeit erreichbar: Gesamt-Lernzettel + Probeklassenarbeit mit Timer.
+- **Überspringen**: Einzelne Schritte oder ganze Themen lassen sich überspringen und wieder aufnehmen (Thema-Balken antippen).
 - **Ehrliche Korrektur**: Punkte, zitierte Fehler, was fehlt, Musterlösung, Erwartungshorizont, Notenschätzung. Danach stellt die KI eine **Nachfrage**, die du beantwortest.
 - **Klausur-Archiv pro Fach**: Lade alte (am besten korrigierte) Klausuren hoch. Daraus entsteht ein **Lehrerprofil**, nach dem Aufgaben und Korrektur ausgerichtet werden.
 - **Schwächen-Liste**: Erkannte Schwächen fließen in alle weiteren Aufgaben ein.
