@@ -1,5 +1,5 @@
 // Offline-Cache für die App-Dateien. KI-Anfragen gehen immer ins Netz.
-const CACHE = 'lernki-v2';
+const CACHE = 'lernki-v3';
 const SHELL = ['./', 'index.html', 'styles.css', 'manifest.webmanifest', 'assets/icon.svg',
   'js/app.js', 'js/ai.js', 'js/store.js', 'js/files.js', 'js/prompts.js', 'js/ui.js', 'js/grades.js'];
 
@@ -16,7 +16,7 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET' || url.origin !== location.origin) return;
   e.respondWith(
-    fetch(e.request)
+    fetch(e.request, { cache: 'no-cache' })
       .then((res) => { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(e.request, copy)); return res; })
       .catch(() => caches.match(e.request).then((r) => r || caches.match('index.html')))
   );

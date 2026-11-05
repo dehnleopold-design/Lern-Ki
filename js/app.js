@@ -5,6 +5,7 @@ import * as P from './prompts.js';
 import { gradeLabel, gradeOptions, percentToGrade, reachesTarget, scale } from './grades.js';
 import { h, add, md, mdEl, mascot, speech, icon, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
+const APP_VERSION = '1.2 (5.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -1120,7 +1121,7 @@ function viewSettings() {
           h('button', { class: 'btn ghost', onclick: importBackup }, 'Backup einspielen'))),
       h('section', { class: 'card stack' }, h('h3', {}, 'Gefahrenzone'),
         h('button', { class: 'btn ghost danger-text', onclick: async () => { if (await confirmDialog('Wirklich ALLE Daten löschen (Profil, Fächer, Klausuren, Archiv)?', 'Alles löschen')) { await clearAll(); draft = null; nx = null; go('onboarding'); } } }, 'Alle Daten löschen')),
-      h('p', { class: 'muted small center' }, 'Lern-KI · kostenlos · Open Source')),
+      h('p', { class: 'muted small center' }, `Lern-KI · Version ${APP_VERSION} · kostenlos`)),
     tabbar('settings'));
 }
 
