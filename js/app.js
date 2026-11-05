@@ -1,5 +1,5 @@
 import { state, loadState, save, replaceState, clearAll, allBlobs, putBlob, uid } from './store.js';
-import { generate, aiReady, listGeminiModels, pickDefaultModel, AIError } from './ai.js';
+import { generate, aiReady, listGeminiModels, pickDefaultModel, AIError, onAIStatus } from './ai.js';
 import { addFile, removeFile, filePart, thumbURL, pickFiles } from './files.js';
 import * as P from './prompts.js';
 import { gradeLabel, gradeOptions, percentToGrade, reachesTarget, scale } from './grades.js';
@@ -247,6 +247,7 @@ function aiSetupBlock(compact = false, onChange = null) {
           if (!models.length) throw new Error('Keine passenden Modelle gefunden.');
           if (!models.some((m) => m.id === s.model)) s.model = pickDefaultModel(models);
           cachedModels = models;
+          s.models = models;
           fillSelect(models);
           save();
           status.textContent = `✓ Verbunden · ${models.length} Modelle · gewählt: ${s.model}`;
@@ -411,6 +412,87 @@ function changeDate(exam) {
   ]);
 }
 
+// ================================================================ WARTE-BILDSCHIRM (Video + Fortschritt)
+const DEFAULT_WAIT_VIDEO = 'https://youtu.be/Ca-O9wsea9Y';
+
+export function youtubeId(url) {
+  const m = String(url || '').match(/(?:youtu\.be\/|v=|\/embed\/|\/shorts\/)([A-Za-z0-9_-]{11})/);
+  return m ? m[1] : null;
+}
+
+// Lädt einmalig die offizielle YouTube-Player-Schnittstelle (nötig, um Abspielfehler zu erkennen).
+let ytApi = null;
+function loadYouTubeApi() {
+  if (window.YT?.Player) return Promise.resolve(window.YT);
+  if (!ytApi) {
+    ytApi = new Promise((resolve, reject) => {
+      window.onYouTubeIframeAPIReady = () => resolve(window.YT);
+      const sc = document.createElement('script');
+      sc.src = 'https://www.youtube.com/iframe_api';
+      sc.onerror = () => { ytApi = null; reject(new Error('YouTube nicht erreichbar')); };
+      document.head.append(sc);
+    });
+  }
+  return ytApi;
+}
+
+function waitVideo() {
+  const v = state.settings.waitVideo ?? DEFAULT_WAIT_VIDEO;
+  const id = youtubeId(v);
+  if (!id) return null;
+  const holder = h('div');
+  const wrap = h('div', { class: 'video-wrap' }, holder);
+  const giveUp = (why) => {
+    wrap.replaceWith(h('div', { class: 'video-fallback' }, mascot(64, 'side'),
+      h('div', {}, h('strong', {}, 'Video lässt sich nicht abspielen'),
+        h('div', { class: 'muted small' }, `${why} Anderes Video: Einstellungen → „Video beim Warten“.`))));
+  };
+  loadYouTubeApi().then((YT) => {
+    if (!holder.isConnected) return;
+    new YT.Player(holder, {
+      videoId: id,
+      host: 'https://www.youtube-nocookie.com',
+      playerVars: { autoplay: 1, mute: 1, playsinline: 1, loop: 1, playlist: id, rel: 0, modestbranding: 1 },
+      events: {
+        onReady: (e) => { try { e.target.mute(); e.target.playVideo(); } catch {} },
+        onError: (e) => giveUp([100].includes(e.data) ? 'Das Video gibt es nicht mehr.' : 'YouTube erlaubt das Einbetten hier nicht (z. B. Länder- oder Rechtesperre).'),
+      },
+    });
+  }).catch(() => giveUp('YouTube ist gerade nicht erreichbar.'));
+  return wrap;
+}
+
+// Liefert ein Panel mit Video, Überschrift, Fortschrittsbalken, Schritt-Liste und Statuszeile.
+function waitPanel(title) {
+  const bar = h('div', { class: 'progress-fill', style: { width: '3%' } });
+  const list = h('ol', { class: 'steps' });
+  const status = h('div', { class: 'wait-status' });
+  const errBox = h('div');
+  let steps = [];
+  const draw = () => {
+    list.replaceChildren(...steps.map((st) => h('li', { class: `step st-${st.state}` },
+      h('span', { class: 'step-dot' }, st.state === 'done' ? icon('check', 14) : st.state === 'run' ? h('span', { class: 'spinner' }) : null),
+      h('span', {}, st.label))));
+    const done = steps.filter((x) => x.state === 'done').length;
+    const running = steps.some((x) => x.state === 'run') ? 0.5 : 0;
+    bar.style.width = `${Math.max(3, Math.round(((done + running) / Math.max(1, steps.length)) * 100))}%`;
+  };
+  const el = h('div', { class: 'wait' },
+    waitVideo(),
+    h('div', { class: 'wait-card' },
+      h('div', { class: 'row gap' }, mascot(52, 'think'), h('div', { class: 'wait-title' }, title)),
+      h('div', { class: 'progress' }, bar),
+      list, status, errBox));
+  onAIStatus((msg) => { status.textContent = msg; });
+  return {
+    el, errBox,
+    setSteps(labels) { steps = labels.map((label) => ({ label, state: 'wait' })); draw(); },
+    run(i) { steps.forEach((x, j) => { if (j < i) x.state = 'done'; }); if (steps[i]) steps[i].state = 'run'; draw(); },
+    done(i) { if (steps[i]) steps[i].state = 'done'; draw(); },
+    fail(i) { if (steps[i]) steps[i].state = 'fail'; draw(); },
+  };
+}
+
 // ================================================================ NEUE KLAUSUR (Ablauf wie in den Screenshots)
 let nx = null;
 
@@ -533,13 +615,9 @@ function viewNewExam() {
 
   // 5: Verarbeitung
   if (nx.step === 5) {
-    const status = h('div', { class: 'muted center' }, 'Starte …');
-    const errBox = h('div');
-    const screen = h('div', { class: 'screen' }, topbar({ close: cancel }),
-      h('main', { class: 'content narrow center' },
-        h('div', { class: 'loading-path' }, [0, 1, 2, 3].map((i) => h('div', { class: 'lp-node', style: { animationDelay: `${i * 0.25}s`, transform: `translateX(${Math.round(Math.sin(i) * 50)}px)` } }))),
-        speech('Ich lese mal deine Lernzettel …', 'think'), status, errBox));
-    processExam(status, errBox);
+    const panel = waitPanel('Ich lese deine Unterlagen und baue deinen Plan …');
+    const screen = h('div', { class: 'screen' }, topbar({ close: cancel }), h('main', { class: 'content narrow' }, panel.el));
+    processExam(panel);
     return screen;
   }
   return h('div');
@@ -554,40 +632,50 @@ async function digestFile(id) {
   save();
 }
 
-async function processExam(status, errBox) {
+async function processExam(panel) {
   const subject = subjectById(nx.subjectId);
+  const ids = [...nx.materialIds];
+  if (nx.useArchive && subject) ids.push(...(subject.archive || []));
+  const needProfile = nx.useArchive && subject?.archive?.length && !subject.teacherProfile;
+  const labels = [
+    ...ids.map((id) => `${state.files[id]?.kind === 'archive' ? 'Alte Klausur' : 'Lese'}: ${state.files[id]?.digest?.titel || state.files[id]?.name || 'Datei'}`),
+    ...(needProfile ? ['Stil deiner Lehrkraft analysieren'] : []),
+    'Lernplan erstellen',
+  ];
+  panel.setSteps(labels);
+  let step = 0;
   try {
-    const ids = [...nx.materialIds];
-    if (nx.useArchive && subject) ids.push(...(subject.archive || []));
-    let i = 0;
     for (const id of ids) {
-      i++;
-      if (state.files[id]?.digest) continue;
-      status.textContent = `Lese ${state.files[id]?.name || 'Datei'} (${i}/${ids.length}) …`;
+      panel.run(step);
       await digestFile(id);
+      panel.done(step++);
     }
-    if (nx.useArchive && subject?.archive?.length && !subject.teacherProfile) {
-      status.textContent = 'Analysiere den Stil deiner Lehrkraft …';
+    if (needProfile) {
+      panel.run(step);
       subject.teacherProfile = await generate({ system: P.baseSystem(subject), parts: [{ text: P.teacherProfilePrompt(subject) }], temperature: 0.2 });
       save();
+      panel.done(step++);
     }
     let exam = nx.editId ? examById(nx.editId) : null;
     if (!exam) {
       exam = { id: uid(), subjectId: nx.subjectId, createdAt: Date.now(), weaknesses: [] };
       state.exams.push(exam);
+      nx.editId = exam.id; // bei Fehler + "Nochmal" keine doppelte Klausur
     }
     Object.assign(exam, { date: nx.date ?? null, targetGrade: nx.targetGrade, materialIds: nx.materialIds, topicsText: nx.topicsText, useArchive: nx.useArchive });
     state.activeExamId = exam.id;
     save();
-    status.textContent = 'Erstelle deinen Lernplan …';
+    panel.run(step);
     await createPlan(exam);
+    panel.done(step);
     nx = null;
     ui.selectedUnit = null;
     toast('Dein Plan ist fertig!', 'ok');
     go('plan');
   } catch (e) {
-    status.textContent = '';
-    errBox.replaceChildren(h('div', { class: 'card warn' }, h('p', {}, errorMsg(e)),
+    panel.fail(step);
+    panel.errBox.replaceChildren(h('div', { class: 'card warn' }, h('p', {}, errorMsg(e)),
+      h('p', { class: 'muted small' }, 'Schon Gelesenes ist gespeichert – beim nächsten Versuch geht es dort weiter.'),
       h('div', { class: 'row gap center' },
         h('button', { class: 'btn', onclick: () => render() }, 'Nochmal versuchen'),
         h('button', { class: 'btn ghost', onclick: () => { nx.step = 4; render(); } }, 'Zurück'))));
@@ -641,7 +729,13 @@ function viewSession({ examId, unitId }) {
   add(screen, main);
 
   if (!sess?.aufgaben) {
-    add(main, h('div', { class: 'center stack' }, mascot(110, 'think'), h('p', { class: 'muted' }, unit.typ === 'probeklausur' ? 'Ich baue dir eine Probeklausur im Stil deiner Lehrkraft …' : 'Ich erstelle prüfungsnahe Aufgaben aus deinem Material …')));
+    const err0 = ui.busy[`err:${unitId}`];
+    if (!err0) {
+      const panel = waitPanel(unit.typ === 'probeklausur' ? 'Ich baue dir eine Probeklausur im Stil deiner Lehrkraft …' : 'Ich erstelle prüfungsnahe Aufgaben aus deinem Material …');
+      panel.setSteps(['Material & Lehrerprofil auswerten', 'Aufgaben formulieren']);
+      panel.run(1);
+      add(main, panel.el);
+    }
     const err = ui.busy[`err:${unitId}`];
     if (err) {
       add(main, h('div', { class: 'card warn' }, h('p', {}, err)),
@@ -691,7 +785,13 @@ function viewSession({ examId, unitId }) {
       const empty = sess.aufgaben.filter((a) => !sess.answers[a.id]?.trim() && !(sess.answerImages[a.id] || []).length).length;
       if (empty && !(await confirmDialog(`${empty} Aufgabe(n) sind leer und werden mit 0 Punkten bewertet. Trotzdem abgeben?`, 'Abgeben'))) return;
       submit.disabled = true; submit.textContent = 'Korrigiere streng …';
+      const panel = waitPanel('Ich korrigiere – streng wie deine Lehrkraft …');
+      panel.setSteps(['Antworten lesen', 'Punkte vergeben & Fehler markieren']);
+      panel.run(1);
+      const overlay = h('div', { class: 'overlay center wait-overlay' }, h('div', { class: 'content narrow' }, panel.el));
+      add(document.body, overlay);
       try { await gradeSession(exam, unit, sess); } catch (e) { toast(errorMsg(e), 'error'); }
+      overlay.remove();
       render();
     } }, 'Abgeben & korrigieren lassen');
     add(main, submit);
@@ -1003,6 +1103,13 @@ function viewSettings() {
     h('header', { class: 'topbar' }, h('span', { class: 'iconbtn-spacer' }), h('div', { class: 'topbar-title' }, 'Einstellungen'), h('span', { class: 'iconbtn-spacer' })),
     h('main', { class: 'content narrow' },
       h('section', { class: 'card stack' }, h('h3', {}, 'KI'), aiSetupBlock(false)),
+      h('section', { class: 'card stack' }, h('h3', {}, 'Video beim Warten'),
+        h('p', { class: 'muted small' }, 'YouTube-Link, der läuft, während die KI arbeitet. Leer lassen = kein Video.'),
+        h('input', { class: 'input', placeholder: 'https://youtu.be/…', value: state.settings.waitVideo ?? DEFAULT_WAIT_VIDEO, onchange: (e) => {
+          const v = e.target.value.trim();
+          if (v && !youtubeId(v)) { toast('Das ist kein gültiger YouTube-Link.', 'error'); return; }
+          state.settings.waitVideo = v; save(); toast(v ? 'Video gespeichert.' : 'Video ausgeschaltet.', 'ok');
+        } })),
       h('section', { class: 'card stack' }, h('h3', {}, 'Profil'),
         h('p', { class: 'muted small' }, `${p.name} · Klasse ${p.grade} · ${p.schoolType} · ${p.state} · ${p.minutesPerDay} Min./Tag · Korrektur: ${p.feedbackStyle === 'hart' ? 'schonungslos' : 'ermutigend'} · ${p.gradeScale === '0-15' ? 'Punkte 0–15' : 'Noten 1–6'}`),
         h('button', { class: 'btn', onclick: () => { draft = null; go('onboarding'); } }, 'Fragebogen neu ausfüllen')),
