@@ -28,37 +28,122 @@ export function add(el, ...children) {
 
 export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-// Minimal-Markdown: Überschriften, fett, kursiv, Code, Listen, Absätze. Alles wird vorher escaped.
-export function md(src) {
-  const lines = esc(src || '').split(/\r?\n/);
-  const out = [];
-  let list = null;
-  const inline = (t) => t
+// Markdown für Lernzettel & Feedback. Alles wird vorher escaped (kein HTML von der KI möglich).
+// Unterstützt: ## Abschnitte, ### / #### Unterüberschriften, **fett**, *kursiv*, `code`,
+// Listen (2 Ebenen), Tabellen (| a | b |), Trennlinie (---),
+// Kästen:  > [!KEY] Label   (Typen: KEY, INFO, TIP, WARN, EXAMPLE)
+// Spalten: :::cols (oder :::cards) … ---col--- … :::
+const CALLOUT_DEFAULT = { KEY: 'Merke', INFO: 'Info', TIP: 'Tipp', WARN: 'Achtung', EXAMPLE: 'Beispiel' };
+
+function inline(t) {
+  return t
     .replace(/`([^`]+)`/g, '<code>$1</code>')
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
-  const closeList = () => { if (list) { out.push(`</${list}>`); list = null; } };
-  for (const raw of lines) {
-    const line = raw.trimEnd();
-    let m;
-    if ((m = line.match(/^\s*[-*•]\s+(.*)/))) {
-      if (list !== 'ul') { closeList(); out.push('<ul>'); list = 'ul'; }
-      out.push(`<li>${inline(m[1])}</li>`);
-    } else if ((m = line.match(/^\s*\d+[.)]\s+(.*)/))) {
-      if (list !== 'ol') { closeList(); out.push('<ol>'); list = 'ol'; }
-      out.push(`<li>${inline(m[1])}</li>`);
-    } else if ((m = line.match(/^(#{1,4})\s+(.*)/))) {
-      closeList();
-      out.push(`<h4>${inline(m[2])}</h4>`);
-    } else if (!line.trim()) {
-      closeList();
-    } else {
-      closeList();
-      out.push(`<p>${inline(line)}</p>`);
+    .replace(/(^|[^*\w])\*([^*\n]+)\*(?!\w)/g, '$1<em>$2</em>')
+    .replace(/(^|\s)_([^_\n]+)_(?=\s|$|[.,;:!?)])/g, '$1<em>$2</em>');
+}
+
+const LIST_RE = /^(\s*)([-*•]|\d+[.)])\s+(.*)$/;
+
+function renderList(lines) {
+  // lines: [{indent, ordered, text}]
+  let html = '';
+  let i = 0;
+  const build = (level) => {
+    const ordered = lines[i].ordered;
+    let out = ordered ? '<ol>' : '<ul>';
+    while (i < lines.length && lines[i].level === level) {
+      let li = `<li>${inline(lines[i].text)}`;
+      i++;
+      if (i < lines.length && lines[i].level > level) li += build(lines[i].level);
+      out += `${li}</li>`;
     }
+    return out + (ordered ? '</ol>' : '</ul>');
+  };
+  while (i < lines.length) html += build(lines[i].level);
+  return html;
+}
+
+function renderTable(rows) {
+  const cells = (r) => r.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim());
+  const isSep = (r) => /^\s*\|?\s*:?-{2,}/.test(r) && /^[\s|:-]+$/.test(r);
+  let head = null;
+  let body = rows;
+  if (rows.length > 1 && isSep(rows[1])) { head = cells(rows[0]); body = rows.slice(2); }
+  body = body.filter((r) => !isSep(r));
+  return `<div class="tbl-wrap"><table>${head ? `<thead><tr>${head.map((c) => `<th>${inline(c)}</th>`).join('')}</tr></thead>` : ''}<tbody>${body.map((r) => `<tr>${cells(r).map((c) => `<td>${inline(c)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+}
+
+function renderBlocks(lines) {
+  const out = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    const t = line.trim();
+    let m;
+    if (!t) { i++; continue; }
+    if ((m = t.match(/^:::\s*(cols|cards)\s*$/))) {
+      const kind = m[1];
+      const cols = [[]];
+      i++;
+      while (i < lines.length && lines[i].trim() !== ':::') {
+        if (/^-{3}\s*col\s*-{3}$/i.test(lines[i].trim())) cols.push([]); else cols[cols.length - 1].push(lines[i]);
+        i++;
+      }
+      i++;
+      out.push(`<div class="cols ${kind}">${cols.map((c, ci) => `<div class="col col-${ci}">${renderBlocks(c)}</div>`).join('')}</div>`);
+      continue;
+    }
+    if (/^&gt;/.test(t)) {
+      const inner = [];
+      // ein neuer [!TYP]-Marker beginnt einen neuen Kasten
+      while (i < lines.length && /^\s*&gt;/.test(lines[i]) && !(inner.length && /^\s*&gt;\s?\[!\w+\]/.test(lines[i]))) { inner.push(lines[i].replace(/^\s*&gt;\s?/, '')); i++; }
+      let type = null, label = '';
+      if (inner.length && (m = inner[0].match(/^\[!(\w+)\]\s*(.*)$/))) {
+        type = m[1].toUpperCase();
+        label = m[2] || CALLOUT_DEFAULT[type] || '';
+        inner.shift();
+      }
+      if (!type) { out.push(`<blockquote>${renderBlocks(inner)}</blockquote>`); continue; }
+      // "Label: Text" in der ersten Zeile → Label als Marke, Rest als Text
+      out.push(`<div class="callout c-${type.toLowerCase()}">${label ? `<span class="c-label">${inline(label)}</span>` : ''}${renderBlocks(inner)}</div>`);
+      continue;
+    }
+    if (/^\|/.test(t)) {
+      const rows = [];
+      while (i < lines.length && /^\s*\|/.test(lines[i])) { rows.push(lines[i]); i++; }
+      out.push(renderTable(rows));
+      continue;
+    }
+    if ((m = t.match(/^(#{1,4})\s+(.*)$/))) {
+      const lvl = m[1].length;
+      const tag = lvl <= 2 ? 'h2' : lvl === 3 ? 'h3' : 'h4';
+      out.push(`<${tag}>${inline(m[2])}</${tag}>`);
+      i++;
+      continue;
+    }
+    if (/^(-{3,}|\*{3,})$/.test(t)) { out.push('<hr>'); i++; continue; }
+    if (LIST_RE.test(line)) {
+      const items = [];
+      const base = line.match(LIST_RE)[1].length;
+      while (i < lines.length && (m = lines[i].match(LIST_RE))) {
+        items.push({ level: m[1].length > base + 1 ? 1 : 0, ordered: /\d/.test(m[2]), text: m[3] });
+        i++;
+      }
+      if (items[0].level) items.forEach((x) => { x.level = 0; });
+      out.push(renderList(items));
+      continue;
+    }
+    const para = [];
+    while (i < lines.length && lines[i].trim() && !/^(#{1,4}\s|:::|\||&gt;|-{3,}$)/.test(lines[i].trim()) && !LIST_RE.test(lines[i])) { para.push(lines[i].trim()); i++; }
+    if (para.length) out.push(`<p>${inline(para.join(' '))}</p>`);
+    else i++;
   }
-  closeList();
   return out.join('');
+}
+
+export function md(src) {
+  return renderBlocks(esc(src || '').split(/\r?\n/));
 }
 
 export const mdEl = (text, cls = 'md') => h('div', { class: cls, html: md(text) });

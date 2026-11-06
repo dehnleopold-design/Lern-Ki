@@ -61,11 +61,22 @@ let saveTimer = null;
 export function save() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
+    saveTimer = null;
     tx('kv', 'readwrite', (s) => s.put(JSON.parse(JSON.stringify(state)), 'state')).catch((e) =>
       console.error('Speichern fehlgeschlagen', e)
     );
   }, 250);
 }
+
+// Sofort speichern, wenn die App in den Hintergrund geht oder geschlossen wird.
+function flush() {
+  if (!saveTimer) return;
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  tx('kv', 'readwrite', (s) => s.put(JSON.parse(JSON.stringify(state)), 'state')).catch(() => {});
+}
+addEventListener('pagehide', flush);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flush(); });
 
 export function replaceState(next) {
   state = Object.assign(defaultState(), next);

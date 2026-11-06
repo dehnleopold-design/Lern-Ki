@@ -141,23 +141,49 @@ ${examContext(exam)}`;
 const TEACHER_STYLE = `SPRACHE & STIL DER LEHRKRAFT: Formuliere so, wie die Lehrkraft in alten Klausuren und auf den Arbeitsblättern formuliert – gleiche Anrede (du/Sie/unpersönlich), gleicher Satzbau, gleiche Nummerierung (z. B. "1 a)"), gleiche Fachbegriffe und Operator-Schreibweise, gleiche Länge. Übernimm typische Wendungen. Liegt kein Material dazu vor, nutze den üblichen Stil von Klassenarbeiten dieser Stufe.`;
 
 // ---------- 3a. Lernzettel ----------
-export function lernzettelPrompt(exam, topic, isOverall) {
-  const scope = isOverall
-    ? `einen GESAMT-LERNZETTEL für die ganze Klausur (alle Themen: ${(exam.plan?.themen || []).map((t) => t.titel).join(', ')}). Kompakt (max. 2 Seiten), Fokus auf das, was in der Klausur sicher drankommt, plus: wichtige Operatoren mit kurzer Anleitung, was die Lehrkraft erwartet, typische Fehler, Zeitplan für die Klausur.`
-    : `einen LERNZETTEL zum Thema "${topic.titel}" (${topic.beschreibung || ''}${topic.schwerpunkte?.length ? `; Schwerpunkte: ${topic.schwerpunkte.join(', ')}` : ''}).`;
-  return `Schreibe ${scope}
-Der Lernzettel ist die Grundlage für das Quiz und die Anwendungsaufgaben danach. Er muss ALLES enthalten, was man dafür wissen muss – sachlich exakt, aus dem Material, in den Begriffen der Lehrkraft.
+const LZ_FORMAT = `FORMAT (genau diese Syntax verwenden – sie wird als gestaltetes Dokument dargestellt):
+- Hauptabschnitte nummeriert und in GROSSBUCHSTABEN: "## 1. GRUNDLAGEN: WETTER VS. KLIMA" (bei Seitenangaben im Material: "## 2. NATÜRLICHER KLIMAWANDEL (S. 180–181)")
+- Unterüberschriften: "### Titel"
+- Listen mit "- " und eingerückte Unterpunkte mit "  - ". Begriff am Anfang fett: "- **Begriff:** Erklärung"
+- Gegenüberstellung in zwei Spalten:
+:::cols
+### Begriff A (Übersetzung)
+Text …
+---col---
+### Begriff B (Übersetzung)
+Text …
+:::
+  (":::cards" statt ":::cols" für zwei umrahmte Karten, z. B. natürlich vs. menschengemacht)
+- Kästen (jede Zeile beginnt mit "> "):
+> [!KEY] Key Concept
+> **Definition:** …
+  Vor und nach jedem Kasten eine Leerzeile.
+  Typen: [!KEY] wichtige Definition/Kernidee · [!INFO] Material/Film/Quelle aus dem Unterricht · [!TIP] Klausurtipp · [!WARN] häufiger Fehler · [!EXAMPLE] Beispiel/Mustersatz
+- Tabellen: "| Spalte | Spalte |" mit Trennzeile "|---|---|" – ideal für Vergleiche, Daten, Ursachen/Folgen
+- Formeln/Chemie mit Unicode (CO₂, CH₄, m², ≈, →).`;
 
-Aufbau (Markdown, mit Überschriften "## …", kurze Stichpunkte, **Fettdruck** für Schlüsselbegriffe):
-## Worum geht's (2–3 Sätze)
-## Fachbegriffe (Begriff – kurze, klausurtaugliche Definition)
-## Fakten, Zahlen & Regeln (alles Abfragbare)
-## Zusammenhänge (Ursache → Wirkung, Abläufe, Vergleiche)
-## So gehst du vor (Schritt-für-Schritt-Anleitung für typische Aufgaben, z. B. Diagramm auswerten, Quelle analysieren, Rechenweg)
-## Typische Klausurfragen & worauf es ankommt (mit Operator)
-## Häufige Fehler
-## Merksatz (1–2 Sätze)
-Lass Abschnitte weg, die für das Fach nicht passen. Kein Vorwort, kein Schlusswort. Max. ca. ${isOverall ? 900 : 600} Wörter.
+export function lernzettelPrompt(exam, topic, isOverall) {
+  const subject = subjectOf(exam);
+  const scope = isOverall
+    ? `einen GESAMT-LERNZETTEL für die komplette Klausur (alle Themen: ${(exam.plan?.themen || []).map((t) => t.titel).join(', ')}). Umfang wie 3 volle DIN-A4-Seiten (ca. 1600–2200 Wörter). Ein Abschnitt pro Thema mit allen Kerninhalten, dazu ein Abschnitt zur METHODIK (Operatoren, Umgang mit Diagrammen/Statistiken/Quellen in 3 Schritten) und – falls in der Klausur geschrieben wird – ein SCHREIB-GUIDE mit Struktur und Beispielsätzen in [!EXAMPLE]-Kästen (z. B. PEEL, Erörterung, Analyse-Aufbau – je nachdem, was die Lehrkraft verlangt).`
+    : `einen ausführlichen LERNZETTEL zum Thema "${topic.titel}" (${topic.beschreibung || ''}${topic.schwerpunkte?.length ? `; Schwerpunkte: ${topic.schwerpunkte.join(', ')}` : ''}). Umfang wie 1,5–2 volle DIN-A4-Seiten (ca. 900–1400 Wörter).`;
+  const lang = subject?.language === 'en'
+    ? 'Sprache: ENGLISCH (bilingualer Unterricht). Wichtige Fachbegriffe beim ersten Auftreten mit deutscher Übersetzung in Klammern, z. B. "Weather (Wetter)".'
+    : 'Sprache: Deutsch.';
+  return `Schreibe ${scope}
+
+ZIEL: Ein Lernzettel, mit dem man die Klausur bestehen kann, ohne nochmal ins Heft zu schauen – so ausführlich und präzise wie ein sehr guter selbst erstellter Lernzettel einer Oberstufenschülerin. Er ist die Grundlage für das Quiz und die Anwendungsaufgaben.
+
+INHALT:
+- Alles Prüfungsrelevante aus dem Material: Definitionen, Fakten, Zahlen/Daten/Jahreszahlen MIT Einheit, Ursachen, Folgen, Mechanismen (mit →), Beispiele/Fallbeispiele aus dem Unterricht, Seitenangaben aus dem Buch, Inhalte aus Filmen/Tracks/Quellen, die im Material vorkommen.
+- Erkläre Zusammenhänge, nicht nur Stichworte. Nutze Vergleiche (Spalten/Karten), Tabellen und Kästen dort, wo sie das Lernen erleichtern – mindestens 1 Tabelle, 1 Spalten-Vergleich und 2 Kästen.
+- Methodenwissen: Wie geht man an typische Aufgaben heran (z. B. Diagramm beschreiben → erklären → bewerten)?
+- Typische Klausurfallen in [!WARN], Klausurtipps der Lehrkraft in [!TIP].
+- Nur was im Material steht oder sicheres Standardwissen dieser Klassenstufe ist. Nichts erfinden; Unklares weglassen.
+- ${lang}
+- Kein Vorwort, kein Schlusswort, keine Überschrift für das ganze Dokument (die setzt die App).
+
+${LZ_FORMAT}
 
 KONTEXT:
 ${examContext(exam)}`;
