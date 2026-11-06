@@ -6,24 +6,24 @@ import { gradeLabel, gradeOptions, percentToGrade, reachesTarget, scale } from '
 import { downloadLernzettel, sheetHTML, SHEET_CSS } from './pdf.js';
 import { h, add, md, mdEl, mascot, speech, icon, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '1.5 (6.11.)';
+const APP_VERSION = '1.6 (6.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
 const DEFAULT_SUBJECTS = [
-  ['Deutsch', 'DE', '#5b9dff'], ['Mathe', 'MA', '#ff9f5a'], ['Englisch', 'EN', '#5b9dff'],
-  ['Geography', 'GEO', '#ff7a59', 'en'], ['Biologie', 'BIO', '#3dd68c'], ['Chemie', 'CH', '#3dd68c'],
-  ['Physik', 'PH', '#3dd68c'], ['Geschichte', 'GE', '#e0a458'], ['Politik-Gesellschaft-Wirtschaft', 'PGW', '#ff7a59'],
-  ['Philosophie', 'PHI', '#a78bfa'], ['Theater', 'TH', '#f06fc0'], ['Sport', 'SP', '#2dd4bf'], ['Athletik', 'ATH', '#2dd4bf'],
+  ['Deutsch', 'DE', '#93c5fd'], ['Mathe', 'MA', '#fdba74'], ['Englisch', 'EN', '#93c5fd'],
+  ['Geography', 'GEO', '#fda4af', 'en'], ['Biologie', 'BIO', '#86efac'], ['Chemie', 'CH', '#86efac'],
+  ['Physik', 'PH', '#86efac'], ['Geschichte', 'GE', '#fcd34d'], ['Politik-Gesellschaft-Wirtschaft', 'PGW', '#fda4af'],
+  ['Philosophie', 'PHI', '#c4b5fd'], ['Theater', 'TH', '#f0abfc'], ['Sport', 'SP', '#5eead4'], ['Athletik', 'ATH', '#5eead4'],
 ];
 const EXTRA_SUBJECTS = ['Spanisch', 'Französisch', 'Latein', 'Informatik', 'Kunst', 'Musik', 'Religion', 'Ethik', 'Wirtschaft', 'Erdkunde', 'Psychologie', 'Pädagogik'];
 const STATES = ['Baden-Württemberg', 'Bayern', 'Berlin', 'Brandenburg', 'Bremen', 'Hamburg', 'Hessen', 'Mecklenburg-Vorpommern', 'Niedersachsen', 'Nordrhein-Westfalen', 'Rheinland-Pfalz', 'Saarland', 'Sachsen', 'Sachsen-Anhalt', 'Schleswig-Holstein', 'Thüringen'];
 const SCHOOL_TYPES = ['Gymnasium', 'Stadtteilschule', 'Gesamtschule', 'Realschule', 'Oberschule', 'Berufliche Schule', 'Andere'];
 const LEARN_STYLES = ['Kurze Erklärungen', 'Aufgaben selbst lösen', 'Probeklausuren', 'Abfragen lassen', 'Selbst erklären (wie mündlich)', 'Beispiele & Musterlösungen'];
-const SECTION_COLORS = ['#3dd68c', '#5b9dff', '#f06fc0', '#ff9f5a', '#a78bfa', '#2dd4bf'];
+const SECTION_COLORS = ['#a78bfa', '#c084fc', '#818cf8', '#e879f9', '#a5b4fc', '#d8b4fe'];
 const UNIT_ICON = { lernzettel: 'file', quiz: 'quiz', aufgaben: 'pencil', gesamtzettel: 'book', probeklausur: 'exam', verstehen: 'book', ueben: 'pencil', anwenden: 'bulb' };
 const UNIT_LABEL = { lernzettel: 'Schritt 1 · Lernzettel', quiz: 'Schritt 2 · Quiz', aufgaben: 'Schritt 3 · Anwenden', gesamtzettel: 'Abschluss · Gesamt-Lernzettel', probeklausur: 'Abschluss · Probeklassenarbeit', verstehen: 'Verstehen', ueben: 'Üben', anwenden: 'Anwenden' };
-const PALETTE = ['#5b9dff', '#ff9f5a', '#3dd68c', '#f06fc0', '#a78bfa', '#2dd4bf', '#e0a458', '#ff7a59'];
+const PALETTE = ['#a78bfa', '#f0abfc', '#93c5fd', '#fcd34d', '#86efac', '#fda4af', '#c4b5fd', '#fdba74'];
 
 // ---------------------------------------------------------------- Routing
 let route = { name: 'plan', params: {} };
@@ -44,8 +44,8 @@ function render() {
 }
 
 function tabbar(active) {
-  const tab = (name, ic, label) => h('button', { class: `tab ${active === name ? 'active' : ''}`, onclick: () => go(name), 'aria-label': label }, icon(ic, 24), h('span', {}, label));
-  return h('nav', { class: 'tabbar' }, tab('plan', 'target', 'Plan'), tab('subjects', 'folder', 'Fächer'), tab('tutor', 'chat', 'Tutor'), tab('settings', 'gear', 'Einstellungen'));
+  const tab = (name, ic, label) => h('button', { class: `tab ${active === name ? 'active' : ''}`, onclick: () => go(name), 'aria-label': label }, icon(ic, 22), h('span', {}, label));
+  return h('nav', { class: 'tabbar' }, tab('plan', 'route', 'Plan'), tab('subjects', 'library', 'Fächer'), tab('tutor', 'sparkles', 'Tutor'), tab('settings', 'gear', 'Mehr'));
 }
 
 function topbar({ back, close, title, progress }) {
@@ -347,10 +347,10 @@ function viewPlan() {
 
   const header = h('header', { class: 'topbar' },
     h('span', { class: 'iconbtn-spacer' }),
-    h('button', { class: 'exam-switch', onclick: () => examSheet() }, h('span', {}, exam.plan?.titel || `${subject?.name} Klausur`), icon('updown', 18)),
-    h('button', { class: 'iconbtn', onclick: () => examMenu(exam), 'aria-label': 'Menü' }, h('span', { class: 'dots' }, '⋮')));
+    h('button', { class: 'exam-switch', onclick: () => examSheet() }, h('span', {}, exam.plan?.titel || `${subject?.name} Klausur`), icon('updown', 16)),
+    h('button', { class: 'iconbtn', onclick: () => examMenu(exam), 'aria-label': 'Menü' }, icon('more', 22)));
 
-  // --- Übersicht
+  // --- Übersicht (bewusst reduziert; Details im Menü)
   let countdown = 'Freies Lernen';
   if (exam.date) {
     const diff = Math.round((parseISO(exam.date) - parseISO(isoDate(new Date()))) / 86400000);
@@ -359,66 +359,58 @@ function viewPlan() {
   const hero = h('section', { class: 'hero' },
     h('div', { class: 'hero-top' },
       h('div', { class: 'hero-left' },
-        h('div', { class: 'row gap' }, subject ? subjectBadge(subject, 34) : null, h('span', { class: 'muted' }, `${subject?.name || ''}${exam.date ? ` · ${fmtDate(exam.date)}` : ''}`)),
         h('div', { class: 'hero-count' }, countdown),
-        h('div', { class: 'row gap wrap' },
-          h('span', { class: 'chip-static' }, icon('target', 15), `Ziel ${gradeLabel(exam.targetGrade)}`),
-          h('span', { class: 'chip-static' }, icon('check', 15), `${done}/${relevant.length} Schritte`),
-          exam.lastResult ? h('span', { class: 'chip-static' }, `Zuletzt ≈ ${gradeLabel(exam.lastResult.grade)}`) : null)),
-      progressRing(pct, 76)),
-    current ? h('button', { class: 'btn primary block next-btn', onclick: () => open(current) },
-      h('span', { class: 'next-label' }, 'Weiter mit'), h('span', { class: 'next-title' }, current.titel), icon('chev', 20)) : h('div', { class: 'all-done' }, '🎉 Alles erledigt – viel Erfolg in der Klausur!'),
-    missing ? h('button', { class: 'link-small', onclick: () => go('prepare', { examId: exam.id }) }, `${missing} Inhalt(e) noch nicht vorbereitet – jetzt alle erstellen`) : null,
-    exam.plan?.themenUebersicht ? h('details', { class: 'details' }, h('summary', {}, 'Was drankommt'), mdEl(exam.plan.themenUebersicht),
-      exam.plan.luecken?.length ? h('div', { class: 'warn' }, h('strong', {}, 'Lücken im Material – kläre das mit deiner Lehrkraft oder lade mehr hoch:'), h('ul', {}, exam.plan.luecken.map((l) => h('li', {}, l)))) : null) : null,
-    exam.plan && !exam.plan.themen ? h('div', { class: 'warn small' }, 'Dieser Plan hat noch das alte Format. Über ⋮ → „Plan neu erstellen“ bekommst du Lernzettel, Quiz und Abschluss.') : null);
+        h('div', { class: 'muted small' }, `${subject?.name || ''} · Ziel ${gradeLabel(exam.targetGrade)}`)),
+      progressRing(pct, 64)),
+    current
+      ? h('button', { class: 'btn primary block next-btn', onclick: () => open(current) }, h('span', { class: 'next-title' }, current.titel), icon('play', 18))
+      : h('div', { class: 'all-done' }, 'Alles erledigt – viel Erfolg!'),
+    missing ? h('button', { class: 'link-small', onclick: () => go('prepare', { examId: exam.id }) }, `${missing} Inhalt(e) noch nicht fertig · jetzt erstellen`) : null,
+    exam.plan && !exam.plan.themen ? h('div', { class: 'warn small' }, 'Alter Plan – über ⋯ → „Plan neu erstellen“ bekommst du Lernzettel, Quiz und Abschluss.') : null);
 
-  // --- Zeitleiste nach Tagen
+  // --- Themen als aufklappbare Zeilen
   const road = h('div', { class: 'road' });
   const topicSecs = secs.map((sec, si) => ({ sec, si })).filter((x) => !x.sec.abschluss);
+  const openKey = `open:${exam.id}`;
+  if (!ui[openKey]) ui[openKey] = new Set(current ? [secs.findIndex((x) => x.einheiten.some((u) => u.id === current.id))] : []);
+  const opened = ui[openKey];
   let lastDay;
   topicSecs.forEach(({ sec, si }, n) => {
     const color = SECTION_COLORS[si % SECTION_COLORS.length];
     const day = sec.einheiten[0]?.tag || null;
     if (day !== lastDay) {
-      add(road, h('div', { class: 'road-day' }, h('span', { class: 'road-dot' }), day ? `${relDay(day)} · ${fmtDate(day)}` : 'Ohne festen Tag'));
+      add(road, h('div', { class: 'road-day' }, day ? `${relDay(day)} · ${fmtDate(day)}` : 'Ohne festen Tag'));
       lastDay = day;
     }
     const skipped = sec.einheiten.every((u) => u.status === 'skipped');
-    const secDone = sec.einheiten.filter((u) => u.status === 'done').length;
-    const topic = exam.plan?.themen?.[sec.themaIndex];
-    add(road, h('section', { class: `topic ${skipped ? 'skipped' : ''}`, style: { '--c': color } },
-      h('div', { class: 'topic-head' },
+    const isOpen = opened.has(si) && !skipped;
+    const dots = h('span', { class: 'dots3' }, sec.einheiten.map((u) => h('i', { class: `d-${u.status || 'open'} ${current && u.id === current.id ? 'd-now' : ''}` })));
+    add(road, h('section', { class: `topic ${skipped ? 'skipped' : ''} ${isOpen ? 'open' : ''}`, style: { '--c': color } },
+      h('button', { class: 'topic-head', onclick: () => { if (skipped) return sectionMenu(exam, sec); opened.has(si) ? opened.delete(si) : opened.add(si); render(); } },
         h('span', { class: 'topic-num' }, String(n + 1)),
-        h('div', { class: 'topic-titles' }, h('div', { class: 'topic-title' }, sec.titel), topic?.beschreibung ? h('div', { class: 'muted small' }, topic.beschreibung) : null),
-        h('span', { class: 'topic-count' }, skipped ? 'übersprungen' : `${secDone}/${sec.einheiten.length}`),
-        h('button', { class: 'iconbtn small', 'aria-label': 'Optionen', onclick: () => sectionMenu(exam, sec) }, h('span', { class: 'dots' }, '⋯'))),
-      skipped
-        ? h('button', { class: 'link-small', onclick: () => { setUnitStatus(exam, sec.einheiten.map((u) => u.id), 'open'); render(); } }, 'Thema wieder aufnehmen')
-        : h('div', { class: 'steps-list' }, sec.einheiten.map((u, k) => h('button', {
-          class: `step-row st-${u.status || 'open'} ${current && u.id === current.id ? 'is-current' : ''}`,
-          onclick: () => open(u),
-        },
-        h('span', { class: 'step-ico' }, icon(UNIT_ICON[u.typ] || 'pencil', 20)),
-        h('span', { class: 'step-text' }, h('span', { class: 'step-name' }, `${k + 1}. ${STEP_NAME[u.typ] || u.titel}`), h('span', { class: 'step-sub' }, stepInfo(u))),
-        h('span', { class: 'step-state' }, u.status === 'done' ? icon('check', 18) : u.status === 'skipped' ? icon('skip', 18) : current && u.id === current.id ? h('span', { class: 'now' }, 'Jetzt') : icon('chev', 18)))))));
+        h('span', { class: 'topic-title' }, sec.titel),
+        skipped ? h('span', { class: 'muted small' }, 'übersprungen') : dots,
+        h('span', { class: 'topic-chev' }, icon('chev', 18))),
+      isOpen ? h('div', { class: 'steps-list' },
+        sec.einheiten.map((u) => h('button', { class: `step-row st-${u.status || 'open'} ${current && u.id === current.id ? 'is-current' : ''}`, onclick: () => open(u) },
+          h('span', { class: 'step-ico' }, u.status === 'done' ? icon('check', 18) : icon(UNIT_ICON[u.typ] || 'pencil', 18)),
+          h('span', { class: 'step-text' }, h('span', { class: 'step-name' }, STEP_NAME[u.typ] || u.titel), h('span', { class: 'step-sub' }, stepInfo(u))),
+          icon('chev', 16))),
+        h('button', { class: 'link-small left', onclick: () => sectionMenu(exam, sec) }, icon('more', 16), 'Optionen')) : null));
   });
 
   // --- Abschluss
   const fin = secs.find((x) => x.abschluss);
   if (fin) {
-    add(road, h('div', { class: 'road-day' }, h('span', { class: 'road-dot gold' }), 'Abschluss · jederzeit offen'));
-    add(road, h('section', { class: 'final-card', id: 'final' },
-      h('div', { class: 'final-head' }, icon('flag', 22), h('span', {}, 'Abschluss'), h('span', { class: 'muted small' }, 'Für die letzte Wiederholung – kannst du jederzeit machen')),
-      h('div', { class: 'final-grid' }, fin.einheiten.map((u) => h('button', { class: `final-tile st-${u.status || 'open'}`, onclick: () => open(u) },
-        icon(UNIT_ICON[u.typ] || 'exam', 30),
-        h('span', { class: 'final-name' }, STEP_NAME[u.typ] || u.titel),
-        h('span', { class: 'step-sub' }, stepInfo(u)))))));
+    add(road, h('div', { class: 'road-day' }, 'Abschluss'));
+    add(road, h('section', { class: 'final-grid', id: 'final' }, fin.einheiten.map((u) => h('button', { class: `final-tile st-${u.status || 'open'}`, onclick: () => open(u) },
+      h('span', { class: 'final-ico' }, icon(u.status === 'done' ? 'check' : UNIT_ICON[u.typ] || 'exam', 22)),
+      h('span', { class: 'final-name' }, STEP_NAME[u.typ] || u.titel),
+      h('span', { class: 'step-sub' }, stepInfo(u))))));
   }
 
   add(screen, header,
     h('main', { class: 'content narrow' }, hero,
-      fin ? h('button', { class: 'pill jump', onclick: () => document.getElementById('final')?.scrollIntoView({ behavior: 'smooth', block: 'center' }) }, icon('flag', 16), 'Direkt zum Abschluss') : null,
       units.length ? road : h('div', { class: 'card' }, h('p', {}, 'Für diese Klausur gibt es noch keinen Plan.'), h('button', { class: 'btn primary', onclick: () => rebuildPlan(exam) }, 'Plan erstellen'))),
     tabbar('plan'));
   return screen;
@@ -469,6 +461,22 @@ function nextOpenUnit(exam, afterId) {
   return units.slice(i + 1).find((u) => u.status === 'open' || !u.status) || null;
 }
 
+function menuRow(ic, label, sub, onclick, cls = '') {
+  return h('button', { class: `menu-row ${cls}`, onclick },
+    h('span', { class: 'menu-ico' }, icon(ic, 20)),
+    h('span', { class: 'menu-text' }, h('span', { class: 'menu-label' }, label), sub ? h('span', { class: 'menu-sub' }, sub) : null),
+    icon('chev', 18));
+}
+
+function overviewSheet(exam) {
+  sheet('Überblick', [
+    exam.plan?.themenUebersicht ? mdEl(exam.plan.themenUebersicht) : h('p', { class: 'muted' }, 'Noch kein Überblick vorhanden.'),
+    exam.plan?.luecken?.length ? h('div', { class: 'warn' }, h('strong', {}, 'Lücken im Material'), h('ul', {}, exam.plan.luecken.map((l) => h('li', {}, l)))) : null,
+    exam.weaknesses?.length ? h('div', {}, h('div', { class: 'label' }, 'Deine Schwächen (werden gezielt trainiert)'), h('ul', {}, exam.weaknesses.slice(-10).map((w) => h('li', {}, w)))) : null,
+    exam.lastResult ? h('p', { class: 'muted small' }, `Letztes Ergebnis: ${exam.lastResult.percent} % ≈ ${gradeLabel(exam.lastResult.grade)} (Schätzung)`) : null,
+  ]);
+}
+
 function examSheet() {
   const sorted = [...state.exams].sort((a, b) => (a.date || '9999').localeCompare(b.date || '9999'));
   const o = sheet('Deine Klausuren', [
@@ -483,12 +491,18 @@ function examSheet() {
 }
 
 function examMenu(exam) {
-  const o = sheet('Klausur', [
-    h('div', { class: 'list' },
-      h('button', { class: 'list-item', onclick: () => { o.remove(); editExamMaterial(exam); } }, 'Material hinzufügen / Themen ändern'),
-      h('button', { class: 'list-item', onclick: async () => { o.remove(); if (await confirmDialog('Plan neu erstellen? Fortschritt in diesem Plan geht verloren, deine Schwächen-Liste bleibt.', 'Neu erstellen')) rebuildPlan(exam); } }, 'Plan neu erstellen'),
-      h('button', { class: 'list-item', onclick: () => { o.remove(); changeDate(exam); } }, 'Datum / Zielnote ändern'),
-      h('button', { class: 'list-item danger-text', onclick: async () => {
+  const missing = allUnits(exam).filter((u) => !hasContent(u) && u.status !== 'skipped').length;
+  const o = sheet(exam.plan?.titel || 'Klausur', [
+    h('div', { class: 'menu' },
+      menuRow('info', 'Überblick', 'Was drankommt, Lücken, Schwächen', () => { o.remove(); overviewSheet(exam); }),
+      menuRow('flag', 'Zum Abschluss', 'Gesamt-Lernzettel & Probeklassenarbeit', () => { o.remove(); document.getElementById('final')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }),
+      missing ? menuRow('zap', 'Fehlende Inhalte erstellen', `${missing} noch nicht vorbereitet`, () => { o.remove(); go('prepare', { examId: exam.id }); }) : null),
+    h('div', { class: 'menu' },
+      menuRow('upload', 'Material & Themen', 'Blätter hinzufügen, Themen ändern', () => { o.remove(); editExamMaterial(exam); }),
+      menuRow('clock', 'Datum & Zielnote', null, () => { o.remove(); changeDate(exam); }),
+      menuRow('refresh', 'Plan neu erstellen', 'Alles wird neu vorbereitet', async () => { o.remove(); if (await confirmDialog('Plan neu erstellen? Fortschritt in diesem Plan geht verloren, deine Schwächen-Liste bleibt.', 'Neu erstellen')) rebuildPlan(exam); })),
+    h('div', { class: 'menu' },
+      menuRow('trash', 'Klausur löschen', null, async () => {
         o.remove();
         if (!(await confirmDialog('Diese Klausur samt Plan löschen? Hochgeladenes Material wird ebenfalls gelöscht.', 'Löschen'))) return;
         for (const id of exam.materialIds || []) await removeFile(id);
@@ -496,7 +510,7 @@ function examMenu(exam) {
         delete state.tutor[exam.id];
         state.exams = state.exams.filter((e) => e.id !== exam.id);
         state.activeExamId = null; save(); render();
-      } }, 'Klausur löschen')),
+      }, 'danger')),
   ]);
 }
 
@@ -1335,11 +1349,11 @@ function viewSubjects() {
   return h('div', { class: 'screen with-tabs' },
     h('header', { class: 'topbar' }, h('span', { class: 'iconbtn-spacer' }), h('div', { class: 'topbar-title' }, 'Fächer'), h('button', { class: 'iconbtn', onclick: () => addSubjectDialog(), 'aria-label': 'Fach hinzufügen' }, icon('plus'))),
     h('main', { class: 'content narrow' },
-      h('p', { class: 'muted small' }, 'Lade pro Fach alte Klausuren hoch. Daraus erstelle ich ein Lehrerprofil – Aufgaben und Korrektur richten sich dann nach deiner Lehrkraft.'),
-      h('div', { class: 'list' }, state.subjects.map((s) => h('button', { class: 'list-item big', onclick: () => go('subject', { id: s.id }) },
-        h('span', { class: 'row gap' }, subjectBadge(s), h('span', {}, s.name, s.language === 'en' ? h('span', { class: 'tag' }, 'EN') : null)),
-        h('span', { class: 'muted small' }, `${(s.archive || []).length} Klausuren`, s.teacherProfile ? ' · Profil ✓' : '')))),
-      h('button', { class: 'btn ghost block', onclick: () => addSubjectDialog() }, h('span', { class: 'row gap center' }, icon('plus'), 'Fach hinzufügen'))),
+      h('div', { class: 'menu' }, state.subjects.map((s) => h('button', { class: 'menu-row', onclick: () => go('subject', { id: s.id }) },
+        subjectBadge(s, 38),
+        h('span', { class: 'menu-text' }, h('span', { class: 'menu-label' }, s.name), h('span', { class: 'menu-sub' }, `${(s.archive || []).length ? `${s.archive.length} alte Klausuren` : 'Noch keine alten Klausuren'}${s.language === 'en' ? ' · Englisch' : ''}`)),
+        icon('chev', 18)))),
+      h('button', { class: 'link-small', onclick: () => addSubjectDialog() }, icon('plus', 16), 'Fach hinzufügen')),
     tabbar('subjects'));
 }
 
@@ -1394,40 +1408,45 @@ function viewSubject({ id }) {
   };
   drawArchive(); drawProfile();
 
+  const upload = async () => {
+    const files = await pickFiles();
+    const added = [];
+    for (const f of files) {
+      try { const fid = await addFile(f, { kind: 'archive', subjectId: s.id }); (s.archive ||= []).push(fid); added.push(fid); } catch (e) { toast(errorMsg(e), 'error'); }
+    }
+    save(); drawArchive();
+    if (added.length) readArchive(added);
+  };
+  const fold = (ic, title, sub, body, openFold = false) => h('details', { class: 'fold', open: openFold },
+    h('summary', {}, h('span', { class: 'menu-ico' }, icon(ic, 20)), h('span', { class: 'menu-text' }, h('span', { class: 'menu-label' }, title), sub ? h('span', { class: 'menu-sub' }, sub) : null), h('span', { class: 'fold-chev' }, icon('chev', 18))),
+    h('div', { class: 'fold-body' }, body));
+
   return h('div', { class: 'screen' },
-    topbar({ back: () => go('subjects'), title: s.name }),
+    topbar({ back: () => go('subjects'), title: '' }),
     h('main', { class: 'content narrow' },
-      h('section', { class: 'card stack' },
-        h('div', { class: 'label' }, 'Name'),
-        h('input', { class: 'input', value: s.name, onchange: (e) => { if (e.target.value.trim()) { s.name = e.target.value.trim(); save(); } } }),
-        h('div', { class: 'label' }, 'Unterrichtssprache'),
-        h('div', { class: 'seg' }, [['de', 'Deutsch'], ['en', 'Englisch (bilingual)']].map(([v, l]) => h('button', { class: `seg-btn ${s.language === v ? 'active' : ''}`, onclick: () => { s.language = v; save(); render(); } }, l))),
-        h('div', { class: 'label' }, 'Dein Stand'),
-        h('div', { class: 'seg' }, [[1, 'schwach'], [2, 'mittel'], [3, 'stark']].map(([v, l]) => h('button', { class: `seg-btn ${s.level === v ? 'active' : ''}`, onclick: () => { s.level = v; save(); render(); } }, l))),
-        h('div', { class: 'label' }, 'Was weißt du über deine Lehrkraft? (optional)'),
-        h('textarea', { class: 'input', rows: 3, placeholder: 'z. B. „Achtet sehr auf Fachbegriffe, will immer eine Einleitung, zieht für fehlende Einheiten Punkte ab“', value: s.teacherNotes || '', oninput: (e) => { s.teacherNotes = e.target.value; save(); } })),
-      h('section', { class: 'card stack' },
-        h('div', { class: 'row between' }, h('h3', {}, 'Klausur-Archiv'),
-          h('button', { class: 'btn small primary', onclick: async () => {
-            const files = await pickFiles();
-            const added = [];
-            for (const f of files) {
-              try { const fid = await addFile(f, { kind: 'archive', subjectId: s.id }); (s.archive ||= []).push(fid); added.push(fid); } catch (e) { toast(errorMsg(e), 'error'); }
-            }
-            save(); drawArchive();
-            if (added.length) readArchive(added);
-          } }, h('span', { class: 'row gap' }, icon('plus', 18), 'Hochladen'))),
-        h('p', { class: 'muted small' }, 'Am besten korrigierte Klausuren (mit Rotstift & Punkten) – mehrseitige Klausuren als PDF oder mehrere Fotos.'),
-        archiveList),
-      h('section', { class: 'card stack' }, h('h3', {}, 'Lehrerprofil'), profileBox),
-      h('div', { class: 'stack' },
-        h('button', { class: 'btn primary block', onclick: () => startNewExam(s.id) }, `${s.name}-Klausur anlegen`),
-        h('button', { class: 'btn ghost block danger-text', onclick: async () => {
-          if (state.exams.some((e) => e.subjectId === s.id)) return toast('Lösche zuerst die Klausuren dieses Fachs.', 'error');
-          if (!(await confirmDialog(`${s.name} samt Archiv löschen?`, 'Löschen'))) return;
-          for (const fid of s.archive || []) await removeFile(fid);
-          state.subjects = state.subjects.filter((x) => x.id !== s.id); save(); go('subjects');
-        } }, 'Fach löschen'))));
+      h('div', { class: 'subject-hero' }, subjectBadge(s, 56), h('h1', { class: 'display' }, s.name), s.language === 'en' ? h('span', { class: 'chip-static' }, 'Unterricht auf Englisch') : null),
+      h('button', { class: 'btn primary block', onclick: () => startNewExam(s.id) }, icon('plus', 18), 'Klausur anlegen'),
+      h('div', { class: 'folds' },
+        fold('layers', 'Alte Klausuren', `${(s.archive || []).length} hochgeladen`, [
+          h('p', { class: 'muted small' }, 'Am besten korrigierte Klausuren (mit Rotstift & Punkten). Daraus lerne ich den Stil deiner Lehrkraft.'),
+          archiveList,
+          h('button', { class: 'btn block', onclick: upload }, icon('upload', 18), 'Klausuren hochladen')]),
+        fold('user', 'Lehrerprofil', s.teacherProfile ? 'Erstellt' : 'Noch keins', [profileBox]),
+        fold('gear', 'Fach-Einstellungen', null, [
+          h('div', { class: 'label' }, 'Name'),
+          h('input', { class: 'input', value: s.name, onchange: (e) => { if (e.target.value.trim()) { s.name = e.target.value.trim(); save(); } } }),
+          h('div', { class: 'label' }, 'Unterrichtssprache'),
+          h('div', { class: 'seg' }, [['de', 'Deutsch'], ['en', 'Englisch']].map(([v, l]) => h('button', { class: `seg-btn ${s.language === v ? 'active' : ''}`, onclick: () => { s.language = v; save(); render(); } }, l))),
+          h('div', { class: 'label' }, 'Dein Stand'),
+          h('div', { class: 'seg' }, [[1, 'schwach'], [2, 'mittel'], [3, 'stark']].map(([v, l]) => h('button', { class: `seg-btn ${s.level === v ? 'active' : ''}`, onclick: () => { s.level = v; save(); render(); } }, l))),
+          h('div', { class: 'label' }, 'Was weißt du über deine Lehrkraft?'),
+          h('textarea', { class: 'input', rows: 3, placeholder: 'z. B. „Achtet sehr auf Fachbegriffe, will immer eine Einleitung“', value: s.teacherNotes || '', oninput: (e) => { s.teacherNotes = e.target.value; save(); } }),
+          h('button', { class: 'btn ghost block danger-text', onclick: async () => {
+            if (state.exams.some((e) => e.subjectId === s.id)) return toast('Lösche zuerst die Klausuren dieses Fachs.', 'error');
+            if (!(await confirmDialog(`${s.name} samt Archiv löschen?`, 'Löschen'))) return;
+            for (const fid of s.archive || []) await removeFile(fid);
+            state.subjects = state.subjects.filter((x) => x.id !== s.id); save(); go('subjects');
+          } }, 'Fach löschen')]))));
 }
 
 // ================================================================ TUTOR-CHAT
@@ -1475,28 +1494,38 @@ function viewTutor() {
 // ================================================================ EINSTELLUNGEN
 function viewSettings() {
   const p = state.profile;
+  const st = state.settings;
+  const aiSub = aiReady() ? (st.provider === 'openai' ? `Eigener Anbieter · ${st.oaModel}` : `Verbunden · ${st.model}`) : 'Nicht eingerichtet';
   return h('div', { class: 'screen with-tabs' },
-    h('header', { class: 'topbar' }, h('span', { class: 'iconbtn-spacer' }), h('div', { class: 'topbar-title' }, 'Einstellungen'), h('span', { class: 'iconbtn-spacer' })),
+    h('header', { class: 'topbar' }, h('span', { class: 'iconbtn-spacer' }), h('div', { class: 'topbar-title' }, 'Mehr'), h('span', { class: 'iconbtn-spacer' })),
     h('main', { class: 'content narrow' },
-      h('section', { class: 'card stack' }, h('h3', {}, 'KI'), aiSetupBlock(false)),
-      h('section', { class: 'card stack' }, h('h3', {}, 'Video beim Warten'),
-        h('p', { class: 'muted small' }, 'YouTube-Link, der läuft, während die KI arbeitet. Leer lassen = kein Video.'),
-        h('input', { class: 'input', placeholder: 'https://youtu.be/…', value: state.settings.waitVideo ?? DEFAULT_WAIT_VIDEO, onchange: (e) => {
-          const v = e.target.value.trim();
-          if (v && !youtubeId(v)) { toast('Das ist kein gültiger YouTube-Link.', 'error'); return; }
-          state.settings.waitVideo = v; save(); toast(v ? 'Video gespeichert.' : 'Video ausgeschaltet.', 'ok');
-        } })),
-      h('section', { class: 'card stack' }, h('h3', {}, 'Profil'),
-        h('p', { class: 'muted small' }, `${p.name} · Klasse ${p.grade} · ${p.schoolType} · ${p.state} · ${p.minutesPerDay} Min./Tag · Korrektur: ${p.feedbackStyle === 'hart' ? 'schonungslos' : 'ermutigend'} · ${p.gradeScale === '0-15' ? 'Punkte 0–15' : 'Noten 1–6'}`),
-        h('button', { class: 'btn', onclick: () => { draft = null; go('onboarding'); } }, 'Fragebogen neu ausfüllen')),
-      h('section', { class: 'card stack' }, h('h3', {}, 'Datensicherung'),
-        h('p', { class: 'muted small' }, 'Alles liegt nur auf diesem Gerät (im Browser). Wenn du Safari-Daten löschst, ist es weg. Mach ab und zu ein Backup. Der API-Schlüssel wird nicht mitgesichert.'),
-        h('div', { class: 'row gap wrap' },
-          h('button', { class: 'btn', onclick: exportBackup }, 'Backup herunterladen'),
-          h('button', { class: 'btn ghost', onclick: importBackup }, 'Backup einspielen'))),
-      h('section', { class: 'card stack' }, h('h3', {}, 'Gefahrenzone'),
-        h('button', { class: 'btn ghost danger-text', onclick: async () => { if (await confirmDialog('Wirklich ALLE Daten löschen (Profil, Fächer, Klausuren, Archiv)?', 'Alles löschen')) { await clearAll(); draft = null; nx = null; go('onboarding'); } } }, 'Alle Daten löschen')),
-      h('p', { class: 'muted small center' }, `Lern-KI · Version ${APP_VERSION} · kostenlos`)),
+      h('div', { class: 'menu' },
+        menuRow('sparkles', 'KI-Verbindung', aiSub, () => sheet('KI-Verbindung', [aiSetupBlock(false)])),
+        menuRow('video', 'Video beim Warten', (st.waitVideo ?? DEFAULT_WAIT_VIDEO) ? 'An' : 'Aus', () => {
+          const o = sheet('Video beim Warten', [
+            h('p', { class: 'muted small' }, 'YouTube-Link, der läuft, während die KI arbeitet. Leer lassen = kein Video.'),
+            h('input', { class: 'input', placeholder: 'https://youtu.be/…', value: st.waitVideo ?? DEFAULT_WAIT_VIDEO, onchange: (e) => {
+              const v = e.target.value.trim();
+              if (v && !youtubeId(v)) { toast('Das ist kein gültiger YouTube-Link.', 'error'); return; }
+              st.waitVideo = v; save(); toast(v ? 'Video gespeichert.' : 'Video ausgeschaltet.', 'ok'); o.remove(); render();
+            } })]);
+        })),
+      h('div', { class: 'menu' },
+        menuRow('user', 'Profil', `${p.name} · Klasse ${p.grade} · ${p.state}`, () => {
+          const o = sheet('Profil', [
+            h('p', { class: 'muted' }, `${p.name} · Klasse ${p.grade} · ${p.schoolType} · ${p.state}`),
+            h('p', { class: 'muted small' }, `${p.minutesPerDay} Min./Tag · Korrektur: ${p.feedbackStyle === 'hart' ? 'schonungslos' : 'ermutigend'} · ${p.gradeScale === '0-15' ? 'Punkte 0–15' : 'Noten 1–6'}`),
+            h('button', { class: 'btn primary block', onclick: () => { o.remove(); draft = null; go('onboarding'); } }, 'Fragebogen neu ausfüllen')]);
+        }),
+        menuRow('save', 'Datensicherung', 'Backup speichern oder einspielen', () => {
+          sheet('Datensicherung', [
+            h('p', { class: 'muted small' }, 'Alles liegt nur auf diesem Gerät. Wenn Safari-Daten gelöscht werden, ist es weg – mach ab und zu ein Backup. Der API-Schlüssel wird nicht mitgesichert.'),
+            h('button', { class: 'btn primary block', onclick: exportBackup }, 'Backup herunterladen'),
+            h('button', { class: 'btn ghost block', onclick: importBackup }, 'Backup einspielen')]);
+        })),
+      h('div', { class: 'menu' },
+        menuRow('trash', 'Alle Daten löschen', null, async () => { if (await confirmDialog('Wirklich ALLE Daten löschen (Profil, Fächer, Klausuren, Archiv)?', 'Alles löschen')) { await clearAll(); draft = null; nx = null; go('onboarding'); } }, 'danger')),
+      h('p', { class: 'muted small center' }, `Lern-KI · Version ${APP_VERSION}`)),
     tabbar('settings'));
 }
 
@@ -1527,6 +1556,8 @@ async function importBackup() {
 // ================================================================ Start
 (async function init() {
   await loadState();
+  const OLD = { '#5b9dff': '#93c5fd', '#ff9f5a': '#fdba74', '#ff7a59': '#fda4af', '#3dd68c': '#86efac', '#e0a458': '#fcd34d', '#a78bfa': '#c4b5fd', '#f06fc0': '#f0abfc', '#2dd4bf': '#5eead4' };
+  for (const sub of state.subjects) if (OLD[sub.color]) sub.color = OLD[sub.color];
   if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
   route = { name: state.profile ? 'plan' : 'onboarding', params: {} };
   render();
