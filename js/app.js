@@ -6,7 +6,7 @@ import { gradeLabel, gradeOptions, percentToGrade, reachesTarget, scale } from '
 import { downloadLernzettel, sheetHTML, SHEET_CSS } from './pdf.js';
 import { h, add, md, mdEl, mascot, speech, icon, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '1.8 (6.11.)';
+const APP_VERSION = '1.9 (6.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -1998,8 +1998,37 @@ async function importBackup() {
   for (const sub of state.subjects) if (OLD[sub.color]) sub.color = OLD[sub.color];
   if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
   route = { name: state.profile ? 'plan' : 'onboarding', params: {} };
+  // Nach einem Update wieder auf dieselbe Seite zurück
+  try {
+    const saved = JSON.parse(sessionStorage.getItem('lernki-route') || 'null');
+    sessionStorage.removeItem('lernki-route');
+    if (saved && state.profile && saved.name !== 'onboarding') route = saved;
+  } catch {}
   render();
+  checkForUpdate();
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkForUpdate(); });
 })();
+
+// ---------- Updates: Die App auf dem Home-Bildschirm läuft oft im Hintergrund weiter.
+// Beim Zurückkehren wird geprüft, ob eine neue Version online ist, und ein Update angeboten.
+let updateShown = false;
+async function checkForUpdate() {
+  if (updateShown || !navigator.onLine) return;
+  try {
+    const res = await fetch(`version.json?t=${Date.now()}`, { cache: 'no-store' });
+    if (!res.ok) return;
+    const { version } = await res.json();
+    if (!version || version === APP_VERSION) return;
+    updateShown = true;
+    const bar = h('button', { class: 'update-bar', onclick: async () => {
+      bar.textContent = 'Lade Update …';
+      try { sessionStorage.setItem('lernki-route', JSON.stringify(['session', 'vquiz', 'newExam', 'vnew', 'prepare'].includes(route.name) ? { name: 'plan', params: {} } : route)); } catch {}
+      try { const reg = await navigator.serviceWorker?.getRegistration(); await reg?.update(); } catch {}
+      setTimeout(() => location.reload(), 300);
+    } }, icon('download', 18), h('span', {}, `Neue Version ${version} – tippen zum Aktualisieren`));
+    add(document.body, bar);
+  } catch {}
+}
 
 // Für die Konsole/Tests
 window.__lernki = { state: () => state, md, save };

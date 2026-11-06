@@ -424,3 +424,6 @@ ul { margin: 4px 0; padding-left: 22px; }
 .boxdots i.on { background: var(--accent); border-color: var(--accent); }
 .menu-row .ring span { font-size: .62rem; }
 .menu-row.vword .menu-label { font-weight: 600; }
+
+/* Update-Hinweis */
+.update-bar { position: fixed; z-index: 150; left: 50%; transform: translateX(-50%); top: calc(10px + env(safe-area-inset-top)); display: flex; align-items: center; gap: 8px; padding: 12px 18px; border-radius: 99px; background: var(--accent); color: #fff; font-weight: 600; font-size: .9rem; box-shadow: 0 10px 30px rgba(0,0,0,.5); max-width: calc(100% - 32px); }
