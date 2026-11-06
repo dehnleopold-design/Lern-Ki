@@ -40,6 +40,7 @@ export const defaultState = () => ({
   files: {},      // id -> { id, name, mime, size, kind, subjectId, digest, addedAt }
   sessions: {},   // unitId -> { intro, tasks, answers, answerImages, grading, chats }
   tutor: {},      // examId -> [{ role, text }]
+  vocab: { sets: [], tests: {} },
   activeExamId: null,
   settings: { provider: 'gemini', apiKey: '', model: '', baseUrl: '', oaKey: '', oaModel: '' },
 });

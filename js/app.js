@@ -6,7 +6,7 @@ import { gradeLabel, gradeOptions, percentToGrade, reachesTarget, scale } from '
 import { downloadLernzettel, sheetHTML, SHEET_CSS } from './pdf.js';
 import { h, add, md, mdEl, mascot, speech, icon, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '1.7 (6.11.)';
+const APP_VERSION = '1.8 (6.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -38,14 +38,14 @@ function go(name, params = {}) {
 function render() {
   app.replaceChildren();
   if (!state.profile && route.name !== 'onboarding') route = { name: 'onboarding', params: {} };
-  const views = { onboarding: viewOnboarding, prepare: viewPrepare, plan: viewPlan, pick: viewPick, newExam: viewNewExam, session: viewSession, subjects: viewSubjects, subject: viewSubject, tutor: viewTutor, settings: viewSettings };
+  const views = { onboarding: viewOnboarding, prepare: viewPrepare, plan: viewPlan, pick: viewPick, vocab: viewVocab, vnew: viewVocabNew, vset: viewVocabSet, vwords: viewVocabWords, vplan: viewVocabPlan, vquiz: viewVocabQuiz, vtests: viewVocabTests, newExam: viewNewExam, session: viewSession, subjects: viewSubjects, subject: viewSubject, tutor: viewTutor, settings: viewSettings };
   const v = (views[route.name] || viewPlan)(route.params);
   add(app, v);
 }
 
 function tabbar(active) {
   const tab = (name, ic, label) => h('button', { class: `tab ${active === name ? 'active' : ''}`, onclick: () => go(name), 'aria-label': label }, icon(ic, 22), h('span', {}, label));
-  return h('nav', { class: 'tabbar' }, tab('plan', 'route', 'Plan'), tab('subjects', 'library', 'Fächer'), tab('tutor', 'sparkles', 'Tutor'), tab('settings', 'gear', 'Mehr'));
+  return h('nav', { class: 'tabbar' }, tab('plan', 'route', 'Plan'), tab('subjects', 'library', 'Fächer'), tab('vocab', 'languages', 'Vokabeln'), tab('tutor', 'sparkles', 'Tutor'), tab('settings', 'gear', 'Mehr'));
 }
 
 function topbar({ back, close, title, progress }) {
@@ -96,7 +96,7 @@ function viewOnboarding() {
 
   const steps = [
     {
-      q: editing ? 'Lass uns dein Profil aktualisieren.' : 'Hi! Ich bin Kiri. Bevor wir loslegen, stelle ich dir ein paar Fragen – damit dein Lernplan wirklich zu dir passt.',
+      q: editing ? 'Lass uns dein Profil aktualisieren.' : 'Hi! Ich bin Jelly. Bevor wir loslegen, stelle ich dir ein paar Fragen – damit dein Lernplan wirklich zu dir passt.',
       body: () => h('div', { class: 'stack center' }, h('p', { class: 'muted' }, 'Dauert ca. 2 Minuten. Alles bleibt auf deinem Gerät.')),
       ok: () => true,
     },
@@ -1180,11 +1180,11 @@ function pending(main, key, title, steps, producer) {
   add(main, panel.el);
   if (ui.busy[key]) return;
   ui.busy[key] = true;
-  const here = route.params.unitId;
+  const here = route; // nur neu zeichnen, wenn man noch auf derselben Seite ist
   producer()
     .then(() => save())
     .catch((e) => { ui.busy[`err:${key}`] = errorMsg(e); })
-    .finally(() => { delete ui.busy[key]; if (route.name === 'session' && route.params.unitId === here) render(); });
+    .finally(() => { delete ui.busy[key]; if (route === here) render(); });
 }
 
 function ensureSheetCSS() {
@@ -1244,8 +1244,10 @@ function viewLernzettel(main, exam, unit) {
 }
 
 // Antwortvergleich fürs Eingabe-Quiz: Groß/Klein, Leerzeichen, Komma/Punkt, kleine Tippfehler, Zahlen mit 1 % Toleranz.
+// Antwortvergleich: Groß/Klein, Leerzeichen, Satzzeichen egal; Akzente zählen (é ≠ e).
+// Normaler Modus: kleine Tippfehler ok, Zahlen mit 1 % Toleranz. Strenger Modus (Vokabeln): Schreibweise muss stimmen.
 function normAnswer(x) {
-  return String(x ?? '').toLowerCase().replace(/ß/g, 'ss').replace(/,/g, '.').replace(/[^a-z0-9äöü.\-]/g, '');
+  return String(x ?? '').normalize('NFC').toLowerCase().replace(/ß/g, 'ss').replace(/,/g, '.').replace(/[^\p{L}\p{N}.\-]/gu, '');
 }
 function numOf(x) {
   const m = String(x ?? '').replace(',', '.').match(/-?\d+(?:\.\d+)?/);
@@ -1257,54 +1259,36 @@ function lev(a, b) {
   for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
   return d[a.length][b.length];
 }
-function checkInput(value, answers) {
+function checkInput(value, answers, strict = false) {
   const v = normAnswer(value);
   if (!v) return false;
   return (answers || []).some((ans) => {
     const n1 = numOf(value), n2 = numOf(ans);
-    if (n2 !== null && /^-?[\d.]+[a-z°%/]*$/.test(normAnswer(ans))) return n1 !== null && Math.abs(n1 - n2) <= Math.max(Math.abs(n2) * 0.01, 1e-9);
+    if (!strict && n2 !== null && /^-?[\d.]+[\p{L}°%/]*$/u.test(normAnswer(ans))) return n1 !== null && Math.abs(n1 - n2) <= Math.max(Math.abs(n2) * 0.01, 1e-9);
     const a = normAnswer(ans);
-    return v === a || (a.length > 5 && lev(v, a) <= 1);
+    return v === a || (!strict && a.length > 5 && lev(v, a) <= 1);
   });
 }
+const correctText = (q) => q.typ === 'mc' ? q.optionen[q.richtig] : q.typ === 'wahrfalsch' ? (q.richtig ? 'Wahr' : 'Falsch') : `${(q.antworten || [])[0] || ''}${q.einheit ? ` ${q.einheit}` : ''}`;
 
-function viewQuiz(main, exam, unit) {
-  const subject = subjectById(exam.subjectId);
-  const topic = exam.plan?.themen?.[unit.themaIndex] || { titel: unit.titel };
-  let sess = state.sessions[unit.id];
-  if (!sess?.fragen) {
-    pending(main, unit.id, `Ich stelle dir ein Quiz zu „${topic.titel}“ zusammen …`, ['Lernzettel lesen', 'Fragen ausdenken'], () => genQuiz(exam, unit));
-    return;
-  }
+// Allgemeiner Quiz-Ablauf (eine Frage nach der anderen, sofortiges Feedback).
+// opts: { strict, verdict(pct) → Text, actions(pct, right, total) → Elemente unter dem Ergebnis }
+function runQuiz(main, sess, opts = {}) {
   const qs = sess.fragen;
   const total = qs.length;
-
-  // ---- Ergebnis
   if (sess.idx >= total) {
     const right = qs.filter((_, i) => sess.antworten[i]?.correct).length;
     const pct = Math.round((right / total) * 100);
     const wrong = qs.map((q, i) => ({ q, a: sess.antworten[i] })).filter((x) => !x.a?.correct);
-    const correctText = (q) => q.typ === 'mc' ? q.optionen[q.richtig] : q.typ === 'wahrfalsch' ? (q.richtig ? 'Wahr' : 'Falsch') : `${(q.antworten || [])[0] || ''}${q.einheit ? ` ${q.einheit}` : ''}`;
-    const next = nextOpenUnit(exam, unit.id);
     add(main,
       h('section', { class: `card summary ${pct >= 75 ? 'good' : 'bad'}` },
         h('div', { class: 'row between' }, h('div', {}, h('div', { class: 'big-num' }, `${right}/${total}`), h('div', { class: 'muted small' }, 'richtig')), h('div', { class: 'big-num' }, `${pct} %`)),
-        h('p', {}, pct === 100 ? 'Alles richtig. Die Fakten sitzen.' : pct >= 75 ? 'Solide – schau dir die Fehler unten trotzdem an.' : 'Das sitzt noch nicht. Lies den Lernzettel nochmal und mach das Quiz erneut, bevor du an die Aufgaben gehst.')),
+        h('p', {}, opts.verdict ? opts.verdict(pct) : '')),
       wrong.length ? h('section', { class: 'card' }, h('div', { class: 'label' }, 'Das musst du dir merken'),
         h('ul', { class: 'wrong-list' }, wrong.map(({ q, a }) => h('li', {}, h('div', {}, q.frage), h('div', { class: 'small' }, h('span', { class: 'bad-text' }, `Deine Antwort: ${a?.label ?? '–'}`), ' · ', h('strong', {}, `Richtig: ${correctText(q)}`)), q.erklaerung ? h('div', { class: 'muted small' }, q.erklaerung) : null)))) : null,
-      h('button', { class: 'btn primary block', onclick: () => {
-        for (const sec of exam.plan.abschnitte) for (const u of sec.einheiten) if (u.id === unit.id) { u.status = 'done'; u.score = pct; }
-        if (pct < 70) exam.weaknesses = [...new Set([...(exam.weaknesses || []), `Fakten/Begriffe zu „${topic.titel}“ unsicher (Quiz ${pct} %)`])].slice(-30);
-        save();
-        if (next) go('session', { examId: exam.id, unitId: next.id }); else go('plan');
-      } }, next?.typ === 'aufgaben' ? 'Weiter zu den Anwendungsaufgaben' : 'Fertig'),
-      h('div', { class: 'row gap wrap center' },
-        h('button', { class: 'btn ghost', onclick: () => { sess.antworten = {}; sess.idx = 0; save(); render(); } }, 'Gleiches Quiz nochmal'),
-        h('button', { class: 'btn ghost', onclick: () => { state.sessions[unit.id] = { alteFragen: sess.alteFragen }; save(); render(); } }, icon('refresh', 18), 'Neue Fragen')));
+      opts.actions ? opts.actions(pct, right, total) : null);
     return;
   }
-
-  // ---- Frage
   const i = sess.idx;
   const q = qs[i];
   const ans = sess.antworten[i];
@@ -1321,14 +1305,14 @@ function viewQuiz(main, exam, unit) {
       return h('button', { class: `quiz-opt ${st}`, disabled: !!ans, onclick: () => answer(l, v === !!q.richtig, v) }, h('span', {}, l));
     })));
   } else {
-    const inp = h('input', { class: `input big ${ans ? (ans.correct ? 'right' : 'wrong') : ''}`, placeholder: 'Deine Antwort', value: ans?.label || '', disabled: !!ans, onkeydown: (e) => { if (e.key === 'Enter') btn.click(); } });
-    const btn = h('button', { class: 'btn primary', onclick: () => { if (!inp.value.trim()) return; answer(inp.value.trim(), checkInput(inp.value, q.antworten), inp.value.trim()); } }, 'Prüfen');
+    const inp = h('input', { class: `input big ${ans ? (ans.correct ? 'right' : 'wrong') : ''}`, placeholder: 'Deine Antwort', value: ans?.label || '', disabled: !!ans, autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false', onkeydown: (e) => { if (e.key === 'Enter') btn.click(); } });
+    const btn = h('button', { class: 'btn primary', onclick: () => { if (!inp.value.trim()) return; answer(inp.value.trim(), checkInput(inp.value, q.antworten, opts.strict), inp.value.trim()); } }, 'Prüfen');
     add(body, h('div', { class: 'row gap' }, inp, q.einheit ? h('span', { class: 'muted' }, q.einheit) : null, ans ? null : btn));
     if (!ans) setTimeout(() => inp.focus(), 50);
   }
   if (ans) {
     add(body, h('div', { class: `quiz-feedback ${ans.correct ? 'right' : 'wrong'}` },
-      h('strong', {}, ans.correct ? 'Richtig!' : q.typ === 'eingabe' ? `Falsch – richtig ist: ${(q.antworten || [])[0]}${q.einheit ? ` ${q.einheit}` : ''}` : 'Falsch.'),
+      h('strong', {}, ans.correct ? 'Richtig!' : q.typ === 'eingabe' ? `Falsch – richtig ist: ${correctText(q)}` : 'Falsch.'),
       q.erklaerung ? h('div', {}, q.erklaerung) : null,
       !ans.correct && q.typ === 'eingabe' ? h('button', { class: 'link-small', onclick: () => { ans.correct = true; save(); render(); } }, 'Meine Antwort war doch richtig') : null));
   }
@@ -1338,6 +1322,30 @@ function viewQuiz(main, exam, unit) {
       h('div', { class: 'label' }, q.typ === 'wahrfalsch' ? 'Wahr oder falsch?' : q.typ === 'eingabe' ? 'Antwort eintippen' : 'Wähle die richtige Antwort'),
       h('div', { class: 'quiz-q' }, q.frage), body),
     ans ? h('button', { class: 'btn primary block', onclick: () => { sess.idx = i + 1; save(); render(); } }, i + 1 < total ? 'Weiter' : 'Ergebnis ansehen') : null);
+}
+
+function viewQuiz(main, exam, unit) {
+  const topic = exam.plan?.themen?.[unit.themaIndex] || { titel: unit.titel };
+  const sess = state.sessions[unit.id];
+  if (!sess?.fragen) {
+    pending(main, unit.id, `Ich stelle dir ein Quiz zu „${topic.titel}“ zusammen …`, ['Lernzettel lesen', 'Fragen ausdenken'], () => genQuiz(exam, unit));
+    return;
+  }
+  const next = nextOpenUnit(exam, unit.id);
+  runQuiz(main, sess, {
+    verdict: (pct) => (pct === 100 ? 'Alles richtig. Die Fakten sitzen.' : pct >= 75 ? 'Solide – schau dir die Fehler unten trotzdem an.' : 'Das sitzt noch nicht. Lies den Lernzettel nochmal und mach das Quiz erneut, bevor du an die Aufgaben gehst.'),
+    actions: (pct) => [
+      h('button', { class: 'btn primary block', onclick: () => {
+        for (const sec of exam.plan.abschnitte) for (const u of sec.einheiten) if (u.id === unit.id) { u.status = 'done'; u.score = pct; }
+        if (pct < 70) exam.weaknesses = [...new Set([...(exam.weaknesses || []), `Fakten/Begriffe zu „${topic.titel}“ unsicher (Quiz ${pct} %)`])].slice(-30);
+        save();
+        if (next && next.themaIndex === unit.themaIndex) go('session', { examId: exam.id, unitId: next.id }); else go('pick', { examId: exam.id, typ: 'quiz' });
+      } }, next?.typ === 'aufgaben' && next.themaIndex === unit.themaIndex ? 'Weiter zu den Anwendungsaufgaben' : 'Fertig'),
+      h('div', { class: 'row gap wrap center' },
+        h('button', { class: 'btn ghost', onclick: () => { sess.antworten = {}; sess.idx = 0; save(); render(); } }, 'Gleiches Quiz nochmal'),
+        h('button', { class: 'btn ghost', onclick: () => { state.sessions[unit.id] = { alteFragen: sess.alteFragen }; save(); render(); } }, icon('refresh', 18), 'Neue Fragen')),
+    ],
+  });
 }
 
 // ================================================================ FÄCHER & KLAUSUR-ARCHIV
@@ -1462,6 +1470,421 @@ function viewSubject({ id }) {
             for (const fid of s.archive || []) await removeFile(fid);
             state.subjects = state.subjects.filter((x) => x.id !== s.id); save(); go('subjects');
           } }, 'Fach löschen')]))));
+}
+
+// ================================================================ VOKABELN
+const vocab = () => (state.vocab ||= { sets: [], tests: {} });
+const vsetById = (id) => vocab().sets.find((x) => x.id === id);
+const LANGS = ['Englisch', 'Spanisch', 'Französisch', 'Latein', 'Italienisch', 'Russisch'];
+
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+  return a;
+}
+
+// Alle akzeptierten Schreibweisen: "der Bahnhof; die Station" → beide, auch ohne Artikel/Klammern.
+function variants(s) {
+  const out = new Set();
+  const parts = String(s || '').split(/[;,/]|\s+oder\s+|\s+or\s+/i).map((x) => x.trim()).filter(Boolean);
+  for (const p of [String(s || '').trim(), ...parts]) {
+    if (!p) continue;
+    out.add(p);
+    out.add(p.replace(/\(.*?\)/g, ' ').replace(/\s+/g, ' ').trim());
+    out.add(p.replace(/[()]/g, ''));
+    out.add(p.replace(/^(to|the|a|an|der|die|das|ein|eine|el|la|los|las|un|una|le|les|l'|une|il|lo|gli)\s+/i, '').trim());
+  }
+  return [...out].filter(Boolean);
+}
+
+function vocabStats(set) {
+  const total = set.words.length;
+  const sure = set.words.filter((w) => (w.box || 0) >= 3).length;
+  const wrong = set.words.filter((w) => (w.wrong || 0) > 0 && (w.box || 0) < 3).length;
+  return { total, sure, wrong, pct: total ? Math.round((sure / total) * 100) : 0 };
+}
+
+// Lernplan: Vokabeln in Tagesportionen bis zum Test, mit Wiederholung nach 1 und 3 Tagen; letzter Tag = alles + Probe-Test.
+function buildVocabPlan(set) {
+  const today = parseISO(isoDate(new Date()));
+  const days = [];
+  const end = set.testDate ? parseISO(set.testDate) : new Date(today.getTime() + 6 * 86400000);
+  const last = set.testDate ? (end <= today ? today : new Date(end.getTime() - 86400000)) : end;
+  for (let d = new Date(today); d <= last && days.length < 21; d.setDate(d.getDate() + 1)) days.push(isoDate(d));
+  const ids = set.words.map((w) => w.id);
+  const learnDays = days.length > 1 ? days.length - 1 : 1;
+  const chunk = Math.max(1, Math.ceil(ids.length / learnDays));
+  const plan = days.map((iso, i) => ({ iso, neu: i < learnDays ? ids.slice(i * chunk, (i + 1) * chunk) : [], wdh: [], probe: i === days.length - 1, done: false }));
+  plan.forEach((e, i) => {
+    const back = [plan[i - 1], plan[i - 3]].filter(Boolean).flatMap((x) => x.neu);
+    e.wdh = e.probe && days.length > 1 ? ids : [...new Set(back)].filter((id) => !e.neu.includes(id));
+  });
+  if (days.length === 1) { plan[0].neu = ids; plan[0].wdh = []; }
+  set.plan = plan;
+}
+
+function todaysEntry(set) {
+  const today = isoDate(new Date());
+  return (set.plan || []).find((e) => !e.done && e.iso <= today) || (set.plan || []).find((e) => !e.done) || null;
+}
+
+// Schnelles Quiz ohne KI: Eintippen (beide Richtungen) und Multiple Choice.
+function makeVocabQuiz(set, words) {
+  const all = set.words;
+  return shuffle(words).map((w) => {
+    const toForeign = Math.random() < 0.6;
+    const useMc = all.length >= 4 && Math.random() < 0.35;
+    const prompt = toForeign ? `Übersetze ins ${set.sprache}: „${w.t}“` : `Was heißt „${w.w}“?`;
+    const expl = [w.ex ? `Beispiel: ${w.ex}` : '', w.info || ''].filter(Boolean).join(' · ');
+    if (useMc) {
+      const others = shuffle(all.filter((x) => x.id !== w.id)).slice(0, 3);
+      const opts = shuffle([w, ...others]);
+      return { wid: w.id, typ: 'mc', frage: prompt, optionen: opts.map((x) => (toForeign ? x.w : x.t)), richtig: opts.findIndex((x) => x.id === w.id), erklaerung: expl };
+    }
+    return { wid: w.id, typ: 'eingabe', frage: prompt, antworten: variants(toForeign ? w.w : w.t), loesung: toForeign ? w.w : w.t, erklaerung: expl };
+  });
+}
+
+// Ergebnis in die Lernkartei übernehmen (Box 0–5): richtig = eine Box höher, falsch = zurück auf 0.
+function applyVocabResults(set, sess) {
+  if (sess.applied) return;
+  sess.fragen.forEach((q, i) => {
+    const w = set.words.find((x) => x.id === q.wid);
+    if (!w) return;
+    const ok = !!sess.antworten[i]?.correct;
+    w.box = ok ? Math.min(5, (w.box || 0) + 1) : 0;
+    if (ok) w.right = (w.right || 0) + 1; else w.wrong = (w.wrong || 0) + 1;
+  });
+  sess.applied = true;
+  save();
+}
+
+function viewVocab() {
+  const v = vocab();
+  const screen = h('div', { class: 'screen with-tabs' },
+    h('header', { class: 'topbar' }, h('span', { class: 'iconbtn-spacer' }), h('div', { class: 'topbar-title' }, 'Vokabeln'), h('button', { class: 'iconbtn', 'aria-label': 'Neue Vokabeln', onclick: () => startVocabNew() }, icon('plus'))));
+  if (!v.sets.length) {
+    add(screen, h('main', { class: 'content narrow center' },
+      mascot(130),
+      h('h1', { class: 'display' }, 'Vokabeln lernen'),
+      h('p', { class: 'muted' }, 'Fotografiere eine Vokabelseite – ich lese sie aus, mache dir ein Quiz und einen Lernplan bis zum Test.'),
+      h('button', { class: 'btn primary', onclick: () => startVocabNew() }, icon('camera', 18), 'Vokabelseite hochladen'),
+      h('button', { class: 'link-small', onclick: () => pickTestLanguage() }, 'Alte Vokabeltests hochladen')), tabbar('vocab'));
+    return screen;
+  }
+  const sets = [...v.sets].sort((a, b) => (a.testDate || '9999').localeCompare(b.testDate || '9999'));
+  add(screen, h('main', { class: 'content narrow' },
+    h('div', { class: 'menu' }, sets.map((set) => {
+      const st = vocabStats(set);
+      return h('button', { class: 'menu-row', onclick: () => go('vset', { id: set.id }) },
+        h('span', { class: 'menu-ico' }, icon('languages', 20)),
+        h('span', { class: 'menu-text' }, h('span', { class: 'menu-label' }, set.titel), h('span', { class: 'menu-sub' }, `${set.sprache} · ${st.total} Vokabeln · ${st.pct} % sicher${set.testDate ? ` · Test ${relDay(set.testDate).toLowerCase()}` : ''}`)),
+        progressRing(st.pct, 40));
+    })),
+    h('button', { class: 'btn primary block', onclick: () => startVocabNew() }, icon('camera', 18), 'Neue Vokabelseite'),
+    h('div', { class: 'menu' }, menuRow('layers', 'Alte Vokabeltests', 'Damit sich die Probe-Tests an deiner Lehrkraft orientieren', () => pickTestLanguage()))),
+    tabbar('vocab'));
+  return screen;
+}
+
+function pickTestLanguage() {
+  const langs = [...new Set([...vocab().sets.map((x) => x.sprache), ...Object.keys(vocab().tests), ...LANGS])];
+  const o = sheet('Welche Sprache?', [h('div', { class: 'menu' }, langs.map((l) => menuRow('languages', l, `${vocab().tests[l]?.fileIds?.length || 0} Tests`, () => { o.remove(); go('vtests', { sprache: l }); })))]);
+}
+
+// ---------- Neue Vokabelliste
+let nv = null;
+function startVocabNew(addTo = null) {
+  nv = { fileIds: [], testDate: '', addTo };
+  go('vnew');
+}
+
+function viewVocabNew() {
+  if (!nv) { startVocabNew(); return h('div'); }
+  const cancel = async () => { for (const id of nv.fileIds) await removeFile(id); nv = null; go('vocab'); };
+  if (nv.processing) {
+    const panel = waitPanel('Ich lese deine Vokabeln …');
+    const screen = h('div', { class: 'screen' }, topbar({ close: () => go('vocab') }), h('main', { class: 'content narrow' }, panel.el));
+    processVocab(panel);
+    return screen;
+  }
+  const grid = h('div', { class: 'grid3' });
+  const draw = async () => {
+    const tiles = [];
+    for (const id of nv.fileIds) {
+      const url = await thumbURL(id);
+      tiles.push(h('div', { class: 'tile filled' }, url ? h('img', { src: url }) : h('div', { class: 'tile-file' }, icon('file', 30), h('span', {}, state.files[id]?.name || '')),
+        h('button', { class: 'tile-del', onclick: async () => { nv.fileIds = nv.fileIds.filter((x) => x !== id); await removeFile(id); draw(); } }, icon('close', 16))));
+    }
+    const addTile = (label, opts) => h('button', { class: 'tile', onclick: async () => {
+      for (const f of await pickFiles(opts)) { try { nv.fileIds.push(await addFile(f, { kind: 'vocab', subjectId: null })); } catch (e) { toast(errorMsg(e), 'error'); } }
+      draw();
+    } }, icon(opts.capture ? 'camera' : 'plus', 28), h('span', { class: 'small muted' }, label));
+    tiles.push(addTile('Foto aufnehmen', { accept: 'image/*', capture: 'environment', multiple: false }), addTile('Fotos / PDF', {}));
+    grid.replaceChildren(...tiles);
+  };
+  draw();
+  const existing = nv.addTo ? vsetById(nv.addTo) : null;
+  return h('div', { class: 'screen' }, topbar({ back: cancel, title: existing ? 'Seiten hinzufügen' : 'Neue Vokabeln' }),
+    h('main', { class: 'content narrow' },
+      speech(existing ? `Welche Seiten sollen zu „${existing.titel}“ dazu?` : 'Lade deine Vokabelseite hoch – ich lese alles aus.'),
+      grid,
+      existing ? null : h('div', { class: 'stack' },
+        h('div', { class: 'label' }, 'Wann ist der Vokabeltest? (optional)'),
+        h('input', { class: 'input', type: 'date', min: isoDate(new Date()), value: nv.testDate, onchange: (e) => { nv.testDate = e.target.value; } }))),
+    h('footer', { class: 'footer' }, h('button', { class: 'btn primary block', onclick: () => {
+      if (!aiReady()) return toast('Bitte zuerst die KI einrichten (Mehr → KI-Verbindung).', 'error');
+      if (!nv.fileIds.length) return toast('Bitte mindestens ein Foto oder PDF hinzufügen.');
+      nv.processing = true; render();
+    } }, 'Vokabeln auslesen')));
+}
+
+async function processVocab(panel) {
+  const key = 'vnew';
+  if (ui.busy[key]) return;
+  ui.busy[key] = true;
+  const start = panel.addSteps([...nv.fileIds.map((id, i) => `Seite ${i + 1} lesen`), 'Lernplan erstellen']);
+  try {
+    let titel = '', sprache = '';
+    const words = [];
+    for (let i = 0; i < nv.fileIds.length; i++) {
+      panel.mark(start + i, 'run');
+      const res = await generate({ system: P.vocabSystem(), parts: [{ text: P.vocabExtractPrompt() }, await filePart(nv.fileIds[i])], json: true, temperature: 0.1 });
+      titel ||= res.titel || '';
+      sprache ||= res.sprache || '';
+      for (const v of res.vokabeln || []) if (v?.wort && v?.uebersetzung) words.push({ id: uid(), w: String(v.wort).trim(), t: String(v.uebersetzung).trim(), ex: v.beispiel || '', info: v.info || '', box: 0 });
+      panel.mark(start + i, 'done');
+    }
+    if (!words.length) throw new AIError('Ich konnte auf den Seiten keine Vokabeln erkennen. Sind die Fotos scharf?');
+    panel.mark(start + nv.fileIds.length, 'run');
+    let set = nv.addTo ? vsetById(nv.addTo) : null;
+    if (set) {
+      set.words.push(...words.filter((w) => !set.words.some((x) => normAnswer(x.w) === normAnswer(w.w))));
+      set.fileIds.push(...nv.fileIds);
+    } else {
+      set = { id: uid(), titel: titel || 'Vokabeln', sprache: sprache || 'Englisch', words, fileIds: [...nv.fileIds], testDate: nv.testDate || null, createdAt: Date.now(), sess: {} };
+      vocab().sets.push(set);
+    }
+    buildVocabPlan(set);
+    save();
+    panel.mark(start + nv.fileIds.length, 'done');
+    toast(`${words.length} Vokabeln erkannt – prüf die Liste kurz auf Lesefehler.`, 'ok');
+    nv = null;
+    go('vset', { id: set.id });
+  } catch (e) {
+    panel.errBox.replaceChildren(h('div', { class: 'card warn' }, h('p', {}, errorMsg(e)),
+      h('div', { class: 'row gap center' }, h('button', { class: 'btn', onclick: () => render() }, 'Nochmal versuchen'), h('button', { class: 'btn ghost', onclick: () => { nv.processing = false; render(); } }, 'Zurück'))));
+  } finally { delete ui.busy[key]; }
+}
+
+// ---------- Eine Vokabelliste
+function startVocabQuiz(set, mode, entryIdx = null) {
+  set.sess ||= {};
+  let words;
+  if (mode === 'heute') {
+    const e = entryIdx !== null ? set.plan[entryIdx] : todaysEntry(set);
+    if (!e) return toast('Kein offener Lerntag – mach ein Schnell-Quiz.');
+    const ids = [...new Set([...e.neu, ...e.wdh])];
+    words = set.words.filter((w) => ids.includes(w.id)).slice(0, 40);
+    set.sess.heute = { fragen: makeVocabQuiz(set, words), antworten: {}, idx: 0, entry: set.plan.indexOf(e) };
+  } else if (mode === 'fehler') {
+    words = set.words.filter((w) => (w.wrong || 0) > 0 && (w.box || 0) < 3);
+    if (!words.length) return toast('Keine Fehler-Vokabeln – stark!');
+    set.sess.fehler = { fragen: makeVocabQuiz(set, words.slice(0, 30)), antworten: {}, idx: 0 };
+  } else if (mode === 'schnell') {
+    words = [...set.words].sort((a, b) => (a.box || 0) - (b.box || 0) || Math.random() - 0.5).slice(0, 15);
+    set.sess.schnell = { fragen: makeVocabQuiz(set, words), antworten: {}, idx: 0 };
+  } else if (mode === 'test') {
+    delete set.sess.test;
+  }
+  save();
+  go('vquiz', { id: set.id, mode });
+}
+
+function viewVocabSet({ id }) {
+  const set = vsetById(id);
+  if (!set) { go('vocab'); return h('div'); }
+  const st = vocabStats(set);
+  const entry = todaysEntry(set);
+  let countdown = 'Kein Testdatum';
+  if (set.testDate) {
+    const diff = Math.round((parseISO(set.testDate) - parseISO(isoDate(new Date()))) / 86400000);
+    countdown = diff > 1 ? `Test in ${diff} Tagen` : diff === 1 ? 'Test ist morgen' : diff === 0 ? 'Test ist heute' : 'Test vorbei';
+  }
+  const entryWords = entry ? new Set([...entry.neu, ...entry.wdh]).size : 0;
+  const tile = (ic, name, sub, onclick, cls = '') => h('button', { class: `tile-btn ${cls}`, onclick }, h('span', { class: 'tile-ico' }, icon(ic, 22)), h('span', { class: 'tile-name' }, name), h('span', { class: 'tile-sub' }, sub));
+  const profile = vocab().tests[set.sprache]?.profil;
+  return h('div', { class: 'screen' },
+    topbar({ back: () => go('vocab'), title: '' }),
+    h('main', { class: 'content narrow' },
+      h('section', { class: 'hero' },
+        h('div', { class: 'hero-top' },
+          h('div', { class: 'hero-left' }, h('div', { class: 'hero-count' }, set.titel), h('div', { class: 'muted small' }, `${set.sprache} · ${st.total} Vokabeln · ${countdown}`)),
+          progressRing(st.pct, 64)),
+        entry ? h('button', { class: 'btn primary block next-btn', onclick: () => startVocabQuiz(set, 'heute') },
+          h('span', { class: 'next-title' }, `${entry.iso === isoDate(new Date()) ? 'Heute lernen' : `Lerntag ${fmtDate(entry.iso)}`} · ${entryWords} Vokabeln`), icon('play', 18))
+          : h('div', { class: 'all-done' }, 'Lernplan geschafft – mach den Probe-Test!')),
+      h('div', { class: 'vtiles' },
+        tile('zap', 'Schnell-Quiz', '15 Vokabeln, sofort', () => startVocabQuiz(set, 'schnell')),
+        tile('grad', 'Probe-Test', profile ? 'Im Stil deiner Lehrkraft' : 'Wie ein echter Test', () => startVocabQuiz(set, 'test'), 'final'),
+        tile('calendar', 'Lernplan', `${(set.plan || []).filter((e) => e.done).length}/${(set.plan || []).length} Tage`, () => go('vplan', { id })),
+        tile('list', 'Vokabelliste', `${st.total} Wörter · ${st.sure} sicher`, () => go('vwords', { id })),
+        st.wrong ? tile('refresh', 'Fehler üben', `${st.wrong} Vokabeln`, () => startVocabQuiz(set, 'fehler')) : null),
+      h('div', { class: 'menu' },
+        menuRow('layers', 'Alte Vokabeltests', profile ? `Testprofil für ${set.sprache} vorhanden` : `Für ${set.sprache} hochladen`, () => go('vtests', { sprache: set.sprache })),
+        menuRow('more', 'Einstellungen', 'Name, Sprache, Testdatum, Seiten, Löschen', () => vocabSetMenu(set)))));
+}
+
+function vocabSetMenu(set) {
+  const name = h('input', { class: 'input', value: set.titel });
+  const lang = h('select', { class: 'input' }, [...new Set([set.sprache, ...LANGS])].map((l) => h('option', { value: l, selected: l === set.sprache }, l)));
+  const date = h('input', { class: 'input', type: 'date', value: set.testDate || '' });
+  const o = sheet('Einstellungen', [
+    h('div', { class: 'label' }, 'Name'), name,
+    h('div', { class: 'label' }, 'Sprache'), lang,
+    h('div', { class: 'label' }, 'Testdatum'), date,
+    h('button', { class: 'btn primary block', onclick: () => {
+      const dateChanged = (date.value || null) !== (set.testDate || null);
+      set.titel = name.value.trim() || set.titel; set.sprache = lang.value; set.testDate = date.value || null;
+      if (dateChanged) buildVocabPlan(set);
+      save(); o.remove(); render();
+    } }, 'Speichern'),
+    h('div', { class: 'menu' },
+      menuRow('plus', 'Weitere Seiten hinzufügen', null, () => { o.remove(); startVocabNew(set.id); }),
+      menuRow('calendar', 'Lernplan neu erstellen', 'Ab heute bis zum Testdatum', () => { buildVocabPlan(set); save(); o.remove(); toast('Lernplan neu erstellt.', 'ok'); render(); }),
+      menuRow('trash', 'Vokabelliste löschen', null, async () => {
+        o.remove();
+        if (!(await confirmDialog(`„${set.titel}“ samt Fortschritt löschen?`, 'Löschen'))) return;
+        for (const fid of set.fileIds || []) await removeFile(fid);
+        vocab().sets = vocab().sets.filter((x) => x.id !== set.id); save(); go('vocab');
+      }, 'danger')),
+  ]);
+}
+
+function viewVocabWords({ id }) {
+  const set = vsetById(id);
+  if (!set) { go('vocab'); return h('div'); }
+  const edit = (w) => {
+    const isNew = !w;
+    w ||= { id: uid(), w: '', t: '', ex: '', box: 0 };
+    const iw = h('input', { class: 'input', value: w.w, placeholder: set.sprache, autocapitalize: 'off' });
+    const it = h('input', { class: 'input', value: w.t, placeholder: 'Deutsch (mehrere mit ; trennen)' });
+    const ie = h('input', { class: 'input', value: w.ex || '', placeholder: 'Beispielsatz (optional)' });
+    const o = sheet(isNew ? 'Vokabel hinzufügen' : 'Vokabel bearbeiten', [
+      h('div', { class: 'label' }, set.sprache), iw, h('div', { class: 'label' }, 'Deutsch'), it, h('div', { class: 'label' }, 'Beispiel'), ie,
+      h('button', { class: 'btn primary block', onclick: () => {
+        if (!iw.value.trim() || !it.value.trim()) return toast('Bitte beide Seiten ausfüllen.');
+        Object.assign(w, { w: iw.value.trim(), t: it.value.trim(), ex: ie.value.trim() });
+        if (isNew) { set.words.push(w); buildVocabPlan(set); }
+        save(); o.remove(); render();
+      } }, 'Speichern'),
+      isNew ? null : h('button', { class: 'btn ghost block danger-text', onclick: () => { set.words = set.words.filter((x) => x.id !== w.id); buildVocabPlan(set); save(); o.remove(); render(); } }, 'Löschen')]);
+  };
+  return h('div', { class: 'screen' },
+    topbar({ back: () => go('vset', { id }), title: 'Vokabelliste' }),
+    h('main', { class: 'content narrow' },
+      h('p', { class: 'muted small center' }, 'Antippen zum Korrigieren. Die Punkte zeigen, wie sicher du die Vokabel kannst.'),
+      h('div', { class: 'menu' }, set.words.map((w) => h('button', { class: 'menu-row vword', onclick: () => edit(w) },
+        h('span', { class: 'menu-text' }, h('span', { class: 'menu-label' }, w.w), h('span', { class: 'menu-sub' }, w.t)),
+        h('span', { class: 'boxdots' }, [1, 2, 3, 4, 5].map((n) => h('i', { class: (w.box || 0) >= n ? 'on' : '' }))))))),
+    h('footer', { class: 'footer' }, h('button', { class: 'btn primary block', onclick: () => edit(null) }, icon('plus', 18), 'Vokabel hinzufügen')));
+}
+
+function viewVocabPlan({ id }) {
+  const set = vsetById(id);
+  if (!set) { go('vocab'); return h('div'); }
+  const today = isoDate(new Date());
+  return h('div', { class: 'screen' },
+    topbar({ back: () => go('vset', { id }), title: 'Lernplan' }),
+    h('main', { class: 'content narrow' },
+      h('p', { class: 'muted small center' }, 'Jeden Tag ein paar neue Vokabeln plus Wiederholung der letzten Tage. Am letzten Tag: alles wiederholen und Probe-Test.'),
+      h('div', { class: 'pick-list' }, (set.plan || []).map((e, i) => h('div', { class: `pick-row ${e.done ? 'st-done' : ''} ${e.iso === today ? 'is-current' : ''}` },
+        h('button', { class: 'pick-main', onclick: () => startVocabQuiz(set, 'heute', i) },
+          h('span', { class: 'topic-num' }, e.done ? icon('check', 16) : String(i + 1)),
+          h('span', { class: 'menu-text' }, h('span', { class: 'menu-label' }, `${relDay(e.iso)} · ${fmtDate(e.iso)}`),
+            h('span', { class: 'menu-sub' }, [e.neu.length ? `${e.neu.length} neue` : '', e.wdh.length ? `${e.wdh.length} wiederholen` : '', e.probe ? 'Probe-Test' : ''].filter(Boolean).join(' · ') || 'frei')),
+          e.iso === today && !e.done ? h('span', { class: 'now' }, 'Heute') : icon('chev', 18))))),
+      h('button', { class: 'link-small', onclick: () => { buildVocabPlan(set); save(); render(); } }, icon('refresh', 16), 'Plan ab heute neu verteilen')));
+}
+
+function viewVocabQuiz({ id, mode }) {
+  const set = vsetById(id);
+  if (!set) { go('vocab'); return h('div'); }
+  const titles = { heute: 'Heute lernen', schnell: 'Schnell-Quiz', fehler: 'Fehler üben', test: 'Probe-Test' };
+  const main = h('main', { class: 'content narrow' });
+  const screen = h('div', { class: 'screen' }, topbar({ back: () => go('vset', { id }), title: titles[mode] }), main);
+  set.sess ||= {};
+  let sess = set.sess[mode];
+  if (!sess?.fragen) {
+    if (mode !== 'test') { go('vset', { id }); return h('div'); }
+    pending(main, `vtest:${id}`, 'Ich baue dir einen Probe-Vokabeltest …', ['Testprofil lesen', 'Aufgaben erstellen'], async () => {
+      const words = shuffle(set.words).slice(0, 25);
+      const res = await generate({ system: P.vocabSystem(), parts: [{ text: P.vocabTestPrompt(set, words, vocab().tests[set.sprache]?.profil) }], json: true, temperature: 0.5 });
+      const fragen = (res.fragen || []).filter((q) => q?.frage && ['mc', 'wahrfalsch', 'eingabe'].includes(q.typ) && (q.typ !== 'mc' || (Array.isArray(q.optionen) && Number.isInteger(q.richtig))))
+        .map((q) => (q.typ === 'eingabe' ? { ...q, antworten: [...new Set((q.antworten || []).flatMap(variants))] } : q));
+      if (!fragen.length) throw new AIError('Keine brauchbaren Testaufgaben erhalten. Bitte nochmal versuchen.');
+      // Zuordnung zu Vokabeln (für die Lernkartei), soweit erkennbar
+      for (const q of fragen) {
+        const hay = normAnswer(`${q.frage} ${(q.antworten || []).join(' ')} ${(q.optionen || [])[q.richtig] || ''}`);
+        q.wid = words.find((w) => hay.includes(normAnswer(w.w).slice(0, 12)) || hay.includes(normAnswer(w.t.split(';')[0]).slice(0, 12)))?.id;
+      }
+      set.sess.test = { fragen, antworten: {}, idx: 0 };
+    });
+    return screen;
+  }
+  runQuiz(main, sess, {
+    strict: true,
+    verdict: (pct) => {
+      applyVocabResults(set, sess);
+      if (mode === 'heute' && sess.entry !== undefined && set.plan?.[sess.entry]) { set.plan[sess.entry].done = true; save(); }
+      const grade = mode === 'test' ? ` Das wäre etwa ${gradeLabel(percentToGrade(pct))} (Schätzung).` : '';
+      return (pct >= 90 ? 'Sehr sicher.' : pct >= 70 ? 'Gut – die Fehler kommen in „Fehler üben“.' : 'Noch unsicher. Wiederhole die Fehler und mach das Quiz morgen nochmal.') + grade;
+    },
+    actions: () => [
+      h('button', { class: 'btn primary block', onclick: () => go('vset', { id }) }, 'Fertig'),
+      h('div', { class: 'row gap wrap center' },
+        mode !== 'test' ? h('button', { class: 'btn ghost', onclick: () => startVocabQuiz(set, mode === 'heute' ? 'fehler' : mode) }, icon('refresh', 18), mode === 'heute' ? 'Fehler üben' : 'Nochmal') : h('button', { class: 'btn ghost', onclick: () => startVocabQuiz(set, 'test') }, icon('refresh', 18), 'Neuer Probe-Test')),
+    ],
+  });
+  return screen;
+}
+
+function viewVocabTests({ sprache }) {
+  const t = (vocab().tests[sprache] ||= { fileIds: [], profil: '' });
+  const list = h('div', { class: 'menu' });
+  const profileBox = h('div', { class: 'stack' });
+  const drawList = () => {
+    list.replaceChildren(...t.fileIds.map((fid) => h('div', { class: 'menu-row' },
+      h('span', { class: 'menu-ico' }, icon('file', 20)), h('span', { class: 'menu-text' }, h('span', { class: 'menu-label' }, state.files[fid]?.name || 'Test')),
+      h('button', { class: 'iconbtn small', 'aria-label': 'Löschen', onclick: async () => { t.fileIds = t.fileIds.filter((x) => x !== fid); await removeFile(fid); save(); drawList(); } }, icon('trash', 18)))));
+    if (!t.fileIds.length) add(list, h('div', { class: 'menu-row' }, h('span', { class: 'muted small' }, 'Noch keine alten Tests.')));
+  };
+  const drawProfile = () => profileBox.replaceChildren(t.profil ? mdEl(t.profil) : h('p', { class: 'muted small' }, 'Wird erstellt, sobald du Tests hochlädst. Danach sehen die Probe-Tests aus wie die deiner Lehrkraft.'));
+  const build = async () => {
+    if (!t.fileIds.length) return;
+    if (!aiReady()) return toast('Bitte zuerst die KI einrichten.', 'error');
+    profileBox.replaceChildren(h('p', { class: 'muted' }, 'Ich analysiere die Tests …'));
+    try {
+      const parts = [{ text: P.vocabTestProfilePrompt(sprache) }];
+      for (const fid of t.fileIds) parts.push(await filePart(fid));
+      t.profil = await generate({ system: P.vocabSystem(), parts, temperature: 0.2 });
+      save(); toast('Testprofil erstellt.', 'ok');
+    } catch (e) { toast(errorMsg(e), 'error'); }
+    drawProfile();
+  };
+  drawList(); drawProfile();
+  return h('div', { class: 'screen' },
+    topbar({ back: () => go('vocab'), title: `Vokabeltests ${sprache}` }),
+    h('main', { class: 'content narrow' },
+      h('p', { class: 'muted small center' }, 'Am besten korrigierte Tests. Ich schaue mir Aufgabentypen, Richtung und Strenge (Rechtschreibung, Artikel, Akzente) an.'),
+      list,
+      h('button', { class: 'btn primary block', onclick: async () => {
+        const added = [];
+        for (const f of await pickFiles()) { try { const fid = await addFile(f, { kind: 'vtest', subjectId: null }); t.fileIds.push(fid); added.push(fid); } catch (e) { toast(errorMsg(e), 'error'); } }
+        save(); drawList(); if (added.length) build();
+      } }, icon('upload', 18), 'Tests hochladen'),
+      h('section', { class: 'card stack' }, h('h3', {}, 'Testprofil'), profileBox,
+        t.fileIds.length ? h('button', { class: 'btn small ghost', onclick: build }, icon('refresh', 16), 'Neu analysieren') : null)));
 }
 
 // ================================================================ TUTOR-CHAT

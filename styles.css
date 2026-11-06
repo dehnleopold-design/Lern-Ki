@@ -408,3 +408,19 @@ ul { margin: 4px 0; padding-left: 22px; }
 .pick-row.st-done .topic-num { background: var(--accent); color: #fff; }
 .pick-row.st-skipped { opacity: .45; }
 .pick-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 14px; padding: 16px; text-align: left; color: var(--muted); }
+
+/* Jelly schwebt sanft, die Tentakel schwingen */
+.mascot.jelly { animation: jelly-float 3.4s ease-in-out infinite; }
+.mascot.jelly .tentacles { transform-origin: 50% 58%; animation: jelly-sway 2.6s ease-in-out infinite; }
+@keyframes jelly-float { 50% { transform: translateY(-5px); } }
+@keyframes jelly-sway { 0%, 100% { transform: skewX(-4deg); } 50% { transform: skewX(4deg); } }
+@media (prefers-reduced-motion: reduce) { .mascot.jelly, .mascot.jelly .tentacles { animation: none; } }
+
+/* ---------- Vokabeln ---------- */
+.vtiles { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.vtiles .tile-btn { min-height: 130px; }
+.boxdots { display: flex; gap: 4px; flex-shrink: 0; }
+.boxdots i { width: 7px; height: 7px; border-radius: 50%; background: var(--surface-2); border: 1px solid rgba(255,255,255,.12); }
+.boxdots i.on { background: var(--accent); border-color: var(--accent); }
+.menu-row .ring span { font-size: .62rem; }
+.menu-row.vword .menu-label { font-weight: 600; }

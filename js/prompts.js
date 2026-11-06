@@ -19,7 +19,7 @@ export function baseSystem(subject) {
 - Bewerte zusätzlich Fachsprache und Grammatik: Jeden Sprachfehler zitieren und korrigieren.
 - Schwierige Fachbegriffe darfst du kurz in Klammern auf Deutsch erklären.`
     : '';
-  return `Du bist "Kiri", ein Lerncoach, der eine Person gezielt auf eine Klassenarbeit/Klausur vorbereitet.
+  return `Du bist "Jelly", ein Lerncoach, der eine Person gezielt auf eine Klassenarbeit/Klausur vorbereitet.
 
 SCHÜLER/IN: ${p.name || 'unbekannt'}, Klasse ${p.grade || '?'}, ${p.schoolType || 'Schule'}, Bundesland ${p.state || 'unbekannt'}.
 Lernzeit pro Tag: ca. ${p.minutesPerDay || 30} Minuten. Lernt am besten durch: ${(p.learnStyles || []).join(', ') || 'keine Angabe'}.
@@ -297,4 +297,50 @@ Auf Wunsch: stelle eine prüfungsnahe Aufgabe und korrigiere die Antwort streng.
 
 KONTEXT:
 ${examContext(exam)}`;
+}
+
+// ---------- 7. Vokabeln ----------
+export function vocabSystem() {
+  const p = state.profile || {};
+  return `Du bist "Jelly", ein strenger, ehrlicher Vokabeltrainer für ${p.name || 'eine Schülerin/einen Schüler'} (Klasse ${p.grade || '?'}, ${p.schoolType || 'Schule'}, ${p.state || ''}).
+Arbeite exakt: Rechtschreibung, Akzente, Artikel/Genus und unregelmäßige Formen müssen stimmen. Nichts erfinden.`;
+}
+
+export function vocabExtractPrompt() {
+  return `Das ist eine VOKABELSEITE (Vokabelliste aus dem Schulbuch, Vokabelheft, Arbeitsblatt oder Foto). Lies ALLE Einträge vollständig und buchstabengenau ab – auch Handschrift.
+Gib NUR JSON zurück:
+{
+ "titel": "kurzer Titel, z. B. 'Unit 3 – Travel' oder 'Lección 4'",
+ "sprache": "Fremdsprache auf Deutsch, z. B. Englisch, Spanisch, Französisch, Latein",
+ "vokabeln": [
+  { "wort": "Fremdsprache exakt (mit Artikel/Genus, Akzenten, ggf. unregelmäßigen Formen wie 'go – went – gone')",
+    "uebersetzung": "deutsche Bedeutung(en), mehrere mit ; getrennt",
+    "beispiel": "Beispielsatz/Kollokation von der Seite, sonst leer",
+    "info": "Wortart/Grammatikhinweis von der Seite, sonst leer" }
+ ]
+}
+Reihenfolge wie auf der Seite. Nichts weglassen, nichts hinzuerfinden. Unleserliches mit [?] markieren. Steht die deutsche Seite links, trotzdem "wort" = Fremdsprache.`;
+}
+
+export function vocabTestProfilePrompt(sprache) {
+  return `Das sind ALTE VOKABELTESTS (${sprache}), evtl. mit Korrektur der Lehrkraft. Analysiere sie genau und beschreibe das TESTPROFIL der Lehrkraft, damit Übungstests exakt so aussehen und so streng bewertet werden.
+Markdown, knapp und konkret, mit Beispielen aus den Tests:
+**Aufbau & Umfang** (Anzahl Wörter, Zeit, Punkte) – **Aufgabentypen** (z. B. Deutsch→${sprache}, ${sprache}→Deutsch, Lückensätze, Sätze bilden, Synonyme/Gegenteile, Definitionen, Verbformen, Zuordnen) mit Anteil – **Bewertung** (zählen Rechtschreibung, Akzente, Artikel, Großschreibung? halbe Punkte?) – **Typische Fehler, die angestrichen wurden** – **Tipps**.`;
+}
+
+export function vocabTestPrompt(set, words, profile) {
+  return `Erstelle einen PROBE-VOKABELTEST (${set.sprache}) mit ${Math.min(20, Math.max(8, words.length))} Aufgaben aus den Vokabeln unten.
+${profile ? `Halte dich EXAKT an das Testprofil der Lehrkraft (Aufgabentypen, Richtungen, Anteile, Strenge):\n${profile}` : `Kein Testprofil vorhanden: mische Deutsch→${set.sprache} (ca. 50 %), ${set.sprache}→Deutsch (ca. 25 %) und Lückensätze (ca. 25 %).`}
+
+Technische Form (die App wertet automatisch aus): Jede Aufgabe ist eine der Arten
+- "eingabe": Antwort eintippen. "antworten" = ALLE korrekten Schreibweisen (mit/ohne Artikel, Varianten). Für Lückensätze den Satz mit ___ in "frage".
+- "mc": 4 Optionen, "richtig" = Index der richtigen.
+- "wahrfalsch": Aussage, "richtig": true/false.
+Wörter nur aus der Liste. Formuliere die Fragen wie im Test der Lehrkraft (z. B. "Übersetze: …").
+
+Gib NUR JSON zurück:
+{ "fragen": [ { "typ": "eingabe", "frage": "…", "antworten": ["…"], "erklaerung": "kurz, z. B. Merkhilfe oder Grammatik" } ] }
+
+VOKABELN:
+${words.map((w) => `- ${w.w} = ${w.t}${w.ex ? ` (Beispiel: ${w.ex})` : ''}`).join('\n')}`;
 }

@@ -148,23 +148,33 @@ export function md(src) {
 
 export const mdEl = (text, cls = 'md') => h('div', { class: cls, html: md(text) });
 
-// Eigenes Maskottchen "Kiri": runder Mint-Kopf mit Spross.
+// Eigenes Maskottchen "Jelly": eine kleine lila Qualle.
+let jellyN = 0;
 export function mascot(size = 88, mood = 'normal') {
+  const id = `jg${++jellyN}`;
   const eyes = mood === 'think'
-    ? '<ellipse cx="38" cy="50" rx="7" ry="4" fill="#120c22"/><ellipse cx="62" cy="50" rx="7" ry="4" fill="#120c22"/>'
-    : `<ellipse cx="38" cy="50" rx="9" ry="11" fill="#fff"/><ellipse cx="62" cy="50" rx="9" ry="11" fill="#fff"/>
-       <circle cx="${mood === 'side' ? 41 : 39}" cy="52" r="5.5" fill="#120c22"/><circle cx="${mood === 'side' ? 65 : 63}" cy="52" r="5.5" fill="#120c22"/>`;
+    ? '<path d="M35 43 q4 3 8 0 M57 43 q4 3 8 0" stroke="#1a1030" stroke-width="2.6" fill="none" stroke-linecap="round"/>'
+    : `<ellipse cx="39" cy="42" rx="5.2" ry="6.4" fill="#1a1030"/><ellipse cx="61" cy="42" rx="5.2" ry="6.4" fill="#1a1030"/>
+       <circle cx="${mood === 'side' ? 41.5 : 40.5}" cy="40" r="1.9" fill="#fff"/><circle cx="${mood === 'side' ? 63.5 : 62.5}" cy="40" r="1.9" fill="#fff"/>`;
   return h('div', {
-    class: 'mascot',
+    class: 'mascot jelly',
     style: { width: `${size}px`, height: `${size}px` },
     html: `<svg viewBox="0 0 100 100" width="100%" height="100%" aria-hidden="true">
-      <path d="M50 22 C50 12 56 6 66 6 C64 14 58 20 50 22Z" fill="#e9d5ff"/>
-      <path d="M50 24 C49 16 44 11 36 11 C38 18 43 22 50 24Z" fill="#c4b5fd"/>
-      <rect x="48" y="18" width="4" height="10" rx="2" fill="#c4b5fd"/>
-      <circle cx="50" cy="58" r="34" fill="#9d7bff"/>
-      <ellipse cx="50" cy="80" rx="22" ry="8" fill="#7c5ce6" opacity=".6"/>
+      <defs>
+        <linearGradient id="${id}b" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#d9c4ff"/><stop offset="1" stop-color="#9b6bff"/></linearGradient>
+      </defs>
+      <g class="tentacles" stroke="#b996ff" stroke-width="3.2" fill="none" stroke-linecap="round">
+        <path d="M30 60 q-5 9 0 17 q5 8 -1 16"/><path d="M42 61 q4 8 0 15 q-4 8 1 15"/>
+        <path d="M58 61 q-4 8 0 15 q4 8 -1 15"/><path d="M70 60 q5 9 0 17 q-5 8 1 16"/>
+      </g>
+      <g stroke="#e4d4ff" stroke-width="2" fill="none" stroke-linecap="round" opacity=".8">
+        <path d="M36 61 q2 6 -1 11"/><path d="M50 62 q-2 7 0 13"/><path d="M64 61 q-2 6 1 11"/>
+      </g>
+      <path d="M16 56 C16 30 31 14 50 14 C69 14 84 30 84 56 Q78 63 72 57 Q66 64 60 57 Q55 64 50 57 Q45 64 40 57 Q34 64 28 57 Q22 63 16 56 Z" fill="url(#${id}b)"/>
+      <ellipse cx="34" cy="27" rx="9" ry="5" fill="#fff" opacity=".35" transform="rotate(-25 34 27)"/>
       ${eyes}
-      <path d="M43 70 Q50 75 57 70" stroke="#120c22" stroke-width="3" fill="none" stroke-linecap="round"/>
+      <ellipse cx="31" cy="50" rx="4.5" ry="2.6" fill="#ff8fc8" opacity=".55"/><ellipse cx="69" cy="50" rx="4.5" ry="2.6" fill="#ff8fc8" opacity=".55"/>
+      <path d="M45 50 Q50 54.5 55 50" stroke="#1a1030" stroke-width="2.6" fill="none" stroke-linecap="round"/>
     </svg>`,
   });
 }
@@ -175,6 +185,14 @@ export function speech(text, mood) {
 
 // Icons: Lucide (https://lucide.dev), ISC-Lizenz – Copyright (c) Lucide Contributors.
 const I = {
+  languages: "<path d=\"m5 8 6 6\" /> <path d=\"m4 14 6-6 2-3\" /> <path d=\"M2 5h12\" /> <path d=\"M7 2h1\" /> <path d=\"m22 22-5-10-5 10\" /> <path d=\"M14 18h6\" />",
+  list: "<path d=\"M3 12h.01\" /> <path d=\"M3 18h.01\" /> <path d=\"M3 6h.01\" /> <path d=\"M8 12h13\" /> <path d=\"M8 18h13\" /> <path d=\"M8 6h13\" />",
+  calendar: "<path d=\"M8 2v4\" /> <path d=\"M16 2v4\" /> <rect width=\"18\" height=\"18\" x=\"3\" y=\"4\" rx=\"2\" /> <path d=\"M3 10h18\" /> <path d=\"M8 14h.01\" /> <path d=\"M12 14h.01\" /> <path d=\"M16 14h.01\" /> <path d=\"M8 18h.01\" /> <path d=\"M12 18h.01\" /> <path d=\"M16 18h.01\" />",
+  shuffle: "<path d=\"M2 18h1.4c1.3 0 2.5-.6 3.3-1.7l6.1-8.6c.7-1.1 2-1.7 3.3-1.7H22\" /> <path d=\"m18 2 4 4-4 4\" /> <path d=\"M2 6h1.9c1.5 0 2.9.9 3.6 2.2\" /> <path d=\"M22 18h-5.9c-1.3 0-2.6-.7-3.3-1.8l-.5-.8\" /> <path d=\"m18 14 4 4-4 4\" />",
+  grad: "<path d=\"M21.42 10.922a1 1 0 0 0-.019-1.838L12.83 5.18a2 2 0 0 0-1.66 0L2.6 9.08a1 1 0 0 0 0 1.832l8.57 3.908a2 2 0 0 0 1.66 0z\" /> <path d=\"M22 10v6\" /> <path d=\"M6 12.5V16a6 3 0 0 0 12 0v-3.5\" />",
+  edit: "<path d=\"M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z\" /> <path d=\"m15 5 4 4\" />",
+  minus: "<path d=\"M5 12h14\" />",
+  cards: "<path d=\"M7 2h10\" /> <path d=\"M5 6h14\" /> <rect width=\"18\" height=\"12\" x=\"3\" y=\"10\" rx=\"2\" />",
   back: "<path d=\"m15 18-6-6 6-6\" />",
   close: "<path d=\"M18 6 6 18\" /> <path d=\"m6 6 12 12\" />",
   plus: "<path d=\"M5 12h14\" /> <path d=\"M12 5v14\" />",
