@@ -142,8 +142,25 @@ function renderBlocks(lines) {
   return out.join('');
 }
 
+// Räumt "Code"-Reste auf, die KI-Modelle manchmal schreiben (LaTeX, HTML-Tags, Entities).
+export function cleanText(t) {
+  return String(t || '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/?(sub|sup|b|i|u|strong|em|span|p|div|small|mark)(\s[^>]*)?>/gi, '')
+    .replace(/\$\$([^$]+)\$\$/g, '$1').replace(/\$([^$\n]+)\$/g, '$1')
+    .replace(/\\d?frac\{([^{}]*)\}\{([^{}]*)\}/g, '$1/$2')
+    .replace(/\\sqrt\{([^{}]*)\}/g, '√$1')
+    .replace(/\\(cdot|times)/g, '·').replace(/\\(rightarrow|to|Rightarrow|implies)/g, '→').replace(/\\approx/g, '≈')
+    .replace(/\\(leq|le)\b/g, '≤').replace(/\\(geq|ge)\b/g, '≥').replace(/\\(Delta)/g, 'Δ').replace(/\\(pi)\b/g, 'π').replace(/\\(circ|degree)/g, '°')
+    .replace(/\\(text|mathrm|mathbf|textbf|operatorname)\{([^{}]*)\}/g, '$2')
+    .replace(/\^\{?2\}?(?![0-9])/g, '²').replace(/\^\{?3\}?(?![0-9])/g, '³').replace(/\^\{([^{}]*)\}/g, '^$1')
+    .replace(/_\{([^{}]*)\}/g, '$1')
+    .replace(/\\[,;! ]/g, ' ').replace(/\\left|\\right/g, '')
+    .replace(/&nbsp;/g, ' ').replace(/&rarr;/g, '→').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"');
+}
+
 export function md(src) {
-  return renderBlocks(esc(src || '').split(/\r?\n/));
+  return renderBlocks(esc(cleanText(src)).split(/\r?\n/));
 }
 
 export const mdEl = (text, cls = 'md') => h('div', { class: cls, html: md(text) });

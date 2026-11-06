@@ -6,9 +6,10 @@ import { addFile, removeFile, filePart, thumbURL, pickFiles } from './files.js';
 import * as P from './prompts.js';
 import { gradeLabel, gradeOptions, percentToGrade, reachesTarget, scale } from './grades.js';
 import { downloadLernzettel, sheetHTML, SHEET_CSS } from './pdf.js';
+import { cleanText } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.6 (6.11.)';
+const APP_VERSION = '2.7 (6.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -32,6 +33,13 @@ let route = { name: 'plan', params: {} };
 const ui = { selectedUnit: null, busy: {} };
 
 function go(name, params = {}) {
+  // Probeklassenarbeit verlassen, ohne abzugeben: Timer beim nächsten Öffnen wieder von vorn
+  if (route.name === 'session') {
+    const se = state.sessions[route.params.unitId];
+    const ex = examById(route.params.examId);
+    const un = ex && allUnits(ex).find((u) => u.id === route.params.unitId);
+    if (un?.typ === 'probeklausur' && se && !se.grading && se.startedAt) { se.startedAt = null; save(); }
+  }
   route = { name, params };
   render();
   window.scrollTo(0, 0);
@@ -1307,7 +1315,7 @@ function runQuiz(main, sess, opts = {}) {
   if (q.typ === 'mc') {
     add(body, h('div', { class: 'quiz-options' }, q.optionen.map((o, oi) => {
       const st = ans ? (oi === q.richtig ? 'right' : ans.value === oi ? 'wrong' : 'dim') : '';
-      return h('button', { class: `quiz-opt ${st}`, disabled: !!ans, onclick: () => answer(o, oi === q.richtig, oi) }, h('span', { class: 'opt-letter' }, 'ABCD'[oi] || '•'), h('span', {}, o));
+      return h('button', { class: `quiz-opt ${st}`, disabled: !!ans, onclick: () => answer(o, oi === q.richtig, oi) }, h('span', { class: 'opt-letter' }, 'ABCD'[oi] || '•'), h('span', {}, cleanText(o)));
     })));
   } else if (q.typ === 'wahrfalsch') {
     add(body, h('div', { class: 'quiz-options two' }, [[true, 'Wahr'], [false, 'Falsch']].map(([v, l]) => {
@@ -1323,14 +1331,14 @@ function runQuiz(main, sess, opts = {}) {
   if (ans) {
     add(body, h('div', { class: `quiz-feedback ${ans.correct ? 'right' : 'wrong'}` },
       h('strong', {}, ans.correct ? 'Richtig!' : q.typ === 'eingabe' ? `Falsch – richtig ist: ${correctText(q)}` : 'Falsch.'),
-      q.erklaerung ? h('div', {}, q.erklaerung) : null,
+      q.erklaerung ? h('div', {}, cleanText(q.erklaerung)) : null,
       !ans.correct && q.typ === 'eingabe' ? h('button', { class: 'link-small', onclick: () => { ans.correct = true; save(); render(); } }, 'Meine Antwort war doch richtig') : null));
   }
   add(main,
     h('div', { class: 'quiz-top' }, h('div', { class: 'progress' }, h('div', { class: 'progress-fill', style: { width: `${Math.round((i / total) * 100)}%` } })), h('span', { class: 'muted small' }, `${i + 1}/${total}`)),
     h('section', { class: 'card quiz-card' },
       h('div', { class: 'label' }, q.typ === 'wahrfalsch' ? 'Wahr oder falsch?' : q.typ === 'eingabe' ? 'Antwort eintippen' : 'Wähle die richtige Antwort'),
-      h('div', { class: 'quiz-q' }, q.frage), body),
+      h('div', { class: 'quiz-q' }, cleanText(q.frage)), body),
     ans ? h('button', { class: 'btn primary block', onclick: () => { sess.idx = i + 1; save(); render(); } }, i + 1 < total ? 'Weiter' : 'Ergebnis ansehen') : null);
 }
 
@@ -1505,8 +1513,8 @@ function viewSolveNew() {
   const cancel = async () => { for (const id of nsv.fileIds) await removeFile(id); nsv = null; go('subjects'); };
   if (nsv.processing) {
     const panel = waitPanel('Ich löse dein Arbeitsblatt …');
-    panel.setSteps(['Blatt lesen', 'Aufgaben lösen']);
-    panel.run(1);
+    panel.setSteps(['Blatt lesen & Aufgaben lösen', 'Lösungen aufs Blatt schreiben']);
+    panel.run(0);
     const screen = h('div', { class: 'screen' }, topbar({ close: () => go('subjects') }), h('main', { class: 'content narrow' }, panel.el));
     processSolve(panel);
     return screen;
@@ -1551,17 +1559,66 @@ async function processSolve(panel) {
     const parts = [{ text: P.solvePrompt(subject, nsv.note.trim()) }];
     for (const id of nsv.fileIds) parts.push(await filePart(id));
     const text = await generate({ system: P.baseSystem(subject), parts, temperature: 0.2 });
+    panel.done(0); panel.run(1);
     const first = text.match(/^##\s+(.*)$/m);
-    const item = { id: uid(), subjectId: nsv.subjectId, fileIds: [...nsv.fileIds], note: nsv.note.trim(), loesung: text, titel: `${subject?.name || 'Blatt'} · ${new Date().toLocaleDateString('de-DE')}`, ersteAufgabe: first ? first[1].slice(0, 80) : '', chat: [], createdAt: Date.now() };
+    const item = { id: uid(), subjectId: nsv.subjectId, fileIds: [...nsv.fileIds], note: nsv.note.trim(), loesung: text, titel: `${subject?.name || 'Blatt'} · ${new Date().toLocaleDateString('de-DE')}`, ersteAufgabe: first ? first[1].slice(0, 80) : '', chat: [], createdAt: Date.now(), annot: {} };
+    await annotateSheet(item, subject);
     solvedList().unshift(item);
     save();
     nsv = null;
     go('solved', { id: item.id });
   } catch (e) {
-    panel.fail(1);
+    panel.fail(0);
     panel.errBox.replaceChildren(h('div', { class: 'card warn' }, h('p', {}, errorMsg(e)),
       h('div', { class: 'row gap center' }, h('button', { class: 'btn', onclick: () => render() }, 'Nochmal versuchen'), h('button', { class: 'btn ghost', onclick: () => { nsv.processing = false; render(); } }, 'Zurück'))));
   } finally { delete ui.busy.solve; }
+}
+
+// Lösungen direkt auf die Fotos schreiben (Positionen von der KI, 0–1000 relativ zum Bild).
+async function annotateSheet(item, subject) {
+  item.annot ||= {};
+  for (const fid of item.fileIds) {
+    if (!state.files[fid]?.mime?.startsWith('image/')) continue;
+    try {
+      const res = await generate({ system: P.baseSystem(subject), parts: [{ text: P.annotatePrompt(item.loesung) }, await filePart(fid)], json: true, temperature: 0.1 });
+      item.annot[fid] = (res.eintraege || []).filter((e) => Array.isArray(e.box) && e.box.length === 4 && e.box.every((n) => Number.isFinite(Number(n))) && ['text', 'kreuz', 'markieren', 'kreis', 'pruefen'].includes(e.art))
+        .map((e) => ({ ...e, box: e.box.map((n) => Math.max(0, Math.min(1000, Number(n)))) }));
+    } catch (e) { console.warn('Eintragen fehlgeschlagen', e); }
+  }
+}
+
+const SVG_CROSS = '<svg viewBox="0 0 10 10" preserveAspectRatio="none"><path d="M1.5 1.5 L8.5 8.5 M8.5 1.5 L1.5 8.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" fill="none"/></svg>';
+const SVG_CHECK = '<svg viewBox="0 0 10 10"><path d="M1.5 5.5 L4 8 L8.8 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>';
+
+function annotatedPage(fid, entries, show) {
+  const wrap = h('div', { class: `annot-wrap ${show ? '' : 'hide-ink'}` });
+  const img = h('img', { alt: 'Arbeitsblatt' });
+  add(wrap, img);
+  const layer = h('div', { class: 'annot-layer' });
+  add(wrap, layer);
+  const pos = (b) => ({ top: `${b[0] / 10}%`, left: `${b[1] / 10}%`, height: `${(b[2] - b[0]) / 10}%`, width: `${(b[3] - b[1]) / 10}%` });
+  const texts = [];
+  for (const e of entries) {
+    const st = pos(e.box);
+    if (e.art === 'text') { const t = h('div', { class: 'ink ink-text', style: st }, cleanText(e.text || '')); texts.push([t, e.box]); add(layer, t); }
+    else if (e.art === 'kreuz') add(layer, h('div', { class: 'ink ink-cross', style: st, html: SVG_CROSS }));
+    else if (e.art === 'markieren') add(layer, h('div', { class: 'ink ink-mark', style: st }));
+    else if (e.art === 'kreis') add(layer, h('div', { class: 'ink ink-circle', style: st }));
+    else if (e.art === 'pruefen') {
+      add(layer, h('div', { class: `ink ink-check ${e.ok ? 'ok' : 'bad'}`, style: { top: st.top, height: st.height, left: `${Math.min(97, e.box[3] / 10)}%` }, html: e.ok ? SVG_CHECK : SVG_CROSS }));
+      if (!e.ok && e.text) { const t = h('div', { class: 'ink ink-text ink-fix', style: { ...st, top: `${e.box[2] / 10}%` } }, cleanText(e.text)); texts.push([t, e.box]); add(layer, t); }
+    }
+  }
+  // Schriftgröße an die Zeilenhöhe im Foto anpassen
+  const fit = () => {
+    const H = img.clientHeight;
+    if (!H) return;
+    for (const [t, b] of texts) t.style.fontSize = `${Math.max(10, Math.min(34, ((b[2] - b[0]) / 1000) * H * (t.classList.contains('ink-fix') ? 0.6 : 0.85)))}px`;
+  };
+  img.onload = fit;
+  if (window.ResizeObserver) new ResizeObserver(fit).observe(wrap);
+  thumbURL(fid).then((u) => { if (u) img.src = u; });
+  return wrap;
 }
 
 // Jede "## Aufgabe …" wird ein eigener Block; die Lösung ist zum Selbsttesten erst zugeklappt.
@@ -1635,8 +1692,32 @@ function viewSolved({ id }) {
               state.solved = solvedList().filter((x) => x.id !== item.id); save(); go('subjects');
             }, 'danger'))]);
         } }, icon('more', 18))),
-      h('p', { class: 'muted small center' }, 'Versuch jede Aufgabe erst selbst, dann aufdecken. Die KI kann sich irren – bei Zweifeln nachfragen.'),
-      h('article', { class: 'lernzettel solve' }, solvedSheet(item, ui.solveOpen)),
+      (() => {
+        const imgs = item.fileIds.filter((fid) => state.files[fid]?.mime?.startsWith('image/'));
+        const hasAnnot = imgs.some((fid) => item.annot?.[fid]?.length);
+        ui.solveView ??= 'blatt';
+        const view = hasAnnot ? ui.solveView : 'text';
+        const seg = imgs.length ? h('div', { class: 'seg' },
+          h('button', { class: `seg-btn ${view === 'blatt' ? 'active' : ''}`, onclick: () => { ui.solveView = 'blatt'; render(); } }, 'Auf dem Blatt'),
+          h('button', { class: `seg-btn ${view === 'text' ? 'active' : ''}`, onclick: () => { ui.solveView = 'text'; render(); } }, 'Ausführlich')) : null;
+        if (imgs.length && !hasAnnot && ui.solveView === 'blatt') {
+          const btn = h('button', { class: 'btn primary block', onclick: async () => {
+            btn.disabled = true; btn.textContent = 'Schreibe Lösungen aufs Blatt …';
+            try { await annotateSheet(item, subject); save(); } catch (e) { toast(errorMsg(e), 'error'); }
+            render();
+          } }, 'Lösungen aufs Blatt schreiben');
+          return [seg, h('p', { class: 'muted small center' }, 'Für dieses Blatt gibt es noch keine Einträge auf dem Foto.'), btn, h('article', { class: 'lernzettel solve' }, solvedSheet(item, ui.solveOpen))];
+        }
+        if (view === 'blatt') {
+          ui.inkShow ??= true;
+          return [seg,
+            h('div', { class: 'row gap center' }, h('button', { class: 'btn small', onclick: () => { ui.inkShow = !ui.inkShow; render(); } }, ui.inkShow ? 'Lösungen ausblenden' : 'Lösungen einblenden')),
+            h('p', { class: 'muted small center' }, 'Die Position der Einträge ist geschätzt – bei schrägen Fotos kann sie etwas verrutschen. Alles Wichtige steht unter „Ausführlich“.'),
+            ...imgs.filter((fid) => item.annot?.[fid]).map((fid) => annotatedPage(fid, item.annot[fid], ui.inkShow))];
+        }
+        return [seg, h('p', { class: 'muted small center' }, 'Versuch jede Aufgabe erst selbst, dann aufdecken. Die KI kann sich irren – bei Zweifeln nachfragen.'),
+          h('article', { class: 'lernzettel solve' }, solvedSheet(item, ui.solveOpen))];
+      })(),
       h('section', { class: 'card stack' }, h('div', { class: 'label' }, 'Nachfragen'), list, h('div', { class: 'chat-input' }, input, send))));
 }
 

@@ -33,7 +33,7 @@ GRUNDREGELN
 2. Prüfungsnähe: Aufgaben so, wie sie in einer echten Klassenarbeit dieser Klassenstufe und dieses Bundeslands vorkommen – mit Operatoren (nennen, beschreiben, erklären, erläutern, analysieren, vergleichen, interpretieren, beurteilen, bewerten, erörtern, berechnen, begründen …) und Anforderungsbereichen I–III. KEINE Trivia-Quizfragen, KEINE Abfrage nebensächlicher Details (Jahreszahlen, Seitenzahlen, Namen von Beispielen), es sei denn, das Material zeigt, dass genau das abgefragt wird.
 3. Lehrerorientierung: Richte dich strikt nach dem Unterrichtsmaterial (Arbeitsblätter, Hefteinträge) und dem Lehrerprofil aus alten Klausuren: gleiche Aufgabenformate, gleiche Operatoren, gleiche Schwerpunkte, gleicher Erwartungshorizont. Was die Lehrkraft in alten Klausuren angestrichen hat, wird auch hier streng bewertet.
 4. Keine Erfindungen: Wenn das Material etwas nicht abdeckt oder unklar ist, sag das ausdrücklich, statt zu raten.
-5. Formeln in einfacher Textform (x², √, ·, a/b, Δ). Antworte in Markdown (fett, Listen), knapp und konkret.
+5. Schreib alles so, wie man es mit Stift aufs Papier schreiben würde: KEIN LaTeX (kein $, \\frac, ^{}, \\cdot), KEINE HTML-Tags (<br>, <sub>), KEINE Emojis oder Code-Schreibweisen. Formeln einfach: x², 3/4, 2 · 5, Wurzel aus 9, CO₂. Antworte in Markdown (fett, Listen), knapp und konkret.
 6. Sprache: Deutsch, außer das Fach verlangt etwas anderes.${lang}`;
 }
 
@@ -356,6 +356,8 @@ ${note ? `Hinweis des Schülers: ${note}\n` : ''}
 REGELN
 - Halte dich an den Operator (nenne/beschreibe/erkläre/analysiere/beurteile …): Umfang und Tiefe passend dazu.
 - Nutze die Materialien vom Blatt und zitiere sie (z. B. "M2, Z. 5"). Rechnungen vollständig mit Einheiten.
+- Hat der Schüler schon etwas eingetragen, prüfe es: richtig bestätigen, falsch klar benennen und korrigieren.
+- Schreib wie mit Stift auf Papier: kein LaTeX, keine HTML-Tags, keine Code-Schreibweisen.
 - Wenn etwas unleserlich ist oder Material fehlt (z. B. ein Text nur auf einer anderen Seite), sag es ausdrücklich, statt zu raten.
 - ${lang}
 
@@ -379,4 +381,26 @@ Du hilfst beim Verstehen eines gelösten Arbeitsblatts. Beantworte Rückfragen p
 
 DEINE LÖSUNGEN ZUM BLATT:
 ${solved.loesung}`;
+}
+
+export function annotatePrompt(loesung) {
+  return `Du siehst EINE Seite eines Arbeitsblatts/Arbeitshefts (Foto, evtl. schräg oder gebogen). Trage die Lösungen DIREKT AUF DEM BLATT ein – so, wie ein Schüler mit Stift: in die Lücke, auf die Schreiblinie unter der Aufgabe, Kreuz ins Kästchen, Markierung auf die Textstelle.
+
+Gib für JEDE Stelle auf DIESER Seite, an der etwas eingetragen, angekreuzt, markiert oder eingekreist werden muss, einen Eintrag mit genauer Position zurück.
+Position "box": [ymin, xmin, ymax, xmax] als ganze Zahlen von 0 bis 1000, relativ zur Bildhöhe/-breite (0,0 = oben links).
+
+Arten ("art"):
+- "text": Antwort hinschreiben. box = genau die freie Lücke oder die erste freie Schreiblinie, auf der die Antwort stehen soll (nicht die Aufgabenstellung!). "text" = die Antwort so kurz, wie man sie dort hinschreiben würde. Mehrere Linien: eine box über die freien Linien.
+- "kreuz": Kästchen ankreuzen. box = das Kästchen.
+- "markieren": Wort/Textstelle markieren oder unterstreichen. box = die Textstelle.
+- "kreis": etwas einkreisen. box = das Einzukreisende.
+- "pruefen": Der Schüler hat hier SCHON etwas hingeschrieben. box = seine Antwort, "ok" = true/false, "text" = bei falsch die richtige Lösung (kurz), bei richtig leer.
+
+Regeln: nur Aufgaben auf DIESER Seite; fachlich korrekt (nutze die Lösungen unten); nur normale Schrift-Zeichen, kein LaTeX, keine HTML-Tags.
+
+Gib NUR JSON zurück:
+{ "eintraege": [ { "aufgabe": "1a", "art": "text", "text": "…", "box": [400, 120, 430, 900] } ] }
+
+LÖSUNGEN ZUM BLATT:
+${loesung}`;
 }
