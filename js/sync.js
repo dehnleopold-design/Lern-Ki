@@ -42,6 +42,7 @@ async function saveLocalMeta() { await kvPut('sync', local); }
 
 function friendly(e) {
   const code = e?.code || '';
+  if (/has not been used|is disabled|SERVICE_DISABLED/i.test(e?.message || '')) return 'Firestore ist im Firebase-Projekt noch nicht eingeschaltet – der Abgleich startet, sobald es aktiv ist.';
   if (code === 'permission-denied') return 'Keine Berechtigung – sind die Firestore-Regeln veröffentlicht?';
   if (code === 'not-found' || /database .* does not exist|NOT_FOUND/i.test(e?.message || '')) return 'Firestore ist im Firebase-Projekt noch nicht eingerichtet.';
   if (code === 'unavailable') return 'Offline – wird später synchronisiert.';
