@@ -6,7 +6,7 @@ import { gradeLabel, gradeOptions, percentToGrade, reachesTarget, scale } from '
 import { downloadLernzettel, sheetHTML, SHEET_CSS } from './pdf.js';
 import { h, add, md, mdEl, mascot, speech, icon, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.0 (6.11.)';
+const APP_VERSION = '2.1 (6.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -45,7 +45,15 @@ function render() {
 
 function tabbar(active) {
   const tab = (name, ic, label) => h('button', { class: `tab ${active === name ? 'active' : ''}`, onclick: () => go(name), 'aria-label': label }, icon(ic, 22), h('span', {}, label));
-  return h('nav', { class: 'tabbar' }, tab('plan', 'route', 'Plan'), tab('subjects', 'library', 'Fächer'), tab('vocab', 'languages', 'Vokabeln'), tab('tutor', 'sparkles', 'Tutor'), tab('settings', 'gear', 'Mehr'));
+  // Kamera-Knopf in der Mitte: öffnet sofort die Kamera, das Foto landet in "Blatt lösen"
+  const cam = h('button', { class: 'tab-cam', 'aria-label': 'Arbeitsblatt fotografieren', onclick: () => {
+    startSolve();
+    pickFiles({ accept: 'image/*', capture: 'environment', multiple: false }).then(async (files) => {
+      for (const f of files) { try { nsv.fileIds.push(await addFile(f, { kind: 'sheet', subjectId: nsv.subjectId })); } catch (e) { toast(errorMsg(e), 'error'); } }
+      if (route.name === 'solve') render();
+    });
+  } }, icon('camera', 24));
+  return h('nav', { class: 'tabbar' }, tab('plan', 'route', 'Plan'), tab('subjects', 'library', 'Fächer'), cam, tab('vocab', 'languages', 'Vokabeln'), tab('tutor', 'sparkles', 'Tutor'), tab('settings', 'gear', 'Mehr'));
 }
 
 function topbar({ back, close, title, progress }) {

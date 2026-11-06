@@ -439,3 +439,9 @@ ul { margin: 4px 0; padding-left: 22px; }
 .solve-sol[open] .when-open { display: inline; }
 .solve-sol[open] .when-closed { display: none; }
 .solve-sol[open] > div { border-left: 3px solid #d6c8ff; padding-left: 12px; }
+
+/* Kamera-Knopf in der Tab-Leiste */
+.tabbar { width: min(480px, calc(100% - 24px)); align-items: center; }
+.tab-cam { flex-shrink: 0; width: 54px; height: 54px; margin: -18px 4px 0; border-radius: 50%; display: grid; place-items: center; color: #fff; background: linear-gradient(145deg, var(--accent-2), var(--accent)); box-shadow: 0 8px 22px rgba(139,92,246,.55), 0 0 0 5px var(--bg); transition: transform .12s ease; }
+.tab-cam:active { transform: scale(.94); }
+.tab { padding: 8px 2px; }
