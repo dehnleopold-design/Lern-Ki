@@ -59,3 +59,15 @@ Reines HTML/CSS/JavaScript ohne Build-Schritt. Gespeichert wird in IndexedDB, mi
 Die Anweisungen an die KI stehen in `js/prompts.js`. Dort lassen sich Strenge und Aufgabenstil anpassen.
 
 Lokal testen: `python3 -m http.server` im Projektordner, dann http://localhost:8000 öffnen.
+
+## Anmeldung (optional, Firebase)
+
+Solange in `js/firebase-config.js` `null` steht, läuft die App ohne Anmeldung. Mit Anmeldung bekommt jedes Konto auf dem Gerät einen eigenen, getrennten Speicher. Die Daten von vorher übernimmt das erste Konto, das sich auf dem Gerät anmeldet. In die Cloud wird nichts hochgeladen.
+
+Einrichtung (kostenloser Spark-Tarif, keine Kreditkarte):
+1. https://console.firebase.google.com → **Projekt erstellen** (z. B. „Lern-KI“), Google Analytics kann aus bleiben.
+2. **Authentication** → *Jetzt starten* → *Anmeldemethode*: **E-Mail/Passwort** und **Google** aktivieren (bei Google eine Support-E-Mail wählen).
+3. **Authentication → Einstellungen → Autorisierte Domains** → `dehnleopold-design.github.io` hinzufügen.
+4. **Projekteinstellungen** (Zahnrad) → *Meine Apps* → Web-App (`</>`) registrieren → den `firebaseConfig`-Block in `js/firebase-config.js` eintragen.
+
+Hinweis: In Home-Bildschirm-Apps auf iPhone/iPad kann das Google-Popup unzuverlässig sein. E-Mail/Passwort funktioniert immer.

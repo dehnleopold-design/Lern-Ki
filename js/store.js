@@ -1,8 +1,68 @@
 // Speichert alles lokal im Browser (IndexedDB). Nichts geht an einen eigenen Server.
 
-const DB_NAME = 'lernki';
+const LEGACY_DB = 'lernki';
+let DB_NAME = LEGACY_DB;
 const DB_VERSION = 1;
 let dbPromise = null;
+
+function openNamed(name) {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(name, DB_VERSION);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains('kv')) db.createObjectStore('kv');
+      if (!db.objectStoreNames.contains('blobs')) db.createObjectStore('blobs');
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function readAll(db, store) {
+  return new Promise((resolve, reject) => {
+    const out = [];
+    const req = db.transaction(store, 'readonly').objectStore(store).openCursor();
+    req.onsuccess = () => { const c = req.result; if (c) { out.push([c.key, c.value]); c.continue(); } else resolve(out); };
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function writeAll(db, store, entries) {
+  return new Promise((resolve, reject) => {
+    const t = db.transaction(store, 'readwrite');
+    for (const [k, v] of entries) t.objectStore(store).put(v, k);
+    t.oncomplete = resolve;
+    t.onerror = () => reject(t.error);
+  });
+}
+
+// Jedes Konto bekommt einen eigenen Speicher. Die Daten von vor der Anmeldung (ohne Konto)
+// übernimmt das erste Konto, das sich auf diesem Gerät anmeldet.
+export async function useAccount(uid) {
+  if (dbPromise) { try { (await dbPromise).close(); } catch {} }
+  DB_NAME = `lernki-u-${uid}`;
+  dbPromise = null;
+  let claimed = null;
+  try { claimed = localStorage.getItem('lernki-legacy-claimed'); } catch {}
+  if (!claimed) {
+    try {
+      const target = await openNamed(DB_NAME);
+      const hasOwn = (await readAll(target, 'kv')).length > 0;
+      if (!hasOwn) {
+        const legacy = await openNamed(LEGACY_DB);
+        const kv = await readAll(legacy, 'kv');
+        if (kv.length) {
+          await writeAll(target, 'blobs', await readAll(legacy, 'blobs'));
+          await writeAll(target, 'kv', kv);
+        }
+        legacy.close();
+      }
+      target.close();
+      try { localStorage.setItem('lernki-legacy-claimed', uid); } catch {}
+    } catch (e) { console.warn('Übernahme alter Daten fehlgeschlagen', e); }
+  }
+  state = defaultState();
+}
 
 function openDB() {
   if (!dbPromise) {

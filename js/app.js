@@ -1,4 +1,5 @@
-import { state, loadState, save, replaceState, clearAll, allBlobs, putBlob, uid } from './store.js';
+import { state, loadState, save, replaceState, clearAll, allBlobs, putBlob, uid, useAccount } from './store.js';
+import { authEnabled, initAuth, signInGoogle, signInEmail, registerEmail, resetPassword, signOutUser, currentUser, authErrorText } from './auth.js';
 import { generate, aiReady, listGeminiModels, pickDefaultModel, AIError, onAIStatus } from './ai.js';
 import { addFile, removeFile, filePart, thumbURL, pickFiles } from './files.js';
 import * as P from './prompts.js';
@@ -6,7 +7,7 @@ import { gradeLabel, gradeOptions, percentToGrade, reachesTarget, scale } from '
 import { downloadLernzettel, sheetHTML, SHEET_CSS } from './pdf.js';
 import { h, add, md, mdEl, mascot, speech, icon, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.1 (6.11.)';
+const APP_VERSION = '2.2 (6.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -37,8 +38,8 @@ function go(name, params = {}) {
 
 function render() {
   app.replaceChildren();
-  if (!state.profile && route.name !== 'onboarding') route = { name: 'onboarding', params: {} };
-  const views = { onboarding: viewOnboarding, prepare: viewPrepare, plan: viewPlan, pick: viewPick, vocab: viewVocab, solve: viewSolveNew, solved: viewSolved, vnew: viewVocabNew, vset: viewVocabSet, vwords: viewVocabWords, vplan: viewVocabPlan, vquiz: viewVocabQuiz, vtests: viewVocabTests, newExam: viewNewExam, session: viewSession, subjects: viewSubjects, subject: viewSubject, tutor: viewTutor, settings: viewSettings };
+  if (!state.profile && !['onboarding', 'login'].includes(route.name)) route = { name: 'onboarding', params: {} };
+  const views = { login: viewLogin, onboarding: viewOnboarding, prepare: viewPrepare, plan: viewPlan, pick: viewPick, vocab: viewVocab, solve: viewSolveNew, solved: viewSolved, vnew: viewVocabNew, vset: viewVocabSet, vwords: viewVocabWords, vplan: viewVocabPlan, vquiz: viewVocabQuiz, vtests: viewVocabTests, newExam: viewNewExam, session: viewSession, subjects: viewSubjects, subject: viewSubject, tutor: viewTutor, settings: viewSettings };
   const v = (views[route.name] || viewPlan)(route.params);
   add(app, v);
 }
@@ -88,7 +89,7 @@ function viewOnboarding() {
     const p = state.profile;
     draft = {
       step: 0,
-      name: p?.name || '', grade: p?.grade || '', schoolType: p?.schoolType || 'Gymnasium', state: p?.state || '',
+      name: p?.name || ui.suggestName || '', grade: p?.grade || '', schoolType: p?.schoolType || 'Gymnasium', state: p?.state || '',
       subjects: state.subjects.length ? state.subjects.map((s) => s.name) : DEFAULT_SUBJECTS.map((s) => s[0]),
       english: state.subjects.length ? state.subjects.filter((s) => s.language === 'en').map((s) => s.name) : ['Geography'],
       levels: Object.fromEntries(state.subjects.map((s) => [s.name, s.level])),
@@ -2114,6 +2115,15 @@ function viewSettings() {
               st.waitVideo = v; save(); toast(v ? 'Video gespeichert.' : 'Video ausgeschaltet.', 'ok'); o.remove(); render();
             } })]);
         })),
+      authEnabled ? h('div', { class: 'menu' },
+        menuRow('key', 'Konto', currentUser()?.email || (() => { try { return localStorage.getItem('lernki-last-email') || 'Angemeldet'; } catch { return 'Angemeldet'; } })(), () => {
+          const u = currentUser();
+          sheet('Konto', [
+            h('p', {}, u?.email || 'Offline angemeldet'),
+            u && u.providerData?.[0]?.providerId === 'password' && !u.emailVerified ? h('p', { class: 'muted small' }, 'E-Mail noch nicht bestätigt – schau in dein Postfach.') : null,
+            h('p', { class: 'muted small' }, 'Deine Lerndaten liegen auf diesem Gerät, getrennt pro Konto.'),
+            h('button', { class: 'btn ghost block danger-text', onclick: async () => { try { await signOutUser(); } catch { try { localStorage.removeItem('lernki-last-uid'); } catch {} location.reload(); } } }, 'Abmelden')]);
+        })) : null,
       h('div', { class: 'menu' },
         menuRow('user', 'Profil', `${p.name} · Klasse ${p.grade} · ${p.state}`, () => {
           const o = sheet('Profil', [
@@ -2158,21 +2168,89 @@ async function importBackup() {
 }
 
 // ================================================================ Start
-(async function init() {
+// ================================================================ ANMELDUNG
+const GOOGLE_G = '<svg viewBox="0 0 48 48" width="20" height="20" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>';
+
+function viewLogin() {
+  const mode = ui.loginMode || 'login';
+  const err = h('div', { class: 'login-err' });
+  const name = h('input', { class: 'input', placeholder: 'Vorname', autocomplete: 'given-name' });
+  const email = h('input', { class: 'input', type: 'email', placeholder: 'E-Mail', autocomplete: 'email', autocapitalize: 'off' });
+  const pw = h('input', { class: 'input', type: 'password', placeholder: mode === 'login' ? 'Passwort' : 'Passwort (mind. 6 Zeichen)', autocomplete: mode === 'login' ? 'current-password' : 'new-password' });
+  const busy = (btn, on, label) => { btn.disabled = on; if (label) btn.textContent = label; };
+  const submit = h('button', { class: 'btn primary block', onclick: async () => {
+    err.textContent = '';
+    busy(submit, true, mode === 'login' ? 'Melde an …' : 'Erstelle Konto …');
+    try {
+      if (mode === 'login') await signInEmail(email.value.trim(), pw.value);
+      else { ui.suggestName = name.value.trim(); await registerEmail(email.value.trim(), pw.value, name.value.trim()); }
+    } catch (e) { err.textContent = authErrorText(e); busy(submit, false, mode === 'login' ? 'Anmelden' : 'Konto erstellen'); }
+  } }, mode === 'login' ? 'Anmelden' : 'Konto erstellen');
+  pw.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit.click(); });
+  const google = h('button', { class: 'btn google block', onclick: async () => {
+    err.textContent = '';
+    try { await signInGoogle(); } catch (e) { err.textContent = authErrorText(e); }
+  } }, h('span', { html: GOOGLE_G }), 'Mit Google anmelden');
+  return h('div', { class: 'screen login' },
+    h('main', { class: 'content narrow login-box' },
+      mascot(110),
+      h('h1', { class: 'display' }, mode === 'login' ? 'Willkommen zurück' : 'Konto erstellen'),
+      h('p', { class: 'muted' }, mode === 'login' ? 'Melde dich an, um mit Jelly zu lernen.' : 'In einer Minute startklar – kostenlos.'),
+      google,
+      h('div', { class: 'or' }, h('span', {}, 'oder mit E-Mail')),
+      mode === 'register' ? name : null, email, pw, err, submit,
+      h('button', { class: 'link-small', onclick: () => { ui.loginMode = mode === 'login' ? 'register' : 'login'; render(); } }, mode === 'login' ? 'Noch kein Konto? Registrieren' : 'Schon ein Konto? Anmelden'),
+      mode === 'login' ? h('button', { class: 'link-small', onclick: async () => {
+        if (!email.value.trim()) { err.textContent = 'Gib zuerst deine E-Mail ein.'; return; }
+        try { await resetPassword(email.value.trim()); toast('E-Mail zum Zurücksetzen ist unterwegs.', 'ok'); } catch (e) { err.textContent = authErrorText(e); }
+      } }, 'Passwort vergessen?') : null,
+      h('p', { class: 'muted small' }, 'Deine Lerndaten bleiben auf diesem Gerät. Das Konto trennt sie von den Daten anderer Personen.')));
+}
+
+let bootedUid;
+async function boot(user) {
   await loadState();
   const OLD = { '#5b9dff': '#93c5fd', '#ff9f5a': '#fdba74', '#ff7a59': '#fda4af', '#3dd68c': '#86efac', '#e0a458': '#fcd34d', '#a78bfa': '#c4b5fd', '#f06fc0': '#f0abfc', '#2dd4bf': '#5eead4' };
   for (const sub of state.subjects) if (OLD[sub.color]) sub.color = OLD[sub.color];
-  if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
+  if (user?.displayName && !ui.suggestName) ui.suggestName = user.displayName.split(' ')[0];
   route = { name: state.profile ? 'plan' : 'onboarding', params: {} };
   // Nach einem Update wieder auf dieselbe Seite zurück
   try {
     const saved = JSON.parse(sessionStorage.getItem('lernki-route') || 'null');
     sessionStorage.removeItem('lernki-route');
-    if (saved && state.profile && saved.name !== 'onboarding') route = saved;
+    if (saved && state.profile && !['onboarding', 'login'].includes(saved.name)) route = saved;
   } catch {}
+  draft = null;
   render();
-  checkForUpdate();
+}
+
+(async function init() {
+  if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkForUpdate(); });
+  setTimeout(checkForUpdate, 0); // erst nachdem das Modul fertig geladen ist
+  if (!authEnabled) { await boot(null); return; }
+  app.replaceChildren(h('div', { class: 'boot' }, mascot(90), h('p', { class: 'muted' }, 'Lade …')));
+  try {
+    await initAuth(async (user) => {
+      if (!user) {
+        if (bootedUid) { location.reload(); return; } // abgemeldet
+        route = { name: 'login', params: {} };
+        render();
+        return;
+      }
+      if (bootedUid === user.uid) return;
+      bootedUid = user.uid;
+      try { localStorage.setItem('lernki-last-uid', user.uid); localStorage.setItem('lernki-last-email', user.email || ''); } catch {}
+      await useAccount(user.uid);
+      await boot(user);
+    });
+  } catch (e) {
+    // Offline beim Start: zuletzt angemeldetes Konto auf diesem Gerät öffnen
+    let last = null;
+    try { last = localStorage.getItem('lernki-last-uid'); } catch {}
+    if (last) { bootedUid = last; await useAccount(last); await boot(null); toast('Offline – du bist mit deinem letzten Konto angemeldet.'); }
+    else app.replaceChildren(h('div', { class: 'boot' }, mascot(90), h('p', {}, 'Für die erste Anmeldung brauchst du Internet.'), h('button', { class: 'btn primary', onclick: () => location.reload() }, 'Nochmal versuchen')));
+  }
 })();
 
 // ---------- Updates: Die App auf dem Home-Bildschirm läuft oft im Hintergrund weiter.
