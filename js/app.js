@@ -1,7 +1,7 @@
 import { state, loadState, save, replaceState, clearAll, allBlobs, putBlob, uid, useAccount, hasLocalProfile } from './store.js';
 import { startSync, syncNow, syncStatus, onSyncStatus } from './sync.js';
 import { authEnabled, initAuth, signInGoogle, signInEmail, registerEmail, resetPassword, signOutUser, currentUser, authErrorText } from './auth.js';
-import { generate, aiReady, listGeminiModels, pickDefaultModel, AIError, onAIStatus } from './ai.js';
+import { generate, aiReady, listGeminiModels, pickDefaultModel, AIError, onAIStatus, FALLBACK_PRESETS, listOpenAIModels, pickFallbackModel } from './ai.js';
 import { addFile, removeFile, filePart, thumbURL, pickFiles } from './files.js';
 import * as P from './prompts.js';
 import { gradeLabel, gradeOptions, percentToGrade, reachesTarget, scale } from './grades.js';
@@ -9,7 +9,7 @@ import { downloadLernzettel, sheetHTML, SHEET_CSS } from './pdf.js';
 import { cleanText } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.8 (6.11.)';
+const APP_VERSION = '2.9 (6.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -246,7 +246,8 @@ function aiSetupBlock(compact = false, onChange = null) {
       h('div', { class: 'seg' },
         h('button', { class: `seg-btn ${s.provider === 'gemini' ? 'active' : ''}`, onclick: () => { s.provider = 'gemini'; save(); draw(); } }, 'Google Gemini (empfohlen)'),
         h('button', { class: `seg-btn ${s.provider === 'openai' ? 'active' : ''}`, onclick: () => { s.provider = 'openai'; save(); draw(); } }, 'Anderer Anbieter')),
-      s.provider === 'gemini' ? geminiBlock() : openaiBlock());
+      s.provider === 'gemini' ? geminiBlock() : openaiBlock(),
+      s.provider === 'gemini' && !compact ? fallbackBlock() : null);
   };
   const geminiBlock = () => {
     const status = h('div', { class: 'muted small' }, s.apiKey && s.model ? `Verbunden · Modell: ${s.model}` : '');
@@ -285,6 +286,38 @@ function aiSetupBlock(compact = false, onChange = null) {
       !compact ? h('p', { class: 'muted small' }, 'Wichtig: Laut Googles Bedingungen muss der Kontoinhaber volljährig sein – ggf. erstellt ein Elternteil den Schlüssel. In der kostenlosen Stufe darf Google Eingaben zur Verbesserung seiner Dienste nutzen. Lade daher keine sensiblen Daten hoch.') : null,
       keyInput, testBtn, h('div', { class: 'label' }, 'Modell'), select, status,
       compact ? h('p', { class: 'muted small' }, 'Hinweis: Google verlangt Volljährigkeit für den API-Schlüssel – ggf. macht das ein Elternteil. Kostenlose Stufe: Google darf Eingaben auswerten, also keine sensiblen Daten hochladen.') : null);
+  };
+  // Ersatz-Anbieter für Überlastung
+  const fallbackBlock = () => {
+    s.fb ||= { on: false, preset: 'groq', baseUrl: FALLBACK_PRESETS.groq.baseUrl, key: '', model: '' };
+    const f = s.fb;
+    const box = h('div', { class: 'stack fb-box' });
+    const status = h('div', { class: 'muted small' }, f.on && f.model ? `✓ Aktiv · ${FALLBACK_PRESETS[f.preset]?.label || ''} · ${f.model}` : 'Noch nicht eingerichtet.');
+    const sel = h('select', { class: 'input', onchange: (e) => { f.model = e.target.value; save(); } });
+    if (f.model) add(sel, h('option', { value: f.model, selected: true }, f.model));
+    const keyIn = h('input', { class: 'input', type: 'password', autocomplete: 'off', placeholder: 'API-Schlüssel des Ersatz-Anbieters', value: f.key, oninput: (e) => { f.key = e.target.value.trim(); save(); } });
+    const test = h('button', { class: 'btn', onclick: async () => {
+      if (!f.key) return toast('Erst den Schlüssel einfügen.');
+      test.disabled = true; test.textContent = 'Prüfe …';
+      try {
+        const ids = await listOpenAIModels(f.baseUrl, f.key);
+        if (!ids.length) throw new Error('Keine Modelle gefunden.');
+        if (!ids.includes(f.model)) f.model = pickFallbackModel(ids);
+        sel.replaceChildren(...ids.map((id) => h('option', { value: id, selected: id === f.model }, id)));
+        f.on = true; save();
+        status.textContent = `✓ Aktiv · ${FALLBACK_PRESETS[f.preset].label} · ${f.model}`;
+        toast('Ersatz-Anbieter verbunden.', 'ok');
+      } catch (e) { status.textContent = errorMsg(e); toast(errorMsg(e), 'error'); }
+      test.disabled = false; test.textContent = 'Schlüssel prüfen & Modelle laden';
+    } }, 'Schlüssel prüfen & Modelle laden');
+    add(box,
+      h('h3', {}, 'Ersatz bei Überlastung'),
+      h('p', { class: 'muted small' }, 'Sind alle Gemini-Modelle überlastet, fragt Jelly automatisch hier nach – ohne Warten. Kostenlos mit eigenem Schlüssel. Fotos gehen, PDFs kann nur Gemini.'),
+      h('div', { class: 'seg' }, Object.entries(FALLBACK_PRESETS).map(([k, v]) => h('button', { class: `seg-btn ${f.preset === k ? 'active' : ''}`, onclick: () => { if (f.preset !== k) { f.preset = k; f.baseUrl = v.baseUrl; f.model = ''; f.key = ''; f.on = false; save(); draw(); } } }, v.label))),
+      h('p', { class: 'small' }, 'Schlüssel holen: ', h('a', { href: FALLBACK_PRESETS[f.preset].keyUrl, target: '_blank', rel: 'noopener' }, FALLBACK_PRESETS[f.preset].keyUrl.replace('https://', ''))),
+      keyIn, test, h('div', { class: 'label' }, 'Modell'), sel, status,
+      f.on ? h('button', { class: 'btn ghost small', onclick: () => { f.on = false; save(); draw(); } }, 'Ersatz ausschalten') : null);
+    return box;
   };
   const openaiBlock = () => h('div', { class: 'stack' },
     h('p', { class: 'muted small' }, 'Für OpenAI-kompatible Schnittstellen (z. B. Groq, OpenRouter, lokale Server wie Ollama/LM Studio). Achtung: PDFs kann hier nur Gemini lesen – Fotos funktionieren, wenn das Modell Bilder versteht.'),
@@ -937,8 +970,16 @@ async function prepareAll(exam, panel) {
   const idx = new Map(ordered.map((u, k) => [u.id, start + k]));
   let failed = 0;
   const one = async (u) => {
+    if (hasContent(u)) { panel.mark(idx.get(u.id), 'done'); return; }
+    if (ui.busy[u.id]) { panel.mark(idx.get(u.id), 'done'); return; } // wird gerade schon beim Öffnen erstellt
     panel.mark(idx.get(u.id), 'run');
+    ui.busy[u.id] = true;
     try { await generateUnit(exam, u); save(); panel.mark(idx.get(u.id), 'done'); } catch (e) { failed++; panel.mark(idx.get(u.id), 'fail'); console.warn(e); }
+    finally {
+      delete ui.busy[u.id];
+      // Ist die Einheit gerade geöffnet, sofort anzeigen
+      if (route.name === 'session' && route.params.unitId === u.id) { delete ui.busy[`err:${u.id}`]; render(); }
+    }
   };
   await pool(phase1, 2, one);
   await pool(phase2, 2, one);
@@ -1186,7 +1227,7 @@ function lernzettelText(exam, themaIndex) {
 
 // Startet eine KI-Erzeugung einmal, zeigt solange den Warte-Bildschirm und bei Fehlern "Nochmal".
 function pending(main, key, title, steps, producer) {
-  const err = ui.busy[`err:${key}`];
+  const err = ui.busy[key] ? null : ui.busy[`err:${key}`];
   if (err) {
     add(main, h('div', { class: 'card warn' }, h('p', {}, err)),
       h('button', { class: 'btn primary block', onclick: () => { delete ui.busy[`err:${key}`]; render(); } }, 'Nochmal versuchen'));

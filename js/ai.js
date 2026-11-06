@@ -94,8 +94,14 @@ export async function generate({ system, parts, history = [], json = false, temp
   }
   const all = await freeModels();
   let lastErr = null;
+  let fallbackTried = false;
+  // Sind gerade alle Gemini-Modelle als überlastet bekannt? Dann direkt den Ersatz fragen.
+  if (fallbackReady() && all.length && all.every(cooling)) {
+    fallbackTried = true;
+    try { return await tryFallback(args); } catch (e) { if (!e.pdf) lastErr = e; }
+  }
   for (let round = 0; round < ROUND_WAIT.length; round++) {
-    if (ROUND_WAIT[round]) {
+    if (round === 1 && fallbackReady()) { /* Ersatz sofort, ohne Wartezeit */ } else if (ROUND_WAIT[round]) {
       for (let left = ROUND_WAIT[round] / 1000; left > 0; left--) {
         report(`Alle kostenlosen Google-Modelle sind gerade überlastet. Neuer Versuch in ${left} s (Runde ${round + 1}/${ROUND_WAIT.length}) …`);
         await sleep(1000);
@@ -103,6 +109,10 @@ export async function generate({ system, parts, history = [], json = false, temp
     }
     // Reihenfolge: zuletzt funktionierendes Modell, dann nicht überlastete, dann der Rest
     const order = [...new Set([lastWorking, ...all.filter((m) => !cooling(m)), ...all])].filter((m) => m && all.includes(m));
+    if (round === 1 && fallbackReady() && !fallbackTried) {
+      fallbackTried = true;
+      try { return await tryFallback(args); } catch (e) { if (!e.pdf) lastErr = e; }
+    }
     for (const model of order) {
       if (model !== s.model || round > 0) report(`Versuche ${model} …`);
       try {
@@ -118,6 +128,9 @@ export async function generate({ system, parts, history = [], json = false, temp
         if (lastWorking === model) lastWorking = null;
       }
     }
+  }
+  if (fallbackReady() && !fallbackTried) {
+    try { return await tryFallback(args); } catch (e) { if (!e.pdf) lastErr = e; }
   }
   report('');
   throw lastErr;
@@ -165,32 +178,40 @@ async function callGemini({ system, parts, history, json, temperature }, model) 
   return text;
 }
 
-async function callOpenAI({ system, parts, history, json, temperature }) {
+async function callOpenAI({ system, parts, history, json, temperature }, cfg = null) {
   const s = state.settings;
+  cfg ||= { baseUrl: s.baseUrl, key: s.oaKey, model: s.oaModel };
   const content = parts.map((p) => {
     if (!p.file) return { type: 'text', text: p.text };
     if (p.file.mime.startsWith('image/')) return { type: 'image_url', image_url: { url: `data:${p.file.mime};base64,${p.file.data}` } };
     if (p.file.mime.startsWith('text/')) return { type: 'text', text: b64ToText(p.file.data) };
-    throw new AIError('PDFs kann nur Gemini lesen. Fotografiere die Seiten oder wechsle in den Einstellungen zu Gemini.');
+    const err = new AIError('PDFs kann nur Gemini lesen. Fotografiere die Seiten oder versuch es später nochmal.');
+    err.pdf = true;
+    throw err;
   });
+  const onlyText = content.every((c) => c.type === 'text');
   const messages = [
     ...(system ? [{ role: 'system', content: system }] : []),
     ...history.map((m) => ({ role: m.role === 'model' ? 'assistant' : 'user', content: m.text })),
-    { role: 'user', content },
+    { role: 'user', content: onlyText ? content.map((c) => c.text).join('\n\n') : content },
   ];
-  const url = s.baseUrl.replace(/\/+$/, '') + '/chat/completions';
-  let res;
-  try {
-    res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...(s.oaKey ? { Authorization: `Bearer ${s.oaKey}` } : {}) },
-      body: JSON.stringify({ model: s.oaModel, messages, temperature, ...(json ? { response_format: { type: 'json_object' } } : {}) }),
-    });
-  } catch {
-    const err = new AIError('Keine Verbindung zur KI. Bist du online?');
-    err.retryable = true;
-    throw err;
-  }
+  const url = cfg.baseUrl.replace(/\/+$/, '') + '/chat/completions';
+  const send = async (withJson) => {
+    try {
+      return await fetch(url, {
+        method: 'POST',
+        signal: AbortSignal.timeout(150000),
+        headers: { 'Content-Type': 'application/json', ...(cfg.key ? { Authorization: `Bearer ${cfg.key}` } : {}) },
+        body: JSON.stringify({ model: cfg.model, messages, temperature, ...(withJson ? { response_format: { type: 'json_object' } } : {}) }),
+      });
+    } catch {
+      const err = new AIError('Keine Verbindung zur KI. Bist du online?');
+      err.retryable = true;
+      throw err;
+    }
+  };
+  let res = await send(json);
+  if (!res.ok && json && res.status === 400) res = await send(false); // manche Modelle können keinen JSON-Modus
   if (!res.ok) {
     const txt = await res.text();
     const err = new AIError(friendly(res.status, txt));
@@ -200,6 +221,39 @@ async function callOpenAI({ system, parts, history, json, temperature }) {
   }
   const data = await res.json();
   return data.choices?.[0]?.message?.content || '';
+}
+
+// ---------- Ersatz-Anbieter, wenn alle Gemini-Modelle überlastet sind ----------
+export const FALLBACK_PRESETS = {
+  groq: { label: 'Groq', baseUrl: 'https://api.groq.com/openai/v1', keyUrl: 'https://console.groq.com/keys' },
+  mistral: { label: 'Mistral', baseUrl: 'https://api.mistral.ai/v1', keyUrl: 'https://console.mistral.ai/api-keys' },
+  openrouter: { label: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1', keyUrl: 'https://openrouter.ai/keys' },
+};
+
+export function fallbackReady() {
+  const f = state.settings.fb;
+  return !!(f?.on && f.baseUrl && f.key && f.model);
+}
+
+export async function listOpenAIModels(baseUrl, key) {
+  const res = await fetch(baseUrl.replace(/\/+$/, '') + '/models', { headers: key ? { Authorization: `Bearer ${key}` } : {} });
+  if (!res.ok) throw new AIError(res.status === 401 || res.status === 403 ? 'Der Schlüssel wurde abgelehnt.' : `Fehler ${res.status}`);
+  const data = await res.json();
+  return (data.data || []).map((m) => m.id).filter((id) => !/(whisper|tts|embed|guard|moderation|audio|speech|transcri|image-gen|dall)/i.test(id)).sort();
+}
+
+// Bevorzugt Modelle, die Bilder verstehen (für Fotos von Arbeitsblättern)
+export function pickFallbackModel(ids) {
+  const score = (id) => (/(scout|maverick|llama-4)/i.test(id) ? 50 : 0) + (/(pixtral|vision|vl\b|-vl-)/i.test(id) ? 40 : 0) + (/(mistral-medium|mistral-small|mistral-large)/i.test(id) ? 30 : 0) + (/:free$/i.test(id) ? 10 : 0) + (/(70b|large|medium)/i.test(id) ? 5 : 0);
+  return [...ids].sort((a, b) => score(b) - score(a))[0] || '';
+}
+
+async function tryFallback(args) {
+  const f = state.settings.fb;
+  report(`Google ist überlastet – frage ${FALLBACK_PRESETS[f.preset]?.label || 'den Ersatz-Anbieter'} …`);
+  const text = await callOpenAI(args, { baseUrl: f.baseUrl, key: f.key, model: f.model });
+  report('');
+  return args.json ? parseJSON(text) : text;
 }
 
 function b64ToText(b64) {

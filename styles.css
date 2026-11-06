@@ -482,3 +482,5 @@ ul { margin: 4px 0; padding-left: 22px; }
 .annot-scroll { overflow: auto; border-radius: 16px; -webkit-overflow-scrolling: touch; max-height: 80vh; }
 .annot-scroll.zoomed .annot-wrap { width: 260%; border-radius: 0; }
 .zoom-btn { position: absolute; right: 10px; top: 10px; width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center; background: rgba(9,8,13,.75); color: #fff; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); box-shadow: 0 4px 14px rgba(0,0,0,.4); }
+
+.fb-box { border-top: 1px solid var(--line); padding-top: 16px; margin-top: 6px; }
