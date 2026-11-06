@@ -1,13 +1,13 @@
 // Anmeldung über Firebase Authentication (kostenloser Spark-Tarif).
 // Die Lerndaten bleiben auf dem Gerät – jedes Konto bekommt dort einen eigenen, getrennten Speicher.
 
-import { firebaseConfig } from './firebase-config.js';
+import { firebaseConfig, authActive } from './firebase-config.js';
 
 const V = '10.12.2';
 let auth = null;
 let fb = null;
 
-export const authEnabled = !!firebaseConfig;
+export const authEnabled = !!firebaseConfig && authActive;
 
 export async function initAuth(onUser) {
   const { initializeApp } = await import(`https://www.gstatic.com/firebasejs/${V}/firebase-app.js`);
