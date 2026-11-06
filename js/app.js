@@ -6,7 +6,7 @@ import { gradeLabel, gradeOptions, percentToGrade, reachesTarget, scale } from '
 import { downloadLernzettel, sheetHTML, SHEET_CSS } from './pdf.js';
 import { h, add, md, mdEl, mascot, speech, icon, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '1.6 (6.11.)';
+const APP_VERSION = '1.7 (6.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -38,7 +38,7 @@ function go(name, params = {}) {
 function render() {
   app.replaceChildren();
   if (!state.profile && route.name !== 'onboarding') route = { name: 'onboarding', params: {} };
-  const views = { onboarding: viewOnboarding, prepare: viewPrepare, plan: viewPlan, newExam: viewNewExam, session: viewSession, subjects: viewSubjects, subject: viewSubject, tutor: viewTutor, settings: viewSettings };
+  const views = { onboarding: viewOnboarding, prepare: viewPrepare, plan: viewPlan, pick: viewPick, newExam: viewNewExam, session: viewSession, subjects: viewSubjects, subject: viewSubject, tutor: viewTutor, settings: viewSettings };
   const v = (views[route.name] || viewPlan)(route.params);
   add(app, v);
 }
@@ -368,52 +368,66 @@ function viewPlan() {
     missing ? h('button', { class: 'link-small', onclick: () => go('prepare', { examId: exam.id }) }, `${missing} Inhalt(e) noch nicht fertig · jetzt erstellen`) : null,
     exam.plan && !exam.plan.themen ? h('div', { class: 'warn small' }, 'Alter Plan – über ⋯ → „Plan neu erstellen“ bekommst du Lernzettel, Quiz und Abschluss.') : null);
 
-  // --- Themen als aufklappbare Zeilen
-  const road = h('div', { class: 'road' });
-  const topicSecs = secs.map((sec, si) => ({ sec, si })).filter((x) => !x.sec.abschluss);
-  const openKey = `open:${exam.id}`;
-  if (!ui[openKey]) ui[openKey] = new Set(current ? [secs.findIndex((x) => x.einheiten.some((u) => u.id === current.id))] : []);
-  const opened = ui[openKey];
-  let lastDay;
-  topicSecs.forEach(({ sec, si }, n) => {
-    const color = SECTION_COLORS[si % SECTION_COLORS.length];
-    const day = sec.einheiten[0]?.tag || null;
-    if (day !== lastDay) {
-      add(road, h('div', { class: 'road-day' }, day ? `${relDay(day)} · ${fmtDate(day)}` : 'Ohne festen Tag'));
-      lastDay = day;
+  // --- Kacheln: Lernzettel / Quiz / Aufgaben (Thema wird danach gewählt) + Abschluss
+  const tiles = h('div', { class: 'tiles' });
+  const hasTopics = !!exam.plan?.themen;
+  if (hasTopics) {
+    for (const typ of ['lernzettel', 'quiz', 'aufgaben']) {
+      const list = units.filter((u) => u.typ === typ && u.status !== 'skipped');
+      const doneN = list.filter((u) => u.status === 'done').length;
+      const isNow = current && current.typ === typ;
+      add(tiles, h('button', { class: `tile-btn ${isNow ? 'now' : ''}`, onclick: () => go('pick', { examId: exam.id, typ }) },
+        h('span', { class: 'tile-ico' }, icon(UNIT_ICON[typ], 22)),
+        h('span', { class: 'tile-name' }, { lernzettel: 'Lernzettel', quiz: 'Quiz', aufgaben: 'Aufgaben' }[typ]),
+        h('span', { class: 'tile-sub' }, `${doneN}/${list.length} Themen`),
+        h('span', { class: 'tile-bar' }, h('i', { style: { width: `${list.length ? Math.round((doneN / list.length) * 100) : 0}%` } }))));
     }
-    const skipped = sec.einheiten.every((u) => u.status === 'skipped');
-    const isOpen = opened.has(si) && !skipped;
-    const dots = h('span', { class: 'dots3' }, sec.einheiten.map((u) => h('i', { class: `d-${u.status || 'open'} ${current && u.id === current.id ? 'd-now' : ''}` })));
-    add(road, h('section', { class: `topic ${skipped ? 'skipped' : ''} ${isOpen ? 'open' : ''}`, style: { '--c': color } },
-      h('button', { class: 'topic-head', onclick: () => { if (skipped) return sectionMenu(exam, sec); opened.has(si) ? opened.delete(si) : opened.add(si); render(); } },
-        h('span', { class: 'topic-num' }, String(n + 1)),
-        h('span', { class: 'topic-title' }, sec.titel),
-        skipped ? h('span', { class: 'muted small' }, 'übersprungen') : dots,
-        h('span', { class: 'topic-chev' }, icon('chev', 18))),
-      isOpen ? h('div', { class: 'steps-list' },
-        sec.einheiten.map((u) => h('button', { class: `step-row st-${u.status || 'open'} ${current && u.id === current.id ? 'is-current' : ''}`, onclick: () => open(u) },
-          h('span', { class: 'step-ico' }, u.status === 'done' ? icon('check', 18) : icon(UNIT_ICON[u.typ] || 'pencil', 18)),
-          h('span', { class: 'step-text' }, h('span', { class: 'step-name' }, STEP_NAME[u.typ] || u.titel), h('span', { class: 'step-sub' }, stepInfo(u))),
-          icon('chev', 16))),
-        h('button', { class: 'link-small left', onclick: () => sectionMenu(exam, sec) }, icon('more', 16), 'Optionen')) : null));
-  });
-
-  // --- Abschluss
+  }
   const fin = secs.find((x) => x.abschluss);
   if (fin) {
-    add(road, h('div', { class: 'road-day' }, 'Abschluss'));
-    add(road, h('section', { class: 'final-grid', id: 'final' }, fin.einheiten.map((u) => h('button', { class: `final-tile st-${u.status || 'open'}`, onclick: () => open(u) },
-      h('span', { class: 'final-ico' }, icon(u.status === 'done' ? 'check' : UNIT_ICON[u.typ] || 'exam', 22)),
-      h('span', { class: 'final-name' }, STEP_NAME[u.typ] || u.titel),
-      h('span', { class: 'step-sub' }, stepInfo(u))))));
+    for (const u of fin.einheiten) {
+      add(tiles, h('button', { class: `tile-btn final st-${u.status || 'open'}`, id: u.typ === 'probeklausur' ? 'final' : null, onclick: () => open(u) },
+        h('span', { class: 'tile-ico' }, icon(u.status === 'done' ? 'check' : UNIT_ICON[u.typ] || 'exam', 22)),
+        h('span', { class: 'tile-name' }, STEP_NAME[u.typ] || u.titel),
+        h('span', { class: 'tile-sub' }, stepInfo(u))));
+    }
   }
+  // Alte Pläne ohne Themen-Struktur: einfache Liste
+  const legacy = !hasTopics && units.length ? h('div', { class: 'menu' }, units.map((u) => menuRow(UNIT_ICON[u.typ] || 'pencil', u.titel, stepInfo(u), () => open(u)))) : null;
 
   add(screen, header,
     h('main', { class: 'content narrow' }, hero,
-      units.length ? road : h('div', { class: 'card' }, h('p', {}, 'Für diese Klausur gibt es noch keinen Plan.'), h('button', { class: 'btn primary', onclick: () => rebuildPlan(exam) }, 'Plan erstellen'))),
+      units.length ? [tiles, legacy] : h('div', { class: 'card' }, h('p', {}, 'Für diese Klausur gibt es noch keinen Plan.'), h('button', { class: 'btn primary', onclick: () => rebuildPlan(exam) }, 'Plan erstellen'))),
     tabbar('plan'));
   return screen;
+}
+
+// Themenauswahl nach Tippen auf Lernzettel / Quiz / Anwendungsaufgaben
+function viewPick({ examId, typ }) {
+  const exam = examById(examId);
+  if (!exam) { go('plan'); return h('div'); }
+  const secs = (exam.plan?.abschnitte || []).filter((x) => !x.abschluss);
+  const current = allUnits(exam).find((u) => u.status === 'open' || !u.status);
+  const intro = { lernzettel: 'Wähle ein Thema – der Lernzettel ist auch als PDF speicherbar.', quiz: 'Kurze Fragen zu Begriffen, Fakten und Zahlen.', aufgaben: 'Klausurnahe Aufgaben mit strenger Korrektur.' }[typ];
+  let lastDay;
+  const rows = [];
+  secs.forEach((sec, n) => {
+    const u = sec.einheiten.find((x) => x.typ === typ);
+    if (!u) return;
+    const day = u.tag || null;
+    if (day !== lastDay) { rows.push(h('div', { class: 'road-day' }, day ? `${relDay(day)} · ${fmtDate(day)}` : 'Ohne festen Tag')); lastDay = day; }
+    rows.push(h('div', { class: `pick-row st-${u.status || 'open'} ${current && u.id === current.id ? 'is-current' : ''}` },
+      h('button', { class: 'pick-main', onclick: () => go('session', { examId, unitId: u.id }) },
+        h('span', { class: 'topic-num' }, u.status === 'done' ? icon('check', 16) : String(n + 1)),
+        h('span', { class: 'menu-text' }, h('span', { class: 'menu-label' }, sec.titel), h('span', { class: 'menu-sub' }, stepInfo(u))),
+        current && u.id === current.id ? h('span', { class: 'now' }, 'Jetzt') : icon('chev', 18)),
+      h('button', { class: 'iconbtn small', 'aria-label': 'Optionen', onclick: () => sectionMenu(exam, sec) }, icon('more', 18))));
+  });
+  return h('div', { class: 'screen' },
+    topbar({ back: () => go('plan'), title: STEP_NAME[typ] }),
+    h('main', { class: 'content narrow' },
+      h('div', { class: 'pick-head' }, h('span', { class: 'tile-ico big' }, icon(UNIT_ICON[typ], 26)), h('h1', { class: 'display' }, STEP_NAME[typ]), h('p', { class: 'muted' }, intro)),
+      h('div', { class: 'pick-list' }, rows)));
 }
 
 function sheet(title, children) {
@@ -954,7 +968,8 @@ function viewSession({ examId, unitId }) {
   if (!unit) { go('plan'); return h('div'); }
   const subject = subjectById(exam.subjectId);
   const sess = state.sessions[unitId];
-  const screen = h('div', { class: 'screen' }, topbar({ back: () => go('plan'), title: unit.titel }));
+  const backTo = () => (exam.plan?.themen && ['lernzettel', 'quiz', 'aufgaben'].includes(unit.typ) ? go('pick', { examId, typ: unit.typ }) : go('plan'));
+  const screen = h('div', { class: 'screen' }, topbar({ back: backTo, title: unit.titel }));
   const main = h('main', { class: 'content narrow' });
   add(screen, main);
   if (unit.typ === 'lernzettel' || unit.typ === 'gesamtzettel') { viewLernzettel(main, exam, unit); return screen; }
@@ -1006,7 +1021,7 @@ function viewSession({ examId, unitId }) {
     add(main, submit);
   } else {
     add(main, h('div', { class: 'stack' },
-      h('button', { class: 'btn primary block', onclick: () => { markDone(exam, unit.id, sess); const n = nextOpenUnit(exam, unit.id); if (n) ui.selectedUnit = n.id; go('plan'); } }, 'Einheit abschließen'),
+      h('button', { class: 'btn primary block', onclick: () => { markDone(exam, unit.id, sess); backTo(); } }, 'Einheit abschließen'),
       h('button', { class: 'btn ghost block', onclick: async () => { if (await confirmDialog('Neue Aufgaben zu dieser Einheit erstellen? Die aktuellen Antworten werden verworfen.', 'Neue Aufgaben')) { markDone(exam, unit.id, sess, true); delete state.sessions[unit.id]; save(); render(); } } }, h('span', { class: 'row gap center' }, icon('refresh', 18), 'Neue Aufgaben zum selben Ziel'))));
   }
   return screen;
