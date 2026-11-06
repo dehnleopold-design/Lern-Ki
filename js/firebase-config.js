@@ -12,4 +12,4 @@ export const firebaseConfig = {
 
 // Erst einschalten, wenn in der Firebase-Konsole Authentication gestartet, E-Mail/Passwort + Google
 // aktiviert und die Domain dehnleopold-design.github.io freigegeben ist.
-export const authActive = false;
+export const authActive = true;
