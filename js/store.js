@@ -41,6 +41,7 @@ export const defaultState = () => ({
   sessions: {},   // unitId -> { intro, tasks, answers, answerImages, grading, chats }
   tutor: {},      // examId -> [{ role, text }]
   vocab: { sets: [], tests: {} },
+  solved: [],     // gelöste Arbeitsblätter
   activeExamId: null,
   settings: { provider: 'gemini', apiKey: '', model: '', baseUrl: '', oaKey: '', oaModel: '' },
 });

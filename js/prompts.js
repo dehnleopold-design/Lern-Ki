@@ -344,3 +344,39 @@ Gib NUR JSON zurück:
 VOKABELN:
 ${words.map((w) => `- ${w.w} = ${w.t}${w.ex ? ` (Beispiel: ${w.ex})` : ''}`).join('\n')}`;
 }
+
+// ---------- 8. Arbeitsblatt lösen ----------
+export function solvePrompt(subject, note) {
+  const lang = subject?.language === 'en'
+    ? 'Sprache der Lösungen: ENGLISCH (bilingualer Unterricht); wichtige Fachbegriffe beim ersten Mal mit deutscher Übersetzung in Klammern. Überschriften "Aufgabe" dürfen deutsch bleiben.'
+    : 'Sprache: Deutsch (bei Fremdsprachen-Aufgaben in der Zielsprache antworten).';
+  return `Das ist ein ARBEITSBLATT (eingescannt, evtl. mehrere Seiten). Lies es vollständig und genau – auch Texte, Tabellen, Diagramme, Karten und Materialien – und LÖSE ALLE AUFGABEN.
+Ziel: Der Schüler lernt an deinen Lösungen. Sie müssen fachlich korrekt, vollständig und auf dem Niveau einer sehr guten Klassenarbeit sein – so, wie die Lehrkraft sie im Erwartungshorizont hätte.
+${note ? `Hinweis des Schülers: ${note}\n` : ''}
+REGELN
+- Halte dich an den Operator (nenne/beschreibe/erkläre/analysiere/beurteile …): Umfang und Tiefe passend dazu.
+- Nutze die Materialien vom Blatt und zitiere sie (z. B. "M2, Z. 5"). Rechnungen vollständig mit Einheiten.
+- Wenn etwas unleserlich ist oder Material fehlt (z. B. ein Text nur auf einer anderen Seite), sag es ausdrücklich, statt zu raten.
+- ${lang}
+
+FORMAT (genau so, die App klappt jede Aufgabe einzeln auf):
+## Aufgabe 1 a) – kurze Wiedergabe der Aufgabenstellung
+### Lösung
+(die Musterlösung, wie man sie abgeben würde)
+### So kommst du drauf
+(Schritte/Begründung, kurz)
+> [!WARN] Häufiger Fehler
+> …
+(optional; außerdem erlaubt: > [!TIP], > [!KEY], Tabellen mit | … |, Listen)
+
+Nummeriere wie auf dem Blatt. Keine Einleitung, kein Schlusswort.`;
+}
+
+export function solveChatSystem(subject, solved) {
+  return `${baseSystem(subject)}
+
+Du hilfst beim Verstehen eines gelösten Arbeitsblatts. Beantworte Rückfragen präzise und kurz, erkläre Schritte, gib Beispiele. Wenn der Schüler etwas Falsches sagt, korrigiere direkt.
+
+DEINE LÖSUNGEN ZUM BLATT:
+${solved.loesung}`;
+}

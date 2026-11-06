@@ -13,6 +13,7 @@ Eine Web-App (läuft auf iPad, Handy und PC), die dich gezielt auf Klassenarbeit
 - **Klausur-Archiv pro Fach**: Lade alte (am besten korrigierte) Klausuren hoch. Daraus entsteht ein **Lehrerprofil**, nach dem Aufgaben und Korrektur ausgerichtet werden.
 - **Schwächen-Liste**: Erkannte Schwächen fließen in alle weiteren Aufgaben ein.
 - **Tutor-Chat** zum Stoff der jeweiligen Klausur.
+- **Arbeitsblatt lösen** (Tab Fächer): leeres Blatt einscannen → Jelly löst alle Aufgaben mit Musterlösung, Lösungsweg und Fehler-Hinweisen. Die Lösungen sind zum Selbsttesten zugeklappt, es gibt einen PDF-Download und eine Nachfrage-Funktion.
 - **Vokabeln** (eigener Tab): Vokabelseite fotografieren → Jelly liest alle Wörter aus (bearbeitbare Liste). Dazu gibt es einen **Lernplan** bis zum Test (Tagesportionen plus Wiederholung nach 1 und 3 Tagen), **Schnell-Quiz**, **Fehler üben** (Lernkartei mit 5 Stufen) und einen **Probe-Test**. Lädst du alte Vokabeltests hoch, orientiert sich der Probe-Test an Aufgabentypen und Strenge deiner Lehrkraft. Die Schreibweise zählt: Akzente wie in „niño“ müssen stimmen.
 - **Bilinguale Fächer** (z. B. Geography): Aufgaben, Korrektur und Sprachkorrektur auf Englisch.
 - Fächer jederzeit nachtragen (Tab „Fächer“ → +).

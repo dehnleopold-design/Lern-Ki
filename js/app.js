@@ -6,7 +6,7 @@ import { gradeLabel, gradeOptions, percentToGrade, reachesTarget, scale } from '
 import { downloadLernzettel, sheetHTML, SHEET_CSS } from './pdf.js';
 import { h, add, md, mdEl, mascot, speech, icon, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '1.9 (6.11.)';
+const APP_VERSION = '2.0 (6.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -38,7 +38,7 @@ function go(name, params = {}) {
 function render() {
   app.replaceChildren();
   if (!state.profile && route.name !== 'onboarding') route = { name: 'onboarding', params: {} };
-  const views = { onboarding: viewOnboarding, prepare: viewPrepare, plan: viewPlan, pick: viewPick, vocab: viewVocab, vnew: viewVocabNew, vset: viewVocabSet, vwords: viewVocabWords, vplan: viewVocabPlan, vquiz: viewVocabQuiz, vtests: viewVocabTests, newExam: viewNewExam, session: viewSession, subjects: viewSubjects, subject: viewSubject, tutor: viewTutor, settings: viewSettings };
+  const views = { onboarding: viewOnboarding, prepare: viewPrepare, plan: viewPlan, pick: viewPick, vocab: viewVocab, solve: viewSolveNew, solved: viewSolved, vnew: viewVocabNew, vset: viewVocabSet, vwords: viewVocabWords, vplan: viewVocabPlan, vquiz: viewVocabQuiz, vtests: viewVocabTests, newExam: viewNewExam, session: viewSession, subjects: viewSubjects, subject: viewSubject, tutor: viewTutor, settings: viewSettings };
   const v = (views[route.name] || viewPlan)(route.params);
   add(app, v);
 }
@@ -1372,6 +1372,12 @@ function viewSubjects() {
   return h('div', { class: 'screen with-tabs' },
     h('header', { class: 'topbar' }, h('span', { class: 'iconbtn-spacer' }), h('div', { class: 'topbar-title' }, 'Fächer'), h('button', { class: 'iconbtn', onclick: () => addSubjectDialog(), 'aria-label': 'Fach hinzufügen' }, icon('plus'))),
     h('main', { class: 'content narrow' },
+      h('button', { class: 'solve-cta', onclick: () => startSolve() },
+        h('span', { class: 'tile-ico' }, icon('grad', 24)),
+        h('span', { class: 'menu-text' }, h('span', { class: 'menu-label' }, 'Arbeitsblatt lösen'), h('span', { class: 'menu-sub' }, 'Blatt einscannen – Jelly löst alle Aufgaben mit Lösungsweg')),
+        icon('chev', 18)),
+      solvedList().length ? h('div', { class: 'menu' }, solvedList().slice(0, 4).map((x) => menuRow('checkc', x.titel, x.ersteAufgabe || 'Gelöstes Blatt', () => go('solved', { id: x.id })))) : null,
+      h('div', { class: 'label' }, 'Deine Fächer'),
       h('div', { class: 'menu' }, state.subjects.map((s) => h('button', { class: 'menu-row', onclick: () => go('subject', { id: s.id }) },
         subjectBadge(s, 38),
         h('span', { class: 'menu-text' }, h('span', { class: 'menu-label' }, s.name), h('span', { class: 'menu-sub' }, `${(s.archive || []).length ? `${s.archive.length} alte Klausuren` : 'Noch keine alten Klausuren'}${s.language === 'en' ? ' · Englisch' : ''}`)),
@@ -1454,6 +1460,9 @@ function viewSubject({ id }) {
           h('p', { class: 'muted small' }, 'Am besten korrigierte Klausuren (mit Rotstift & Punkten). Daraus lerne ich den Stil deiner Lehrkraft.'),
           archiveList,
           h('button', { class: 'btn block', onclick: upload }, icon('upload', 18), 'Klausuren hochladen')]),
+        fold('checkc', 'Gelöste Arbeitsblätter', `${solvedList().filter((x) => x.subjectId === s.id).length} Blätter`, [
+          h('div', { class: 'menu' }, solvedList().filter((x) => x.subjectId === s.id).map((x) => menuRow('file', x.titel, x.ersteAufgabe || '', () => go('solved', { id: x.id })))),
+          h('button', { class: 'btn block', onclick: () => startSolve(s.id) }, icon('camera', 18), 'Arbeitsblatt lösen')]),
         fold('user', 'Lehrerprofil', s.teacherProfile ? 'Erstellt' : 'Noch keins', [profileBox]),
         fold('gear', 'Fach-Einstellungen', null, [
           h('div', { class: 'label' }, 'Name'),
@@ -1470,6 +1479,155 @@ function viewSubject({ id }) {
             for (const fid of s.archive || []) await removeFile(fid);
             state.subjects = state.subjects.filter((x) => x.id !== s.id); save(); go('subjects');
           } }, 'Fach löschen')]))));
+}
+
+// ================================================================ ARBEITSBLATT LÖSEN
+const solvedList = () => (state.solved ||= []);
+let nsv = null;
+
+function startSolve(subjectId = null) {
+  nsv = { subjectId: subjectId || state.subjects[0]?.id || null, fileIds: [], note: '' };
+  go('solve');
+}
+
+function viewSolveNew() {
+  if (!nsv) { startSolve(); return h('div'); }
+  const cancel = async () => { for (const id of nsv.fileIds) await removeFile(id); nsv = null; go('subjects'); };
+  if (nsv.processing) {
+    const panel = waitPanel('Ich löse dein Arbeitsblatt …');
+    panel.setSteps(['Blatt lesen', 'Aufgaben lösen']);
+    panel.run(1);
+    const screen = h('div', { class: 'screen' }, topbar({ close: () => go('subjects') }), h('main', { class: 'content narrow' }, panel.el));
+    processSolve(panel);
+    return screen;
+  }
+  const grid = h('div', { class: 'grid3' });
+  const draw = async () => {
+    const tiles = [];
+    for (const id of nsv.fileIds) {
+      const url = await thumbURL(id);
+      tiles.push(h('div', { class: 'tile filled' }, url ? h('img', { src: url }) : h('div', { class: 'tile-file' }, icon('file', 30), h('span', {}, state.files[id]?.name || '')),
+        h('button', { class: 'tile-del', onclick: async () => { nsv.fileIds = nsv.fileIds.filter((x) => x !== id); await removeFile(id); draw(); } }, icon('close', 16))));
+    }
+    const addTile = (label, opts) => h('button', { class: 'tile', onclick: async () => {
+      for (const f of await pickFiles(opts)) { try { nsv.fileIds.push(await addFile(f, { kind: 'sheet', subjectId: nsv.subjectId })); } catch (e) { toast(errorMsg(e), 'error'); } }
+      draw();
+    } }, icon(opts.capture ? 'camera' : 'plus', 28), h('span', { class: 'small muted' }, label));
+    tiles.push(addTile('Foto aufnehmen', { accept: 'image/*', capture: 'environment', multiple: false }), addTile('Scan / PDF', {}));
+    grid.replaceChildren(...tiles);
+  };
+  draw();
+  return h('div', { class: 'screen' }, topbar({ back: cancel, title: 'Blatt lösen' }),
+    h('main', { class: 'content narrow' },
+      speech('Scanne ein Arbeitsblatt ein – ich löse alle Aufgaben und erkläre dir den Weg.'),
+      h('div', { class: 'label' }, 'Fach'),
+      h('div', { class: 'chips' }, state.subjects.map((sub) => h('button', { class: `chip ${nsv.subjectId === sub.id ? 'active' : ''}`, onclick: () => { nsv.subjectId = sub.id; render(); } }, sub.name))),
+      h('div', { class: 'label' }, 'Seiten'),
+      grid,
+      h('div', { class: 'label' }, 'Hinweis (optional)'),
+      h('input', { class: 'input', placeholder: 'z. B. „nur Aufgabe 2–4“ oder „M3 ist auf der Rückseite“', value: nsv.note, oninput: (e) => { nsv.note = e.target.value; } })),
+    h('footer', { class: 'footer' }, h('button', { class: 'btn primary block', onclick: () => {
+      if (!aiReady()) return toast('Bitte zuerst die KI einrichten (Mehr → KI-Verbindung).', 'error');
+      if (!nsv.fileIds.length) return toast('Bitte mindestens eine Seite hinzufügen.');
+      nsv.processing = true; render();
+    } }, 'Blatt lösen')));
+}
+
+async function processSolve(panel) {
+  if (ui.busy.solve) return;
+  ui.busy.solve = true;
+  try {
+    const subject = subjectById(nsv.subjectId);
+    const parts = [{ text: P.solvePrompt(subject, nsv.note.trim()) }];
+    for (const id of nsv.fileIds) parts.push(await filePart(id));
+    const text = await generate({ system: P.baseSystem(subject), parts, temperature: 0.2 });
+    const first = text.match(/^##\s+(.*)$/m);
+    const item = { id: uid(), subjectId: nsv.subjectId, fileIds: [...nsv.fileIds], note: nsv.note.trim(), loesung: text, titel: `${subject?.name || 'Blatt'} · ${new Date().toLocaleDateString('de-DE')}`, ersteAufgabe: first ? first[1].slice(0, 80) : '', chat: [], createdAt: Date.now() };
+    solvedList().unshift(item);
+    save();
+    nsv = null;
+    go('solved', { id: item.id });
+  } catch (e) {
+    panel.fail(1);
+    panel.errBox.replaceChildren(h('div', { class: 'card warn' }, h('p', {}, errorMsg(e)),
+      h('div', { class: 'row gap center' }, h('button', { class: 'btn', onclick: () => render() }, 'Nochmal versuchen'), h('button', { class: 'btn ghost', onclick: () => { nsv.processing = false; render(); } }, 'Zurück'))));
+  } finally { delete ui.busy.solve; }
+}
+
+// Jede "## Aufgabe …" wird ein eigener Block; die Lösung ist zum Selbsttesten erst zugeklappt.
+function solvedSheet(item, openAll) {
+  const lines = item.loesung.split(/\r?\n/);
+  const sections = [];
+  let pre = [];
+  let cur = null;
+  for (const line of lines) {
+    const m = line.match(/^##\s+(.*)$/);
+    if (m) { cur = { title: m[1], body: [] }; sections.push(cur); } else if (cur) cur.body.push(line); else pre.push(line);
+  }
+  const doc = h('div', { class: 'sheet-doc' });
+  if (pre.join('').trim()) add(doc, h('div', { html: md(pre.join('\n')) }));
+  for (const sec of sections) {
+    add(doc, h('div', { class: 'solve-task' },
+      h('div', { html: md(`## ${sec.title}`) }),
+      h('details', { class: 'solve-sol', open: openAll }, h('summary', {}, h('span', { class: 'when-closed' }, 'Lösung zeigen'), h('span', { class: 'when-open' }, 'Lösung verbergen')), h('div', { html: md(sec.body.join('\n')) }))));
+  }
+  if (!sections.length) add(doc, h('div', { html: md(item.loesung) }));
+  return doc;
+}
+
+function viewSolved({ id }) {
+  ensureSheetCSS();
+  const item = solvedList().find((x) => x.id === id);
+  if (!item) { go('subjects'); return h('div'); }
+  const subject = subjectById(item.subjectId);
+  ui.solveOpen ??= false;
+  const head = { title: `Lösungen: ${subject?.name || 'Arbeitsblatt'}`, subtitle: `${item.ersteAufgabe || ''}`, meta: [`Klasse ${state.profile?.grade || '?'}`, new Date(item.createdAt).toLocaleDateString('de-DE')], footer: `${subject?.name || ''} – Lösungen Arbeitsblatt` };
+  const dl = h('button', { class: 'btn', onclick: async () => {
+    dl.disabled = true; const old = dl.textContent; dl.textContent = 'Erstelle PDF …';
+    try { await downloadLernzettel(head, item.loesung); } catch (e) { toast(errorMsg(e), 'error'); }
+    dl.disabled = false; dl.textContent = old;
+  } }, icon('download', 18), 'PDF');
+
+  // Nachfragen
+  const list = h('div', { class: 'chat-list' });
+  const drawChat = () => list.replaceChildren(...item.chat.map((m) => h('div', { class: `msg ${m.role}` }, m.role === 'model' ? mdEl(m.text) : m.text)));
+  drawChat();
+  const input = h('textarea', { class: 'input', rows: 2, placeholder: 'Frag Jelly zu diesem Blatt …' });
+  const send = h('button', { class: 'iconbtn send', 'aria-label': 'Senden', onclick: async () => {
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    const history = item.chat.slice(-16);
+    item.chat.push({ role: 'user', text });
+    drawChat(); send.disabled = true;
+    try { item.chat.push({ role: 'model', text: await generate({ system: P.solveChatSystem(subject, item), parts: [{ text }], history, temperature: 0.4 }) }); }
+    catch (e) { item.chat.pop(); input.value = text; toast(errorMsg(e), 'error'); }
+    save(); drawChat(); send.disabled = false;
+  } }, icon('send'));
+
+  return h('div', { class: 'screen' },
+    topbar({ back: () => go('subjects'), title: 'Lösungen' }),
+    h('main', { class: 'content narrow' },
+      h('div', { class: 'row gap wrap center' },
+        h('button', { class: 'btn primary', onclick: () => { ui.solveOpen = !ui.solveOpen; render(); } }, ui.solveOpen ? 'Alle zuklappen' : 'Alle aufdecken'),
+        dl,
+        h('button', { class: 'btn ghost', onclick: () => {
+          const o = sheet('Blatt', [h('div', { class: 'menu' },
+            menuRow('refresh', 'Nochmal lösen lassen', 'Gleiche Seiten, neue Lösung', async () => {
+              o.remove();
+              nsv = { subjectId: item.subjectId, fileIds: [...item.fileIds], note: item.note || '', processing: true };
+              solvedList().splice(solvedList().indexOf(item), 1); save(); go('solve');
+            }),
+            menuRow('trash', 'Löschen', null, async () => {
+              o.remove();
+              if (!(await confirmDialog('Dieses gelöste Blatt löschen?', 'Löschen'))) return;
+              for (const fid of item.fileIds) await removeFile(fid);
+              state.solved = solvedList().filter((x) => x.id !== item.id); save(); go('subjects');
+            }, 'danger'))]);
+        } }, icon('more', 18))),
+      h('p', { class: 'muted small center' }, 'Versuch jede Aufgabe erst selbst, dann aufdecken. Die KI kann sich irren – bei Zweifeln nachfragen.'),
+      h('article', { class: 'lernzettel solve' }, solvedSheet(item, ui.solveOpen)),
+      h('section', { class: 'card stack' }, h('div', { class: 'label' }, 'Nachfragen'), list, h('div', { class: 'chat-input' }, input, send))));
 }
 
 // ================================================================ VOKABELN
