@@ -8,7 +8,7 @@ import { gradeLabel, gradeOptions, percentToGrade, reachesTarget, scale } from '
 import { downloadLernzettel, sheetHTML, SHEET_CSS } from './pdf.js';
 import { h, add, md, mdEl, mascot, speech, icon, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.5 (6.11.)';
+const APP_VERSION = '2.6 (6.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -2116,6 +2116,8 @@ function viewSettings() {
               st.waitVideo = v; save(); toast(v ? 'Video gespeichert.' : 'Video ausgeschaltet.', 'ok'); o.remove(); render();
             } })]);
         })),
+      authEnabled && !bootedUid ? h('div', { class: 'menu' },
+        menuRow('key', 'Konto & Sync einrichten', 'Anmelden – dann hast du alles auf iPad und Handy', () => openAccountSetup())) : null,
       authEnabled && bootedUid ? h('div', { class: 'menu' },
         menuRow('key', 'Konto & Sync', currentUser()?.email || (() => { try { return localStorage.getItem('lernki-last-email') || 'Angemeldet'; } catch { return 'Angemeldet'; } })(), () => {
           const u = currentUser();
@@ -2211,7 +2213,8 @@ function viewLogin() {
         if (!email.value.trim()) { err.textContent = 'Gib zuerst deine E-Mail ein.'; return; }
         try { await resetPassword(email.value.trim()); toast('E-Mail zum Zurücksetzen ist unterwegs.', 'ok'); } catch (e) { err.textContent = authErrorText(e); }
       } }, 'Passwort vergessen?') : null,
-      h('button', { class: 'link-small', onclick: async () => { ui.localOnly = true; await boot(null); } }, 'Ohne Konto weiter'),
+      h('button', { class: 'link-small', onclick: async () => { ui.localOnly = true; await boot(null); } }, state.profile ? 'Abbrechen' : 'Ohne Konto weiter'),
+      state.profile ? h('p', { class: 'muted small' }, 'Deine bisherigen Daten werden ins Konto übernommen. Mach das zuerst auf dem Gerät mit den meisten Daten.') : null,
       h('p', { class: 'muted small' }, 'Deine Lerndaten bleiben auf diesem Gerät. Das Konto trennt sie von den Daten anderer Personen.')));
 }
 
@@ -2232,6 +2235,52 @@ async function boot(user) {
   render();
 }
 
+let authStarted = false;
+async function handleUser(user) {
+  if (!user) {
+    if (bootedUid) { location.reload(); return; } // abgemeldet
+    if (ui.localOnly) return;
+    route = { name: 'login', params: {} };
+    render();
+    return;
+  }
+  if (bootedUid === user.uid) return;
+  bootedUid = user.uid;
+  ui.localOnly = false;
+  try { localStorage.setItem('lernki-last-uid', user.uid); localStorage.setItem('lernki-last-email', user.email || ''); } catch {}
+  app.replaceChildren(h('div', { class: 'boot' }, mascot(90), h('p', { class: 'muted' }, 'Lade deine Daten …')));
+  await useAccount(user.uid); // übernimmt beim ersten Mal die Daten ohne Konto
+  await loadState();
+  // Neuere Daten von einem anderen Gerät holen (max. 10 s warten, dann im Hintergrund weiter)
+  let booted = false;
+  const synced = startSync(user, { onRemoteApplied: async () => {
+    if (!booted) return;
+    const keep = route;
+    await loadState();
+    route = state.profile ? (['onboarding', 'login'].includes(keep.name) ? { name: 'plan', params: {} } : keep) : { name: 'onboarding', params: {} };
+    render();
+    toast('Neuer Stand von deinem anderen Gerät geladen.', 'ok');
+  } });
+  await Promise.race([synced, new Promise((r) => setTimeout(r, 10000))]);
+  await boot(user);
+  booted = true;
+}
+
+async function startAuth() {
+  if (authStarted) return;
+  authStarted = true;
+  await initAuth(handleUser);
+}
+
+// Für alle, die bisher ohne Konto lernen: freiwillig anmelden (Daten wandern ins Konto).
+async function openAccountSetup() {
+  ui.localOnly = true; // Abbrechen führt zurück in die App
+  ui.loginMode = 'login';
+  route = { name: 'login', params: {} };
+  render();
+  try { await startAuth(); } catch { toast('Für die Anmeldung brauchst du Internet.', 'error'); }
+}
+
 (async function init() {
   if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkForUpdate(); });
@@ -2240,37 +2289,10 @@ async function boot(user) {
   // Wer die App schon ohne Konto nutzt (Daten vorhanden), wird nicht nach Anmeldung gefragt.
   let lastUid = null;
   try { lastUid = localStorage.getItem('lernki-last-uid'); } catch {}
-  if (!lastUid && await hasLocalProfile()) { await boot(null); return; }
+  if (!lastUid && await hasLocalProfile()) { ui.localOnly = true; await boot(null); return; }
   app.replaceChildren(h('div', { class: 'boot' }, mascot(90), h('p', { class: 'muted' }, 'Lade …')));
   try {
-    await initAuth(async (user) => {
-      if (!user) {
-        if (bootedUid) { location.reload(); return; } // abgemeldet
-        if (ui.localOnly) return;
-        route = { name: 'login', params: {} };
-        render();
-        return;
-      }
-      if (bootedUid === user.uid) return;
-      bootedUid = user.uid;
-      try { localStorage.setItem('lernki-last-uid', user.uid); localStorage.setItem('lernki-last-email', user.email || ''); } catch {}
-      await useAccount(user.uid);
-      await loadState();
-      app.replaceChildren(h('div', { class: 'boot' }, mascot(90), h('p', { class: 'muted' }, 'Lade deine Daten …')));
-      // Neuere Daten von einem anderen Gerät holen (max. 10 s warten, dann im Hintergrund weiter)
-      let booted = false;
-      const synced = startSync(user, { onRemoteApplied: async () => {
-        if (!booted) return;
-        const keep = route;
-        await loadState();
-        route = state.profile ? (['onboarding', 'login'].includes(keep.name) ? { name: 'plan', params: {} } : keep) : { name: 'onboarding', params: {} };
-        render();
-        toast('Neuer Stand von deinem anderen Gerät geladen.', 'ok');
-      } });
-      await Promise.race([synced, new Promise((r) => setTimeout(r, 10000))]);
-      await boot(user);
-      booted = true;
-    });
+    await startAuth();
   } catch (e) {
     // Offline beim Start: zuletzt angemeldetes Konto auf diesem Gerät öffnen
     let last = null;
