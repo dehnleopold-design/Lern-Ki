@@ -466,7 +466,9 @@ ul { margin: 4px 0; padding-left: 22px; }
 .annot-layer { position: absolute; inset: 0; pointer-events: none; }
 .ink { position: absolute; color: #4b2bd6; }
 .annot-wrap.hide-ink .ink { display: none; }
-.ink-text { font-family: 'Caveat', 'Bradley Hand', cursive; font-weight: 700; line-height: 1.05; display: flex; align-items: flex-end; padding-left: 2px; overflow: visible; white-space: normal; text-shadow: 0 0 2px #fff, 0 0 2px #fff; }
+.ink-text { font-family: 'Inter', system-ui, sans-serif; font-weight: 700; line-height: 1.2; letter-spacing: -.01em; display: block; overflow: visible; white-space: normal; }
+/* weißer Schein um die Schrift, damit sie auf gedrucktem Text lesbar bleibt */
+.ink-text { text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 2px #fff; }
 .ink-fix { color: #c62828; align-items: flex-start; }
 .ink-cross svg, .ink-check svg { width: 100%; height: 100%; display: block; }
 .ink-cross { color: #4b2bd6; }
@@ -475,3 +477,8 @@ ul { margin: 4px 0; padding-left: 22px; }
 .ink-check { aspect-ratio: 1; max-width: 6%; }
 .ink-check.ok { color: #1f9d55; }
 .ink-check.bad { color: #c62828; }
+
+.annot-holder { position: relative; }
+.annot-scroll { overflow: auto; border-radius: 16px; -webkit-overflow-scrolling: touch; max-height: 80vh; }
+.annot-scroll.zoomed .annot-wrap { width: 260%; border-radius: 0; }
+.zoom-btn { position: absolute; right: 10px; top: 10px; width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center; background: rgba(9,8,13,.75); color: #fff; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); box-shadow: 0 4px 14px rgba(0,0,0,.4); }

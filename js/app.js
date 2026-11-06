@@ -9,7 +9,7 @@ import { downloadLernzettel, sheetHTML, SHEET_CSS } from './pdf.js';
 import { cleanText } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.7 (6.11.)';
+const APP_VERSION = '2.8 (6.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -1610,10 +1610,15 @@ function annotatedPage(fid, entries, show) {
     }
   }
   // Schriftgröße an die Zeilenhöhe im Foto anpassen
+  // Schriftgröße: klein und gleichmäßig (nach Blattbreite), höchstens so hoch wie das Feld
   const fit = () => {
-    const H = img.clientHeight;
-    if (!H) return;
-    for (const [t, b] of texts) t.style.fontSize = `${Math.max(10, Math.min(34, ((b[2] - b[0]) / 1000) * H * (t.classList.contains('ink-fix') ? 0.6 : 0.85)))}px`;
+    const W = img.clientWidth, H = img.clientHeight;
+    if (!W || !H) return;
+    const base = W * 0.0105;
+    for (const [t, b] of texts) {
+      const boxH = ((b[2] - b[0]) / 1000) * H;
+      t.style.fontSize = `${Math.max(6, Math.min(base, boxH * 0.75))}px`;
+    }
   };
   img.onload = fit;
   if (window.ResizeObserver) new ResizeObserver(fit).observe(wrap);
@@ -1713,7 +1718,12 @@ function viewSolved({ id }) {
           return [seg,
             h('div', { class: 'row gap center' }, h('button', { class: 'btn small', onclick: () => { ui.inkShow = !ui.inkShow; render(); } }, ui.inkShow ? 'Lösungen ausblenden' : 'Lösungen einblenden')),
             h('p', { class: 'muted small center' }, 'Die Position der Einträge ist geschätzt – bei schrägen Fotos kann sie etwas verrutschen. Alles Wichtige steht unter „Ausführlich“.'),
-            ...imgs.filter((fid) => item.annot?.[fid]).map((fid) => annotatedPage(fid, item.annot[fid], ui.inkShow))];
+            ...imgs.filter((fid) => item.annot?.[fid]).map((fid) => {
+              const page = annotatedPage(fid, item.annot[fid], ui.inkShow);
+              const box = h('div', { class: `annot-scroll ${ui.inkZoom ? 'zoomed' : ''}` }, page);
+              const zoomBtn = h('button', { class: 'zoom-btn', 'aria-label': 'Vergrößern', onclick: () => { ui.inkZoom = !ui.inkZoom; box.classList.toggle('zoomed', ui.inkZoom); zoomBtn.replaceChildren(icon(ui.inkZoom ? 'minus' : 'plus', 20)); } }, icon(ui.inkZoom ? 'minus' : 'plus', 20));
+              return h('div', { class: 'annot-holder' }, box, zoomBtn);
+            })];
         }
         return [seg, h('p', { class: 'muted small center' }, 'Versuch jede Aufgabe erst selbst, dann aufdecken. Die KI kann sich irren – bei Zweifeln nachfragen.'),
           h('article', { class: 'lernzettel solve' }, solvedSheet(item, ui.solveOpen))];
