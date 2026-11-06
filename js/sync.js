@@ -1,0 +1,179 @@
+// Synchronisierung zwischen Geräten über Firestore (kostenloser Spark-Tarif).
+// Gespeichert wird unter users/{uid}/… – die Sicherheitsregeln erlauben nur dem Konto selbst den Zugriff.
+//
+//  users/{uid}/state/meta   { updatedAt, n, device, blobs: { fileId: Anzahl Stücke } }
+//  users/{uid}/state/c0..cN  der gesamte App-Stand als JSON, in Stücke zerlegt (Firestore-Limit 1 MB pro Dokument)
+//  users/{uid}/blobs/{fileId}_{i}  Fotos/PDFs als Base64-Stücke
+//
+// Prinzip: Der neuere Stand gewinnt. Änderungen werden nach ein paar Sekunden hochgeladen;
+// beim Öffnen und beim Zurückkehren in die App wird geprüft, ob ein anderes Gerät etwas Neueres hat.
+
+import { state, onChange, applyRemoteState, kvGet, kvPut, getBlob, putBlob, blobKeys } from './store.js';
+import { firebaseApp } from './auth.js';
+
+const V = '10.12.2';
+const CHUNK = 900000; // Zeichen pro Dokument (unter dem 1-MB-Limit)
+let fs = null;
+let db = null;
+let uid = null;
+let pushTimer = null;
+let pushing = false;
+let local = { base: 0, dirty: false, dirtyAt: 0 };
+let onApplied = null;
+let statusListener = null;
+
+export const syncStatus = { state: 'aus', at: 0, error: '' };
+const setStatus = (st, error = '') => { syncStatus.state = st; syncStatus.error = error; if (st === 'ok') syncStatus.at = Date.now(); try { statusListener?.(); } catch {} };
+export function onSyncStatus(fn) { statusListener = fn; }
+
+function deviceId() {
+  try {
+    let d = localStorage.getItem('lernki-device');
+    if (!d) { d = Math.random().toString(36).slice(2, 10); localStorage.setItem('lernki-device', d); }
+    return d;
+  } catch { return 'x'; }
+}
+
+const metaRef = () => fs.doc(db, 'users', uid, 'state', 'meta');
+const chunkRef = (i) => fs.doc(db, 'users', uid, 'state', `c${i}`);
+const blobRef = (id, i) => fs.doc(db, 'users', uid, 'blobs', `${id}_${i}`);
+
+async function saveLocalMeta() { await kvPut('sync', local); }
+
+function friendly(e) {
+  const code = e?.code || '';
+  if (code === 'permission-denied') return 'Keine Berechtigung – sind die Firestore-Regeln veröffentlicht?';
+  if (code === 'not-found' || /database .* does not exist|NOT_FOUND/i.test(e?.message || '')) return 'Firestore ist im Firebase-Projekt noch nicht eingerichtet.';
+  if (code === 'unavailable') return 'Offline – wird später synchronisiert.';
+  if (code === 'resource-exhausted') return 'Tageslimit des kostenlosen Firebase-Tarifs erreicht.';
+  return e?.message || 'Unbekannter Fehler';
+}
+
+export async function startSync(user, { onRemoteApplied } = {}) {
+  onApplied = onRemoteApplied;
+  uid = user.uid;
+  try {
+    fs = await import(`https://www.gstatic.com/firebasejs/${V}/firebase-firestore.js`);
+    db = fs.getFirestore(firebaseApp());
+  } catch (e) { setStatus('fehler', 'Sync-Bibliothek nicht geladen (offline?)'); return; }
+  local = Object.assign({ base: 0, dirty: false, dirtyAt: 0 }, await kvGet('sync'));
+  onChange(() => {
+    local.dirty = true;
+    local.dirtyAt = Date.now();
+    kvPut('sync', local).catch(() => {});
+    schedulePush();
+  });
+  addEventListener('online', () => syncNow());
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') syncNow();
+    else if (local.dirty) push().catch(() => {});
+  });
+  await syncNow(true);
+}
+
+function schedulePush() {
+  clearTimeout(pushTimer);
+  pushTimer = setTimeout(() => push().catch(() => {}), 4000);
+}
+
+// Prüft beide Seiten und gleicht ab: Neueres gewinnt.
+export async function syncNow(first = false) {
+  if (!db) return;
+  setStatus('läuft');
+  try {
+    const snap = await fs.getDoc(metaRef());
+    const remote = snap.exists() ? snap.data() : null;
+    const hasLocal = !!state.profile;
+    if (!remote) {
+      if (hasLocal) await push(true);
+      else setStatus('ok');
+      return;
+    }
+    const remoteNewer = remote.updatedAt > local.base;
+    if (remoteNewer && (!local.dirty || remote.updatedAt > local.dirtyAt || (first && !hasLocal))) {
+      await pull(remote);
+    } else if (local.dirty || !local.base) {
+      await push(true);
+    } else {
+      setStatus('ok');
+    }
+  } catch (e) { setStatus('fehler', friendly(e)); }
+}
+
+async function pull(remote) {
+  const parts = [];
+  for (let i = 0; i < remote.n; i++) {
+    const c = await fs.getDoc(chunkRef(i));
+    if (!c.exists()) throw new Error('Unvollständiger Stand in der Cloud.');
+    parts.push(c.data().d);
+  }
+  const next = JSON.parse(parts.join(''));
+  // Fehlende Dateien (Fotos/PDFs) holen
+  const have = new Set(await blobKeys());
+  for (const [id, n] of Object.entries(remote.blobs || {})) {
+    if (have.has(id) || !next.files?.[id]) continue;
+    const pieces = [];
+    let mime = '';
+    for (let i = 0; i < n; i++) {
+      const b = await fs.getDoc(blobRef(id, i));
+      if (!b.exists()) { pieces.length = 0; break; }
+      mime = b.data().mime;
+      pieces.push(b.data().d);
+    }
+    if (pieces.length) await putBlob(id, { mime, data: pieces.join('') });
+  }
+  await applyRemoteState(next);
+  local = { base: remote.updatedAt, dirty: false, dirtyAt: 0, blobs: remote.blobs || {} };
+  await saveLocalMeta();
+  setStatus('ok');
+  try { onApplied?.(); } catch {}
+}
+
+export async function push(force = false) {
+  if (!db || pushing) return;
+  if (!force && !local.dirty) return;
+  pushing = true;
+  const started = Date.now();
+  setStatus('läuft');
+  try {
+    // Erst schauen, ob inzwischen ein anderes Gerät Neueres hochgeladen hat
+    const snap = await fs.getDoc(metaRef());
+    const remote = snap.exists() ? snap.data() : null;
+    if (remote && remote.updatedAt > local.base && remote.device !== deviceId() && remote.updatedAt > local.dirtyAt) {
+      pushing = false;
+      await pull(remote);
+      return;
+    }
+    const json = JSON.stringify(state);
+    const n = Math.max(1, Math.ceil(json.length / CHUNK));
+    for (let i = 0; i < n; i++) await fs.setDoc(chunkRef(i), { d: json.slice(i * CHUNK, (i + 1) * CHUNK) });
+    // Dateien: neue hochladen, gelöschte entfernen
+    const blobs = { ...(remote?.blobs || {}) };
+    const wanted = Object.keys(state.files || {});
+    for (const id of wanted) {
+      if (blobs[id]) continue;
+      const b = await getBlob(id);
+      if (!b?.data) continue;
+      const m = Math.max(1, Math.ceil(b.data.length / CHUNK));
+      for (let i = 0; i < m; i++) await fs.setDoc(blobRef(id, i), { mime: b.mime, d: b.data.slice(i * CHUNK, (i + 1) * CHUNK) });
+      blobs[id] = m;
+    }
+    for (const id of Object.keys(blobs)) {
+      if (wanted.includes(id)) continue;
+      for (let i = 0; i < blobs[id]; i++) { try { await fs.deleteDoc(blobRef(id, i)); } catch {} }
+      delete blobs[id];
+    }
+    const updatedAt = Date.now();
+    await fs.setDoc(metaRef(), { updatedAt, n, device: deviceId(), blobs });
+    // Übrige alte Stücke des Stands löschen, falls er kleiner geworden ist
+    for (let i = n; i < (remote?.n || 0); i++) { try { await fs.deleteDoc(chunkRef(i)); } catch {} }
+    // Wurde während des Hochladens weiter gelernt? Dann gleich nochmal.
+    const stillDirty = local.dirtyAt > started;
+    local = { base: updatedAt, dirty: stillDirty, dirtyAt: stillDirty ? local.dirtyAt : 0, blobs };
+    await saveLocalMeta();
+    setStatus('ok');
+    if (stillDirty) schedulePush();
+  } catch (e) {
+    setStatus('fehler', friendly(e));
+  } finally { pushing = false; }
+}

@@ -70,4 +70,17 @@ Einrichtung (kostenloser Spark-Tarif, keine Kreditkarte):
 3. **Authentication → Einstellungen → Autorisierte Domains** → `dehnleopold-design.github.io` hinzufügen.
 4. **Projekteinstellungen** (Zahnrad) → *Meine Apps* → Web-App (`</>`) registrieren → den `firebaseConfig`-Block in `js/firebase-config.js` eintragen.
 
+**Geräte-Sync:** Mit Konto wird alles (auch Fotos/PDFs) über Firestore zwischen Geräten abgeglichen – der neuere Stand gewinnt. Einrichtung: Firestore → Datenbank erstellen (europe-west3, Produktionsmodus) und diese Regeln veröffentlichen:
+
+```
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid}/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+  }
+}
+```
+
 Hinweis: In Home-Bildschirm-Apps auf iPhone/iPad kann das Google-Popup unzuverlässig sein. E-Mail/Passwort funktioniert immer.

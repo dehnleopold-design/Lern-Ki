@@ -132,7 +132,11 @@ export async function loadState() {
 }
 
 let saveTimer = null;
+let changeListener = null;
+// Die Synchronisierung hört hier mit, wann sich etwas geändert hat.
+export function onChange(fn) { changeListener = fn; }
 export function save() {
+  try { changeListener?.(); } catch {}
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     saveTimer = null;
@@ -155,6 +159,25 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 export function replaceState(next) {
   state = Object.assign(defaultState(), next);
   save();
+}
+
+// Stand von einem anderen Gerät übernehmen (ohne das als eigene Änderung zu melden).
+export async function applyRemoteState(next) {
+  state = Object.assign(defaultState(), next);
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  await tx('kv', 'readwrite', (s) => s.put(JSON.parse(JSON.stringify(state)), 'state'));
+}
+
+export const kvGet = (key) => tx('kv', 'readonly', (s) => s.get(key));
+export const kvPut = (key, value) => tx('kv', 'readwrite', (s) => s.put(value, key));
+export async function blobKeys() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const req = db.transaction('blobs', 'readonly').objectStore('blobs').getAllKeys();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
 }
 
 export const putBlob = (id, value) => tx('blobs', 'readwrite', (s) => s.put(value, id));

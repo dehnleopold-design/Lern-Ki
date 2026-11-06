@@ -1,4 +1,5 @@
 import { state, loadState, save, replaceState, clearAll, allBlobs, putBlob, uid, useAccount, hasLocalProfile } from './store.js';
+import { startSync, syncNow, syncStatus, onSyncStatus } from './sync.js';
 import { authEnabled, initAuth, signInGoogle, signInEmail, registerEmail, resetPassword, signOutUser, currentUser, authErrorText } from './auth.js';
 import { generate, aiReady, listGeminiModels, pickDefaultModel, AIError, onAIStatus } from './ai.js';
 import { addFile, removeFile, filePart, thumbURL, pickFiles } from './files.js';
@@ -7,7 +8,7 @@ import { gradeLabel, gradeOptions, percentToGrade, reachesTarget, scale } from '
 import { downloadLernzettel, sheetHTML, SHEET_CSS } from './pdf.js';
 import { h, add, md, mdEl, mascot, speech, icon, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.4 (6.11.)';
+const APP_VERSION = '2.5 (6.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -2116,12 +2117,18 @@ function viewSettings() {
             } })]);
         })),
       authEnabled && bootedUid ? h('div', { class: 'menu' },
-        menuRow('key', 'Konto', currentUser()?.email || (() => { try { return localStorage.getItem('lernki-last-email') || 'Angemeldet'; } catch { return 'Angemeldet'; } })(), () => {
+        menuRow('key', 'Konto & Sync', currentUser()?.email || (() => { try { return localStorage.getItem('lernki-last-email') || 'Angemeldet'; } catch { return 'Angemeldet'; } })(), () => {
           const u = currentUser();
           sheet('Konto', [
             h('p', {}, u?.email || 'Offline angemeldet'),
             u && u.providerData?.[0]?.providerId === 'password' && !u.emailVerified ? h('p', { class: 'muted small' }, 'E-Mail noch nicht bestätigt – schau in dein Postfach.') : null,
-            h('p', { class: 'muted small' }, 'Deine Lerndaten liegen auf diesem Gerät, getrennt pro Konto.'),
+            (() => {
+              const line = h('p', { class: 'muted small' });
+              const draw = () => { line.textContent = syncStatus.state === 'ok' ? `✓ Synchronisiert${syncStatus.at ? ` um ${new Date(syncStatus.at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}` : ''} – alle Geräte mit diesem Konto haben denselben Stand.` : syncStatus.state === 'läuft' ? 'Synchronisiere …' : syncStatus.state === 'fehler' ? `Sync-Problem: ${syncStatus.error}` : 'Synchronisierung aus.'; };
+              draw(); onSyncStatus(draw);
+              return line;
+            })(),
+            h('button', { class: 'btn block', onclick: () => syncNow() }, icon('refresh', 18), 'Jetzt synchronisieren'),
             h('button', { class: 'btn ghost block danger-text', onclick: async () => { try { await signOutUser(); } catch { try { localStorage.removeItem('lernki-last-uid'); } catch {} location.reload(); } } }, 'Abmelden')]);
         })) : null,
       h('div', { class: 'menu' },
@@ -2248,7 +2255,21 @@ async function boot(user) {
       bootedUid = user.uid;
       try { localStorage.setItem('lernki-last-uid', user.uid); localStorage.setItem('lernki-last-email', user.email || ''); } catch {}
       await useAccount(user.uid);
+      await loadState();
+      app.replaceChildren(h('div', { class: 'boot' }, mascot(90), h('p', { class: 'muted' }, 'Lade deine Daten …')));
+      // Neuere Daten von einem anderen Gerät holen (max. 10 s warten, dann im Hintergrund weiter)
+      let booted = false;
+      const synced = startSync(user, { onRemoteApplied: async () => {
+        if (!booted) return;
+        const keep = route;
+        await loadState();
+        route = state.profile ? (['onboarding', 'login'].includes(keep.name) ? { name: 'plan', params: {} } : keep) : { name: 'onboarding', params: {} };
+        render();
+        toast('Neuer Stand von deinem anderen Gerät geladen.', 'ok');
+      } });
+      await Promise.race([synced, new Promise((r) => setTimeout(r, 10000))]);
       await boot(user);
+      booted = true;
     });
   } catch (e) {
     // Offline beim Start: zuletzt angemeldetes Konto auf diesem Gerät öffnen
@@ -2281,4 +2302,4 @@ async function checkForUpdate() {
 }
 
 // Für die Konsole/Tests
-window.__lernki = { state: () => state, md, save };
+window.__lernki = { state: () => state, md, save, putBlob };

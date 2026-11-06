@@ -5,6 +5,7 @@ import { firebaseConfig, authActive } from './firebase-config.js';
 
 const V = '10.12.2';
 let auth = null;
+let appInst = null;
 let fb = null;
 
 export const authEnabled = !!firebaseConfig && authActive;
@@ -12,8 +13,8 @@ export const authEnabled = !!firebaseConfig && authActive;
 export async function initAuth(onUser) {
   const { initializeApp } = await import(`https://www.gstatic.com/firebasejs/${V}/firebase-app.js`);
   fb = await import(`https://www.gstatic.com/firebasejs/${V}/firebase-auth.js`);
-  const app = initializeApp(firebaseConfig);
-  auth = fb.getAuth(app);
+  appInst = initializeApp(firebaseConfig);
+  auth = fb.getAuth(appInst);
   auth.languageCode = 'de';
   fb.onAuthStateChanged(auth, onUser);
 }
@@ -29,6 +30,7 @@ export async function registerEmail(email, pw, name) {
 export const resetPassword = (email) => fb.sendPasswordResetEmail(auth, email);
 export const signOutUser = () => fb.signOut(auth);
 export const currentUser = () => auth?.currentUser || null;
+export const firebaseApp = () => appInst;
 
 export function authErrorText(e) {
   const code = e?.code || '';
