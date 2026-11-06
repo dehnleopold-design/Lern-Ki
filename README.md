@@ -62,7 +62,7 @@ Lokal testen: `python3 -m http.server` im Projektordner, dann http://localhost:8
 
 ## Anmeldung (optional, Firebase)
 
-Solange in `js/firebase-config.js` `null` steht, läuft die App ohne Anmeldung. Mit Anmeldung bekommt jedes Konto auf dem Gerät einen eigenen, getrennten Speicher. Die Daten von vorher übernimmt das erste Konto, das sich auf dem Gerät anmeldet. In die Cloud wird nichts hochgeladen.
+Solange in `js/firebase-config.js` `null` steht, läuft die App ohne Anmeldung. Ist Firebase eingerichtet, wird die Anmeldung **nur bei einem frischen Start ohne Daten** angeboten (mit „Ohne Konto weiter“). Wer die App schon nutzt, wird nicht gefragt. Mit Anmeldung bekommt jedes Konto auf dem Gerät einen eigenen, getrennten Speicher. Die Daten von vorher übernimmt das erste Konto, das sich auf dem Gerät anmeldet. In die Cloud wird nichts hochgeladen.
 
 Einrichtung (kostenloser Spark-Tarif, keine Kreditkarte):
 1. https://console.firebase.google.com → **Projekt erstellen** (z. B. „Lern-KI“), Google Analytics kann aus bleiben.

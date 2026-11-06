@@ -1,4 +1,4 @@
-import { state, loadState, save, replaceState, clearAll, allBlobs, putBlob, uid, useAccount } from './store.js';
+import { state, loadState, save, replaceState, clearAll, allBlobs, putBlob, uid, useAccount, hasLocalProfile } from './store.js';
 import { authEnabled, initAuth, signInGoogle, signInEmail, registerEmail, resetPassword, signOutUser, currentUser, authErrorText } from './auth.js';
 import { generate, aiReady, listGeminiModels, pickDefaultModel, AIError, onAIStatus } from './ai.js';
 import { addFile, removeFile, filePart, thumbURL, pickFiles } from './files.js';
@@ -7,7 +7,7 @@ import { gradeLabel, gradeOptions, percentToGrade, reachesTarget, scale } from '
 import { downloadLernzettel, sheetHTML, SHEET_CSS } from './pdf.js';
 import { h, add, md, mdEl, mascot, speech, icon, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.2 (6.11.)';
+const APP_VERSION = '2.3 (6.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -2115,7 +2115,7 @@ function viewSettings() {
               st.waitVideo = v; save(); toast(v ? 'Video gespeichert.' : 'Video ausgeschaltet.', 'ok'); o.remove(); render();
             } })]);
         })),
-      authEnabled ? h('div', { class: 'menu' },
+      authEnabled && bootedUid ? h('div', { class: 'menu' },
         menuRow('key', 'Konto', currentUser()?.email || (() => { try { return localStorage.getItem('lernki-last-email') || 'Angemeldet'; } catch { return 'Angemeldet'; } })(), () => {
           const u = currentUser();
           sheet('Konto', [
@@ -2204,6 +2204,7 @@ function viewLogin() {
         if (!email.value.trim()) { err.textContent = 'Gib zuerst deine E-Mail ein.'; return; }
         try { await resetPassword(email.value.trim()); toast('E-Mail zum Zurücksetzen ist unterwegs.', 'ok'); } catch (e) { err.textContent = authErrorText(e); }
       } }, 'Passwort vergessen?') : null,
+      h('button', { class: 'link-small', onclick: async () => { ui.localOnly = true; await boot(null); } }, 'Ohne Konto weiter'),
       h('p', { class: 'muted small' }, 'Deine Lerndaten bleiben auf diesem Gerät. Das Konto trennt sie von den Daten anderer Personen.')));
 }
 
@@ -2229,11 +2230,16 @@ async function boot(user) {
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkForUpdate(); });
   setTimeout(checkForUpdate, 0); // erst nachdem das Modul fertig geladen ist
   if (!authEnabled) { await boot(null); return; }
+  // Wer die App schon ohne Konto nutzt (Daten vorhanden), wird nicht nach Anmeldung gefragt.
+  let lastUid = null;
+  try { lastUid = localStorage.getItem('lernki-last-uid'); } catch {}
+  if (!lastUid && await hasLocalProfile()) { await boot(null); return; }
   app.replaceChildren(h('div', { class: 'boot' }, mascot(90), h('p', { class: 'muted' }, 'Lade …')));
   try {
     await initAuth(async (user) => {
       if (!user) {
         if (bootedUid) { location.reload(); return; } // abgemeldet
+        if (ui.localOnly) return;
         route = { name: 'login', params: {} };
         render();
         return;

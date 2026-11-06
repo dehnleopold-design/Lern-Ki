@@ -38,6 +38,16 @@ function writeAll(db, store, entries) {
 
 // Jedes Konto bekommt einen eigenen Speicher. Die Daten von vor der Anmeldung (ohne Konto)
 // übernimmt das erste Konto, das sich auf diesem Gerät anmeldet.
+// Gibt es schon Daten aus der Nutzung ohne Konto? (Dann wird nicht nach Anmeldung gefragt.)
+export async function hasLocalProfile() {
+  try {
+    const db = await openNamed(LEGACY_DB);
+    const st = await new Promise((res) => { const r = db.transaction('kv', 'readonly').objectStore('kv').get('state'); r.onsuccess = () => res(r.result); r.onerror = () => res(null); });
+    db.close();
+    return !!st?.profile;
+  } catch { return false; }
+}
+
 export async function useAccount(uid) {
   if (dbPromise) { try { (await dbPromise).close(); } catch {} }
   DB_NAME = `lernki-u-${uid}`;
@@ -54,6 +64,8 @@ export async function useAccount(uid) {
         if (kv.length) {
           await writeAll(target, 'blobs', await readAll(legacy, 'blobs'));
           await writeAll(target, 'kv', kv);
+          // Alte Kopie leeren, damit "ohne Konto" danach wirklich leer startet
+          await new Promise((res) => { const t = legacy.transaction(['kv', 'blobs'], 'readwrite'); t.objectStore('kv').clear(); t.objectStore('blobs').clear(); t.oncomplete = res; t.onerror = res; });
         }
         legacy.close();
       }
