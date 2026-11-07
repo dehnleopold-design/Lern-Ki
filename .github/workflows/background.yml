@@ -1,0 +1,34 @@
+# Jelly im Hintergrund: erstellt fehlende Lerninhalte, während die App geschlossen ist.
+# Zeitgesteuerte Abläufe startet GitHub nur aus dem Standard-Branch (main). Diese Datei muss deshalb
+# auch auf main liegen. Der Code selbst wird immer vom App-Branch geholt.
+name: Jelly Hintergrund
+
+on:
+  schedule:
+    - cron: '2-59/5 * * * *'   # alle 5 Minuten (GitHub verzögert das oft um einige Minuten)
+  workflow_dispatch:
+
+concurrency:
+  group: jelly-background
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: claude/knowunity-exam-prep-app-ycrff7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: node server/background.mjs
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          MAX_MINUTES: '40'
