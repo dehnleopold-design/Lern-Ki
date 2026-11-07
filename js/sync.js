@@ -43,6 +43,13 @@ const chunkRef = (i) => fs.doc(db, 'users', uid, 'state', `c${i}`);
 const blobRef = (id, i) => fs.doc(db, 'users', uid, 'blobs', `${id}_${i}`);
 const jobRef = (examId) => fs.doc(db, 'users', uid, 'bgjobs', examId);
 const resultsCol = () => fs.collection(db, 'users', uid, 'bgresults');
+const presenceRef = () => fs.doc(db, 'users', uid, 'bgpresence', 'app');
+
+// Solange die App offen ist, pausiert der Hintergrund-Dienst (sonst teilen sich beide die Gratis-Limits).
+function heartbeat(open) {
+  if (!db) return;
+  fs.setDoc(presenceRef(), { until: open ? Date.now() + 4 * 60000 : 0 }).catch(() => {});
+}
 
 async function saveLocalMeta() { await kvPut('sync', local); }
 
@@ -74,10 +81,12 @@ export async function startSync(user, { onRemoteApplied, onConflict: conflictFn,
   });
   addEventListener('online', () => syncNow());
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') syncNow();
-    else if (local.dirty) push().catch(() => {});
+    if (document.visibilityState === 'visible') { heartbeat(true); syncNow(); }
+    else { heartbeat(false); if (local.dirty) push().catch(() => {}); }
   });
   await syncNow(true);
+  heartbeat(true);
+  setInterval(() => { if (document.visibilityState === 'visible') heartbeat(true); }, 2 * 60000);
   // Fertige Inhalte vom Hintergrund-Dienst sofort übernehmen, sobald sie da sind
   try { fs.onSnapshot(resultsCol(), (snap) => { bgDocs = snap.docs; applyBackground(); }, () => {}); } catch {}
 }
@@ -229,7 +238,7 @@ export async function push(force = false, overwrite = false) {
 // Alle Daten dieses Kontos aus der Cloud löschen (Recht auf Löschung).
 export async function deleteCloudData() {
   if (!db) throw new Error('Keine Verbindung zum Online-Speicher.');
-  for (const name of ['bgjobs', 'bgresults']) {
+  for (const name of ['bgjobs', 'bgresults', 'bgpresence']) {
     const all = await fs.getDocs(fs.collection(db, 'users', uid, name));
     for (const d of all.docs) await fs.deleteDoc(d.ref);
   }

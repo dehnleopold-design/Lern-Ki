@@ -2,7 +2,7 @@ import { state, loadState, save, replaceState, clearAll, allBlobs, putBlob, uid,
 import { startSync, syncNow, syncStatus, onSyncStatus, deleteCloudData, push, requestBackground, backgroundAvailable } from './sync.js';
 import { deleteAccount } from './auth.js';
 import { authEnabled, initAuth, signInGoogle, signInEmail, registerEmail, resetPassword, signOutUser, currentUser, authErrorText } from './auth.js';
-import { generate, aiReady, listGeminiModels, pickDefaultModel, AIError, onAIStatus, FALLBACK_PRESETS, listOpenAIModels, pickFallbackModel } from './ai.js';
+import { generate, aiReady, listGeminiModels, pickDefaultModel, AIError, onAIStatus, FALLBACK_PRESETS, listOpenAIModels, pickFallbackModel, fallbackReady } from './ai.js';
 import { addFile, removeFile, filePart, thumbURL, pickFiles } from './files.js';
 import * as P from './prompts.js';
 import { allUnits, hasContent, lernzettelText, missingPhases, genLernzettel, genQuiz, genAufgaben, generateUnit } from './gen.js';
@@ -11,7 +11,7 @@ import { downloadLernzettel, sheetHTML, SHEET_CSS } from './pdf.js';
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.15 (7.11.)';
+const APP_VERSION = '2.16 (7.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -86,6 +86,14 @@ function subjectBadge(s, size = 40) {
 
 function makeSubject(name, short, color, language = 'de') {
   return { id: uid(), name, short: short || name.replace(/[^A-Za-zÄÖÜäöü]/g, '').slice(0, 3).toUpperCase(), color: color || PALETTE[state.subjects.length % PALETTE.length], language, level: 2, teacherNotes: '', teacherProfile: '', archive: [] };
+}
+
+// Bei Überlastung ohne Ersatz-Anbieter: direkt zum Einrichten führen.
+function fallbackTip(msg) {
+  if (fallbackReady() || state.settings.provider === 'openai' || !/überlastet|Limit/i.test(msg || '')) return null;
+  return h('div', { class: 'fb-tip' },
+    h('p', { class: 'small' }, 'Jelly kann im Moment nur Google fragen. Mit einem kostenlosen Ersatz-Anbieter (z. B. Groq) geht es weiter, wenn Google überlastet ist.'),
+    h('button', { class: 'btn block', onclick: () => sheet('KI-Verbindung', [aiSetupBlock(false)]) }, icon('zap', 18), 'Ersatz-Anbieter einrichten'));
 }
 
 function errorMsg(e) {
@@ -871,7 +879,7 @@ async function processExam(panel) {
     if (route.name === 'newExam') jellyTransition(() => go('plan'));
   } catch (e) {
     panel.fail(step);
-    panel.errBox.replaceChildren(h('div', { class: 'card warn' }, h('p', {}, errorMsg(e)),
+    panel.errBox.replaceChildren(h('div', { class: 'card warn' }, h('p', {}, errorMsg(e)), fallbackTip(errorMsg(e)),
       h('p', { class: 'muted small' }, 'Schon Gelesenes ist gespeichert – beim nächsten Versuch geht es dort weiter.'),
       h('div', { class: 'row gap center' },
         h('button', { class: 'btn', onclick: () => render() }, 'Nochmal versuchen'),
@@ -1007,7 +1015,7 @@ function viewPrepare({ examId, rebuild }) {
         toast(failed ? `${failed} Inhalt(e) konnten nicht vorbereitet werden – sie werden beim Öffnen erstellt.` : 'Alles fertig vorbereitet!', failed ? 'info' : 'ok');
         if (route.name === 'prepare') jellyTransition(() => go('plan'));
       } catch (e) {
-        panel.errBox.replaceChildren(h('div', { class: 'card warn' }, h('p', {}, errorMsg(e)),
+        panel.errBox.replaceChildren(h('div', { class: 'card warn' }, h('p', {}, errorMsg(e)), fallbackTip(errorMsg(e)),
           h('div', { class: 'row gap center' }, h('button', { class: 'btn', onclick: () => render() }, 'Nochmal versuchen'), h('button', { class: 'btn ghost', onclick: () => go('plan') }, 'Zurück'))));
       } finally { delete ui.busy[key]; }
     })();
@@ -1222,7 +1230,7 @@ function markDone(exam, unitId, sess, keepOpen = false) {
 function pending(main, key, title, steps, producer) {
   const err = ui.busy[key] ? null : ui.busy[`err:${key}`];
   if (err) {
-    add(main, h('div', { class: 'card warn' }, h('p', {}, err)),
+    add(main, h('div', { class: 'card warn' }, h('p', {}, err), fallbackTip(err)),
       h('button', { class: 'btn primary block', onclick: () => { delete ui.busy[`err:${key}`]; render(); } }, 'Nochmal versuchen'));
     return;
   }
@@ -1605,7 +1613,7 @@ async function processSolve(panel) {
     jellyTransition(() => go('solved', { id: item.id }));
   } catch (e) {
     panel.fail(0);
-    panel.errBox.replaceChildren(h('div', { class: 'card warn' }, h('p', {}, errorMsg(e)),
+    panel.errBox.replaceChildren(h('div', { class: 'card warn' }, h('p', {}, errorMsg(e)), fallbackTip(errorMsg(e)),
       h('div', { class: 'row gap center' }, h('button', { class: 'btn', onclick: () => render() }, 'Nochmal versuchen'), h('button', { class: 'btn ghost', onclick: () => { nsv.processing = false; render(); } }, 'Zurück'))));
   } finally { delete ui.busy.solve; }
 }
@@ -1967,7 +1975,7 @@ async function processVocab(panel) {
     nv = null;
     jellyTransition(() => go('vset', { id: set.id }));
   } catch (e) {
-    panel.errBox.replaceChildren(h('div', { class: 'card warn' }, h('p', {}, errorMsg(e)),
+    panel.errBox.replaceChildren(h('div', { class: 'card warn' }, h('p', {}, errorMsg(e)), fallbackTip(errorMsg(e)),
       h('div', { class: 'row gap center' }, h('button', { class: 'btn', onclick: () => render() }, 'Nochmal versuchen'), h('button', { class: 'btn ghost', onclick: () => { nv.processing = false; render(); } }, 'Zurück'))));
   } finally { delete ui.busy[key]; }
 }

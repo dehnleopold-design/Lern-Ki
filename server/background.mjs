@@ -54,6 +54,12 @@ async function loadMerged(uid) {
   return cloud.updatedAt;
 }
 
+// Ist die App gerade offen? Dann erstellt sie selbst – nicht doppelt am selben Schlüssel ziehen.
+async function appOpen(uid) {
+  const p = await userRef(uid).collection('bgpresence').doc('app').get();
+  return p.exists && (p.data().until || 0) > Date.now();
+}
+
 const label = (e) => (e?.status ? `Fehler ${e.status}` : (e?.constructor?.name || 'Fehler'));
 
 async function runJob(job, n, total) {
@@ -72,11 +78,14 @@ async function runJob(job, n, total) {
     console.log(`${tag}: Kein KI-Schlüssel im Konto – Auftrag gelöscht.`);
     return;
   }
-  let made = 0, failed = 0, fatal = false;
+  if (await appOpen(uid)) { console.log(`${tag}: App ist gerade offen – Pause.`); return; }
+  let made = 0, failed = 0, fatal = false, paused = false;
   for (let phase = 0; phase < 3 && !fatal; phase++) {
     const units = missingPhases(findExam())[phase];
+    if (paused) break;
     for (const u of units) {
       if (!timeLeft()) break;
+      if (await appOpen(uid)) { paused = true; break; }
       // Hat inzwischen ein Gerät etwas hochgeladen (z. B. weil doch in der App erstellt wurde)? Dann neu einlesen.
       const meta = await userRef(uid).collection('state').doc('meta').get();
       if (meta.exists && meta.data().updatedAt !== known) known = await loadMerged(uid);
@@ -99,6 +108,7 @@ async function runJob(job, n, total) {
     }
   }
   const left = missingPhases(findExam()).flat().length;
+  if (paused) { console.log(`${tag}: ${made} erstellt, dann App geöffnet – Pause.`); return; }
   if (!left) await job.ref.delete();
   else if ((info.attempts || 0) + 1 >= MAX_ATTEMPTS || fatal) await job.ref.delete();
   else await job.ref.set({ attempts: (info.attempts || 0) + 1, lastRun: Date.now() }, { merge: true });

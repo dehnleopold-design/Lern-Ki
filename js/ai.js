@@ -103,7 +103,7 @@ export async function generate({ system, parts, history = [], json = false, temp
   for (let round = 0; round < ROUND_WAIT.length; round++) {
     if (round === 1 && fallbackReady()) { /* Ersatz sofort, ohne Wartezeit */ } else if (ROUND_WAIT[round]) {
       for (let left = ROUND_WAIT[round] / 1000; left > 0; left--) {
-        report(`Alle kostenlosen Google-Modelle sind gerade überlastet. Neuer Versuch in ${left} s (Runde ${round + 1}/${ROUND_WAIT.length}) …`);
+        report(`Alle kostenlosen Google-Modelle sind gerade überlastet. Neuer Versuch in ${left} s (Runde ${round + 1}/${ROUND_WAIT.length}) …${fallbackReady() ? '' : ' Tipp: Unter Mehr → KI-Verbindung einen Ersatz-Anbieter einrichten, dann geht es ohne Warten weiter.'}`);
         await sleep(1000);
       }
     }
