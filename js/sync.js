@@ -9,7 +9,7 @@
 // beim Öffnen und beim Zurückkehren in die App wird geprüft, ob ein anderes Gerät etwas Neueres hat.
 
 import { state, save, onChange, applyRemoteState, kvGet, kvPut, getBlob, putBlob, blobKeys } from './store.js';
-import { allUnits } from './gen.js';
+import { allUnits, applyOps } from './gen.js';
 import { firebaseApp } from './auth.js';
 
 const V = '10.12.2';
@@ -91,7 +91,18 @@ export async function startSync(user, { onRemoteApplied, onConflict: conflictFn,
   try { fs.onSnapshot(resultsCol(), (snap) => { bgDocs = snap.docs; applyBackground(); }, () => {}); } catch {}
 }
 
-const filled = (x) => !!(x && (x.lernzettel || x.fragen || x.aufgaben));
+// Ein Ergebnis des Hintergrund-Dienstes in Änderungen am Stand übersetzen.
+function resultOps(d) {
+  const r = d.data() || {};
+  if (r.ops) { try { return { ops: JSON.parse(r.ops), require: r.require ? JSON.parse(r.require) : null, label: r.label || '' }; } catch { return null; } }
+  // ältere Form: nur eine Lerneinheit
+  if (r.data) {
+    const exam = state.exams.find((x) => x.id === r.examId);
+    if (!exam || !allUnits(exam).some((u) => u.id === d.id)) return { ops: [] };
+    try { return { ops: [{ path: ['sessions', d.id], value: JSON.parse(r.data), onlyIfEmpty: true }], label: 'Inhalt' }; } catch { return null; }
+  }
+  return null;
+}
 
 // Ergebnisse des Hintergrund-Dienstes in den Stand übernehmen. Gelöscht werden sie erst,
 // wenn der Stand mit ihnen hochgeladen ist (sonst könnten sie bei einem Abgleich verloren gehen).
@@ -99,23 +110,18 @@ function applyBackground() {
   if (!db || !bgDocs.length) return;
   const added = [];
   for (const d of bgDocs) {
-    const { examId, data } = d.data() || {};
-    const exam = state.exams.find((x) => x.id === examId);
-    const unit = exam && allUnits(exam).find((u) => u.id === d.id);
-    if (unit && !filled(state.sessions[d.id])) {
-      try { state.sessions[d.id] = JSON.parse(data); added.push(d.id); } catch {}
-    } else if (!local.dirty && !pushing) {
-      fs.deleteDoc(d.ref).catch(() => {});
-    }
+    const r = resultOps(d);
+    if (r && applyOps(state, r.ops, r.require)) added.push({ id: d.id, label: r.label });
+    else if (!local.dirty && !pushing) fs.deleteDoc(d.ref).catch(() => {});
   }
   if (added.length) { save(); try { bgListener?.(added); } catch {} }
 }
 
-// Auftrag an den Hintergrund-Dienst: fehlende Inhalte dieser Klausur erstellen.
-export async function requestBackground(examId) {
+// Auftrag an den Hintergrund-Dienst. job: { key, type, id }
+export async function requestJob(job) {
   if (!db) return false;
   try {
-    await fs.setDoc(jobRef(examId), { requestedAt: Date.now(), device: deviceId(), attempts: 0 });
+    await fs.setDoc(jobRef(job.key), { type: job.type, id: job.id, requestedAt: Date.now(), device: deviceId(), attempts: 0 });
     return true;
   } catch { return false; }
 }

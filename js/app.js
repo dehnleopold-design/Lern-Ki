@@ -1,17 +1,20 @@
 import { state, loadState, save, replaceState, clearAll, allBlobs, putBlob, uid, useAccount, hasLocalProfile } from './store.js';
-import { startSync, syncNow, syncStatus, onSyncStatus, deleteCloudData, push, requestBackground, backgroundAvailable } from './sync.js';
+import { startSync, syncNow, syncStatus, onSyncStatus, deleteCloudData, push, requestJob, backgroundAvailable } from './sync.js';
 import { deleteAccount } from './auth.js';
 import { authEnabled, initAuth, signInGoogle, signInEmail, registerEmail, resetPassword, signOutUser, currentUser, authErrorText } from './auth.js';
 import { generate, aiReady, listGeminiModels, pickDefaultModel, AIError, onAIStatus, FALLBACK_PRESETS, listOpenAIModels, pickFallbackModel, fallbackReady } from './ai.js';
 import { addFile, removeFile, filePart, thumbURL, pickFiles } from './files.js';
 import * as P from './prompts.js';
-import { allUnits, hasContent, lernzettelText, missingPhases, genLernzettel, genQuiz, genAufgaben, generateUnit } from './gen.js';
+import { allUnits, hasContent, lernzettelText, missingPhases, genLernzettel, genQuiz, genAufgaben, generateUnit, setPartLoader, digestFile, buildTeacherProfile, examFileIds, examNeedsProfile, createPlan, buildVocabPlan, buildVocabSet, buildVocabTestProfile, solveSheet, pendingJobs } from './gen.js';
 import { gradeLabel, gradeOptions, percentToGrade, reachesTarget, scale } from './grades.js';
 import { downloadLernzettel, sheetHTML, SHEET_CSS } from './pdf.js';
+import { openFile, fileKindLabel } from './viewer.js';
+
+setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.18 (7.11.)';
+const APP_VERSION = '2.19 (7.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -50,7 +53,7 @@ function go(name, params = {}) {
 function render() {
   app.replaceChildren();
   if (!state.profile && !['onboarding', 'login'].includes(route.name)) route = { name: 'onboarding', params: {} };
-  const views = { login: viewLogin, onboarding: viewOnboarding, prepare: viewPrepare, plan: viewPlan, pick: viewPick, vocab: viewVocab, solve: viewSolveNew, solved: viewSolved, vnew: viewVocabNew, vset: viewVocabSet, vwords: viewVocabWords, vplan: viewVocabPlan, vquiz: viewVocabQuiz, vtests: viewVocabTests, newExam: viewNewExam, session: viewSession, subjects: viewSubjects, subject: viewSubject, tutor: viewTutor, settings: viewSettings };
+  const views = { login: viewLogin, onboarding: viewOnboarding, prepare: viewPrepare, plan: viewPlan, pick: viewPick, vocab: viewVocab, solve: viewSolveNew, solved: viewSolved, vnew: viewVocabNew, vset: viewVocabSet, vwords: viewVocabWords, vplan: viewVocabPlan, vquiz: viewVocabQuiz, vtests: viewVocabTests, files: viewFiles, newExam: viewNewExam, session: viewSession, subjects: viewSubjects, subject: viewSubject, tutor: viewTutor, settings: viewSettings };
   const v = (views[route.name] || viewPlan)(route.params);
   add(app, v);
 }
@@ -392,6 +395,17 @@ function viewPlan() {
     return screen;
   }
 
+  if (exam.building && !exam.plan) {
+    add(screen,
+      h('header', { class: 'topbar' }, h('span', { class: 'iconbtn-spacer' }), h('div', { class: 'topbar-title' }, subjectById(exam.subjectId)?.name || 'Klausur'), h('button', { class: 'iconbtn', 'aria-label': 'Klausuren', onclick: () => examSheet() }, icon('more'))),
+      h('main', { class: 'content narrow center' },
+        mascot(130),
+        h('h1', { class: 'display' }, 'Dein Plan entsteht gerade'),
+        h('p', { class: 'muted' }, ui.busy[`prep:${exam.id}`] ? 'Jelly liest deine Unterlagen …' : backgroundAvailable() ? 'Jelly arbeitet im Hintergrund daran. Das dauert meist 5 bis 30 Minuten.' : 'Tippe auf „Weitermachen“, damit Jelly den Plan fertig baut.'),
+        h('button', { class: 'btn primary', onclick: () => go('prepare', { examId: exam.id }) }, 'Hier weitermachen')),
+      tabbar('plan'));
+    return screen;
+  }
   const subject = subjectById(exam.subjectId);
   const units = allUnits(exam);
   const secs = exam.plan?.abschnitte || [];
@@ -781,7 +795,7 @@ function viewNewExam() {
         if (!f) continue;
         const url = await thumbURL(id);
         tiles.push(h('div', { class: 'tile filled' },
-          url ? h('img', { src: url, alt: f.name }) : h('div', { class: 'tile-file' }, icon('file', 34), h('span', {}, f.name)),
+          url ? h('img', { src: url, alt: f.name, onclick: () => openFile(id) }) : h('div', { class: 'tile-file', onclick: () => openFile(id) }, icon('file', 34), h('span', {}, f.name)),
           f.digest ? h('span', { class: 'tile-ok' }, icon('check', 14)) : null,
           h('button', { class: 'tile-del', 'aria-label': 'Entfernen', onclick: async () => { nx.materialIds = nx.materialIds.filter((x) => x !== id); await removeFile(id); drawGrid(); } }, icon('close', 16))));
       }
@@ -817,120 +831,39 @@ function viewNewExam() {
 
   // 5: Verarbeitung
   if (nx.step === 5) {
-    const panel = waitPanel('Ich lese deine Unterlagen und baue deinen Plan …');
-    const screen = h('div', { class: 'screen' }, topbar({ close: cancel }), h('main', { class: 'content narrow' }, panel.el,
-      backgroundAvailable() ? h('p', { class: 'muted small center bg-hint' }, 'Bitte lass die App offen, bis der Lernplan steht. Danach kann Jelly im Hintergrund weitermachen.') : null));
-    processExam(panel);
-    return screen;
+    startExamBuild();
+    return h('div');
   }
   return h('div');
 }
 
-async function digestFile(id) {
-  const f = state.files[id];
-  if (!f || f.digest) return;
-  const subject = subjectById(f.subjectId);
-  const part = await filePart(id);
-  f.digest = await generate({ system: P.baseSystem(subject), parts: [{ text: P.digestPrompt(f.kind) }, part], json: true, temperature: 0.1 });
-  save();
-}
-
-async function processExam(panel) {
-  const subject = subjectById(nx.subjectId);
-  const ids = [...nx.materialIds];
-  if (nx.useArchive && subject) ids.push(...(subject.archive || []));
-  const needProfile = nx.useArchive && subject?.archive?.length && !subject.teacherProfile;
-  const labels = [
-    ...ids.map((id) => `${state.files[id]?.kind === 'archive' ? 'Alte Klausur' : 'Lese'}: ${state.files[id]?.digest?.titel || state.files[id]?.name || 'Datei'}`),
-    ...(needProfile ? ['Stil deiner Lehrkraft analysieren'] : []),
-    'Lernplan erstellen',
-  ];
-  panel.setSteps(labels);
-  let step = 0;
-  try {
-    for (const id of ids) {
-      panel.run(step);
-      await digestFile(id);
-      panel.done(step++);
-    }
-    if (needProfile) {
-      panel.run(step);
-      subject.teacherProfile = await generate({ system: P.baseSystem(subject), parts: [{ text: P.teacherProfilePrompt(subject) }], temperature: 0.2 });
-      save();
-      panel.done(step++);
-    }
-    let exam = nx.editId ? examById(nx.editId) : null;
-    if (!exam) {
-      exam = { id: uid(), subjectId: nx.subjectId, createdAt: Date.now(), weaknesses: [] };
-      state.exams.push(exam);
-      nx.editId = exam.id; // bei Fehler + "Nochmal" keine doppelte Klausur
-    }
-    Object.assign(exam, { date: nx.date ?? null, targetGrade: nx.targetGrade, materialIds: nx.materialIds, topicsText: nx.topicsText, useArchive: nx.useArchive });
-    state.activeExamId = exam.id;
-    save();
-    panel.run(step);
-    await createPlan(exam);
-    panel.done(step);
-    if (queueBackground(exam)) document.querySelector('.bg-hint')?.replaceWith(bgHint());
-    nx = null;
-    ui.selectedUnit = null;
-    const failed = await prepareAll(exam, panel);
-    toast(failed ? `Plan fertig. ${failed} Inhalt(e) konnten nicht vorbereitet werden – sie werden beim Öffnen erstellt.` : 'Alles fertig vorbereitet!', failed ? 'info' : 'ok');
-    if (route.name === 'newExam') jellyTransition(() => go('plan'));
-  } catch (e) {
-    panel.fail(step);
-    panel.errBox.replaceChildren(h('div', { class: 'card warn' }, h('p', {}, errorMsg(e)), fallbackTip(errorMsg(e)),
-      h('p', { class: 'muted small' }, 'Schon Gelesenes ist gespeichert – beim nächsten Versuch geht es dort weiter.'),
-      h('div', { class: 'row gap center' },
-        h('button', { class: 'btn', onclick: () => render() }, 'Nochmal versuchen'),
-        h('button', { class: 'btn ghost', onclick: () => { nx.step = 4; render(); } }, 'Zurück'))));
+// Klausur sofort speichern und dann aufbauen (Blätter lesen, Lehrerprofil, Lernplan, Inhalte).
+// Geht die App zu, macht der Hintergrund-Dienst an derselben Stelle weiter.
+function startExamBuild() {
+  let exam = nx.editId ? examById(nx.editId) : null;
+  if (!exam) {
+    exam = { id: uid(), subjectId: nx.subjectId, createdAt: Date.now(), weaknesses: [] };
+    state.exams.push(exam);
+  } else {
+    for (const u of allUnits(exam)) delete state.sessions[u.id];
+    exam.plan = null;
   }
-}
-
-function learningDays(exam) {
-  if (!exam.date) return [];
-  const days = [];
-  const today = parseISO(isoDate(new Date()));
-  const end = parseISO(exam.date);
-  const last = end <= today ? today : new Date(end.getTime() - 86400000);
-  for (let d = new Date(today); d <= last && days.length < 28; d.setDate(d.getDate() + 1)) {
-    const iso = isoDate(d);
-    days.push({ iso, label: `${relDay(iso)}, ${fmtDate(iso)}` });
-  }
-  return days;
-}
-
-async function createPlan(exam) {
-  const days = learningDays(exam);
-  const plan = await generate({ system: P.baseSystem(subjectById(exam.subjectId)), parts: [{ text: P.planPrompt(exam, days) }], json: true, temperature: 0.3 });
-  const isDay = (d) => /^\d{4}-\d{2}-\d{2}$/.test(d || '');
-  const themen = (plan.themen || []).filter((t) => t?.titel).slice(0, 8).map((t) => ({ titel: String(t.titel), beschreibung: t.beschreibung || '', schwerpunkte: t.schwerpunkte || [], tag: isDay(t.tag) ? t.tag : null }));
-  if (!themen.length) throw new AIError('Die KI hat keinen brauchbaren Plan geliefert. Bitte nochmal versuchen.');
-  const lastDay = days.length ? days[days.length - 1].iso : null;
-  const unit = (typ, titel, ziel, tag, themaIndex) => ({ id: uid(), typ, titel, ziel, tag, themaIndex, status: 'open' });
-  plan.themen = themen;
-  plan.abschnitte = [
-    ...themen.map((t, ti) => ({
-      titel: t.titel, themaIndex: ti,
-      einheiten: [
-        unit('lernzettel', `Lernzettel: ${t.titel}`, 'Alles Wichtige zum Thema auf einen Blick – auch als PDF', t.tag, ti),
-        unit('quiz', `Quiz: ${t.titel}`, 'Begriffe, Fakten und Zahlen schnell abrufen', t.tag, ti),
-        unit('aufgaben', `Anwenden: ${t.titel}`, 'Klausurnahe Aufgaben mit strenger Korrektur', t.tag, ti),
-      ],
-    })),
-    { titel: 'Abschluss', abschluss: true, einheiten: [
-      unit('gesamtzettel', 'Gesamt-Lernzettel', 'Die ganze Klausur auf zwei Seiten', lastDay, null),
-      unit('probeklausur', 'Probeklassenarbeit', 'Komplette Klassenarbeit im Stil deiner Lehrkraft', lastDay, null),
-    ] },
-  ];
-  delete plan.abschnitte_alt;
-  for (const u of allUnits(exam)) delete state.sessions[u.id];
-  exam.plan = plan;
+  Object.assign(exam, { date: nx.date ?? null, targetGrade: nx.targetGrade, materialIds: nx.materialIds, topicsText: nx.topicsText, useArchive: nx.useArchive, building: true });
+  state.activeExamId = exam.id;
   save();
+  nx = null;
+  ui.selectedUnit = null;
+  queueJob({ key: exam.id, type: 'exam', id: exam.id });
+  go('prepare', { examId: exam.id });
 }
 
 function rebuildPlan(exam) {
-  go('prepare', { examId: exam.id, rebuild: true });
+  for (const u of allUnits(exam)) delete state.sessions[u.id];
+  exam.plan = null;
+  exam.building = true;
+  save();
+  queueJob({ key: exam.id, type: 'exam', id: exam.id });
+  go('prepare', { examId: exam.id });
 }
 
 // ---------- Inhalte erzeugen (einzeln beim Öffnen oder alle vorab) ----------
@@ -975,27 +908,23 @@ function bgHint() {
     h('p', { class: 'small', style: { margin: 0 } }, 'Du kannst die App jetzt schließen. Jelly macht im Hintergrund weiter. Das dauert dann meist 5 bis 30 Minuten. Beim nächsten Öffnen ist alles da.'));
 }
 
-// Gibt dem Hintergrund-Dienst den Auftrag, Fehlendes zu erstellen (nur mit Konto + Sync).
-function queueBackground(exam) {
-  if (!backgroundAvailable() || !exam?.plan) return false;
-  push(true).catch(() => {}).finally(() => requestBackground(exam.id));
+// Gibt dem Hintergrund-Dienst einen Auftrag (nur mit Konto + Sync). Er legt erst los, wenn die App zu ist.
+function queueJob(job) {
+  if (!backgroundAvailable()) return false;
+  push(true).catch(() => {}).finally(() => requestJob(job));
   return true;
 }
 
-// Beim Verlassen der App: Fehlt noch etwas, übernimmt der Hintergrund-Dienst.
+// Beim Verlassen der App: Alles, was noch fehlt, übernimmt der Hintergrund-Dienst.
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'hidden' || !backgroundAvailable()) return;
-  const today = isoDate(new Date());
-  for (const exam of state.exams) {
-    if (!exam.plan || (exam.date && exam.date < today)) continue;
-    if (missingPhases(exam).flat().length) requestBackground(exam.id);
-  }
+  for (const job of pendingJobs()) requestJob(job);
 });
 
-function viewPrepare({ examId, rebuild }) {
+function viewPrepare({ examId }) {
   const exam = examById(examId);
   if (!exam) { go('plan'); return h('div'); }
-  const panel = waitPanel(rebuild ? 'Ich erstelle deinen Plan neu und bereite alles vor …' : 'Ich bereite alle fehlenden Inhalte vor …');
+  const panel = waitPanel(exam.building ? 'Ich lese deine Unterlagen und baue deinen Plan …' : 'Ich bereite alle fehlenden Inhalte vor …');
   const screen = h('div', { class: 'screen' }, topbar({ close: () => go('plan') }),
     h('main', { class: 'content narrow' }, panel.el, backgroundAvailable() ? bgHint() : h('p', { class: 'muted small center' }, 'Du kannst das auch abbrechen – Fehlendes wird dann beim Öffnen erstellt.')));
   const key = `prep:${examId}`;
@@ -1003,19 +932,28 @@ function viewPrepare({ examId, rebuild }) {
     ui.busy[key] = true;
     (async () => {
       try {
-        if (rebuild) {
-          const k = panel.addSteps(['Themen & Lernplan erstellen']);
-          panel.mark(k, 'run');
-          await createPlan(exam);
-          panel.mark(k, 'done');
-          queueBackground(exam);
-          ui.selectedUnit = null;
+        if (exam.building) {
+          const subject = subjectById(exam.subjectId);
+          const ids = examFileIds(exam).filter((id) => !state.files[id]?.digest);
+          const needProfile = examNeedsProfile(exam);
+          const k = panel.addSteps([
+            ...ids.map((id) => `${state.files[id]?.kind === 'archive' ? 'Alte Klausur' : 'Lese'}: ${state.files[id]?.name || 'Datei'}`),
+            ...(needProfile ? ['Stil deiner Lehrkraft analysieren'] : []),
+            'Themen & Lernplan erstellen']);
+          let n = k;
+          for (const id of ids) { panel.mark(n, 'run'); await digestFile(id); save(); panel.mark(n++, 'done'); }
+          if (needProfile && !subject.teacherProfile) { panel.mark(n, 'run'); await buildTeacherProfile(subject); save(); panel.mark(n++, 'done'); }
+          else if (needProfile) panel.mark(n++, 'done');
+          panel.mark(n, 'run');
+          if (exam.building) { await createPlan(exam); save(); }
+          panel.mark(n, 'done');
         }
         const failed = await prepareAll(exam, panel);
         toast(failed ? `${failed} Inhalt(e) konnten nicht vorbereitet werden – sie werden beim Öffnen erstellt.` : 'Alles fertig vorbereitet!', failed ? 'info' : 'ok');
         if (route.name === 'prepare') jellyTransition(() => go('plan'));
       } catch (e) {
         panel.errBox.replaceChildren(h('div', { class: 'card warn' }, h('p', {}, errorMsg(e)), fallbackTip(errorMsg(e)),
+          h('p', { class: 'muted small' }, 'Schon Gelesenes ist gespeichert – beim nächsten Versuch geht es dort weiter.'),
           h('div', { class: 'row gap center' }, h('button', { class: 'btn', onclick: () => render() }, 'Nochmal versuchen'), h('button', { class: 'btn ghost', onclick: () => go('plan') }, 'Zurück'))));
       } finally { delete ui.busy[key]; }
     })();
@@ -1118,7 +1056,7 @@ function taskCard(exam, sess, a, idx) {
     const items = [];
     for (const id of ids) {
       const url = await thumbURL(id);
-      items.push(h('div', { class: 'photo' }, url ? h('img', { src: url }) : null,
+      items.push(h('div', { class: 'photo' }, url ? h('img', { src: url, onclick: () => openFile(id) }) : null,
         !graded ? h('button', { class: 'tile-del', onclick: async () => { sess.answerImages[a.id] = ids.filter((x) => x !== id); await removeFile(id); save(); drawPhotos(); } }, icon('close', 14)) : null));
     }
     if (!graded) items.push(h('button', { class: 'btn small ghost', onclick: async () => {
@@ -1238,6 +1176,7 @@ function pending(main, key, title, steps, producer) {
   panel.setSteps(steps);
   panel.run(steps.length - 1);
   add(main, panel.el);
+  if (backgroundAvailable()) add(main, bgHint());
   if (ui.busy[key]) return;
   ui.busy[key] = true;
   const here = route; // nur neu zeichnen, wenn man noch auf derselben Seite ist
@@ -1457,9 +1396,9 @@ function viewSubject({ id }) {
       if (!f) return null;
       const st = ui.busy[fid] ? 'liest …' : f.digest ? '✓ gelesen' : 'noch nicht gelesen';
       return h('div', { class: 'list-item' },
-        h('span', { class: 'row gap' }, icon('file', 20), h('span', {}, f.digest?.titel || f.name)),
+        h('button', { class: 'row gap file-open', onclick: () => openFile(fid) }, icon('file', 20), h('span', {}, f.digest?.titel || f.name)),
         h('span', { class: 'row gap' }, h('span', { class: 'muted small' }, st),
-          !f.digest && !ui.busy[fid] ? h('button', { class: 'btn small', onclick: () => readArchive([fid]) }, 'Lesen') : null,
+          !f.digest && !ui.busy[fid] ? h('button', { class: 'btn small', onclick: () => readArchive() }, 'Lesen') : null,
           h('button', { class: 'iconbtn', 'aria-label': 'Löschen', onclick: async () => {
             if (!(await confirmDialog('Diese Klausur aus dem Archiv löschen?', 'Löschen'))) return;
             s.archive = s.archive.filter((x) => x !== fid); await removeFile(fid); save(); render();
@@ -1467,14 +1406,26 @@ function viewSubject({ id }) {
     }));
     if (!(s.archive || []).length) add(archiveList, h('p', { class: 'muted small' }, 'Noch keine alten Klausuren.'));
   };
-  const readArchive = async (ids) => {
+  // Liest ungelesene alte Klausuren und baut das Lehrerprofil neu. Geht die App zu, macht der Hintergrund weiter.
+  const readArchive = async () => {
     if (!aiReady()) return toast('Bitte zuerst die KI einrichten.', 'error');
-    for (const fid of ids) {
-      ui.busy[fid] = true; drawArchive();
-      try { await digestFile(fid); } catch (e) { toast(errorMsg(e), 'error'); }
-      delete ui.busy[fid]; drawArchive();
-    }
-    if ((s.archive || []).some((fid) => state.files[fid]?.digest)) await buildProfile();
+    const key = `prof:${s.id}`;
+    if (ui.busy[key]) return;
+    s.profileBuilding = true; save();
+    queueJob({ key: `p_${s.id}`, type: 'subject', id: s.id });
+    ui.busy[key] = true;
+    profileBox.replaceChildren(h('p', { class: 'muted' }, 'Analysiere den Stil deiner Lehrkraft …'));
+    try {
+      for (const fid of s.archive || []) {
+        if (state.files[fid]?.digest) continue;
+        ui.busy[fid] = true; drawArchive();
+        try { await digestFile(fid); save(); } finally { delete ui.busy[fid]; drawArchive(); }
+      }
+      if ((s.archive || []).some((fid) => state.files[fid]?.digest) || P.vocabProfileFor(s)) { await buildTeacherProfile(s); toast('Lehrerprofil aktualisiert.', 'ok'); }
+      delete s.profileBuilding; save();
+    } catch (e) { toast(errorMsg(e), 'error'); }
+    delete ui.busy[key];
+    drawProfile();
   };
   const profileBox = h('div');
   const drawProfile = (editing = false) => {
@@ -1486,15 +1437,12 @@ function viewSubject({ id }) {
       return;
     }
     profileBox.replaceChildren(
-      s.teacherProfile ? mdEl(s.teacherProfile) : h('p', { class: 'muted small' }, 'Wird automatisch erstellt, sobald alte Klausuren gelesen wurden.'),
+      s.profileBuilding && !ui.busy[`prof:${s.id}`] ? h('p', { class: 'muted small' }, backgroundAvailable() ? 'Jelly arbeitet im Hintergrund am Lehrerprofil.' : 'Das Lehrerprofil ist noch nicht fertig.') : null,
+      s.teacherProfile ? mdEl(s.teacherProfile) : h('p', { class: 'muted small' }, 'Wird automatisch erstellt, sobald alte Klausuren oder Vokabeltests gelesen wurden.'),
+      P.vocabProfileFor(s) ? h('p', { class: 'muted small' }, `Enthält auch das Profil deiner ${P.vocabSpracheOf(s)}-Vokabeltests.`) : null,
       h('div', { class: 'row gap wrap' },
-        s.archive?.length ? h('button', { class: 'btn small', onclick: () => buildProfile() }, 'Neu erstellen') : null,
+        s.archive?.length || P.vocabProfileFor(s) ? h('button', { class: 'btn small', onclick: () => readArchive() }, s.profileBuilding ? 'Jetzt hier erstellen' : 'Neu erstellen') : null,
         h('button', { class: 'btn small ghost', onclick: () => drawProfile(true) }, 'Bearbeiten')));
-  };
-  const buildProfile = async () => {
-    profileBox.replaceChildren(h('p', { class: 'muted' }, 'Analysiere den Stil deiner Lehrkraft …'));
-    try { s.teacherProfile = await generate({ system: P.baseSystem(s), parts: [{ text: P.teacherProfilePrompt(s) }], temperature: 0.2 }); save(); toast('Lehrerprofil aktualisiert.', 'ok'); } catch (e) { toast(errorMsg(e), 'error'); }
-    drawProfile();
   };
   drawArchive(); drawProfile();
 
@@ -1505,7 +1453,7 @@ function viewSubject({ id }) {
       try { const fid = await addFile(f, { kind: 'archive', subjectId: s.id }); (s.archive ||= []).push(fid); added.push(fid); } catch (e) { toast(errorMsg(e), 'error'); }
     }
     save(); drawArchive();
-    if (added.length) readArchive(added);
+    if (added.length) readArchive();
   };
   const fold = (ic, title, sub, body, openFold = false) => h('details', { class: 'fold', open: openFold },
     h('summary', {}, h('span', { class: 'menu-ico' }, icon(ic, 20)), h('span', { class: 'menu-text' }, h('span', { class: 'menu-label' }, title), sub ? h('span', { class: 'menu-sub' }, sub) : null), h('span', { class: 'fold-chev' }, icon('chev', 18))),
@@ -1525,6 +1473,7 @@ function viewSubject({ id }) {
           h('div', { class: 'menu' }, solvedList().filter((x) => x.subjectId === s.id).map((x) => menuRow('file', x.titel, x.ersteAufgabe || '', () => go('solved', { id: x.id })))),
           h('button', { class: 'btn block', onclick: () => startSolve(s.id) }, icon('camera', 18), 'Arbeitsblatt lösen')]),
         fold('user', 'Lehrerprofil', s.teacherProfile ? 'Erstellt' : 'Noch keins', [profileBox]),
+        P.vocabSpracheOf(s) ? (() => { const sp = P.vocabSpracheOf(s); const n = vocab().tests[sp]?.fileIds?.length || 0; return h('div', { class: 'menu' }, menuRow('layers', 'Vokabeltests', n ? `${n} alte Tests · fließen ins Lehrerprofil ein` : 'Alte Vokabeltests hochladen', () => go('vtests', { sprache: sp }))); })() : null,
         fold('gear', 'Fach-Einstellungen', null, [
           h('div', { class: 'label' }, 'Name'),
           h('input', { class: 'input', value: s.name, onchange: (e) => { if (e.target.value.trim()) { s.name = e.target.value.trim(); save(); } } }),
@@ -1555,20 +1504,13 @@ function startSolve(subjectId = null) {
 function viewSolveNew() {
   if (!nsv) { startSolve(); return h('div'); }
   const cancel = async () => { for (const id of nsv.fileIds) await removeFile(id); nsv = null; go('subjects'); };
-  if (nsv.processing) {
-    const panel = waitPanel('Ich löse dein Arbeitsblatt …');
-    panel.setSteps(['Blatt lesen & Aufgaben lösen', 'Lösungen aufs Blatt schreiben']);
-    panel.run(0);
-    const screen = h('div', { class: 'screen' }, topbar({ close: () => go('subjects') }), h('main', { class: 'content narrow' }, panel.el));
-    processSolve(panel);
-    return screen;
-  }
+  if (nsv.processing) { startSolveBuild(); return h('div'); }
   const grid = h('div', { class: 'grid3' });
   const draw = async () => {
     const tiles = [];
     for (const id of nsv.fileIds) {
       const url = await thumbURL(id);
-      tiles.push(h('div', { class: 'tile filled' }, url ? h('img', { src: url }) : h('div', { class: 'tile-file' }, icon('file', 30), h('span', {}, state.files[id]?.name || '')),
+      tiles.push(h('div', { class: 'tile filled' }, url ? h('img', { src: url, onclick: () => openFile(id) }) : h('div', { class: 'tile-file', onclick: () => openFile(id) }, icon('file', 30), h('span', {}, state.files[id]?.name || '')),
         h('button', { class: 'tile-del', onclick: async () => { nsv.fileIds = nsv.fileIds.filter((x) => x !== id); await removeFile(id); draw(); } }, icon('close', 16))));
     }
     const addTile = (label, opts) => h('button', { class: 'tile', onclick: async () => {
@@ -1595,40 +1537,14 @@ function viewSolveNew() {
     } }, 'Blatt lösen')));
 }
 
-async function processSolve(panel) {
-  if (ui.busy.solve) return;
-  ui.busy.solve = true;
-  try {
-    const subject = subjectById(nsv.subjectId);
-    const parts = [{ text: P.solvePrompt(subject, nsv.note.trim()) }];
-    for (const id of nsv.fileIds) parts.push(await filePart(id));
-    const text = await generate({ system: P.baseSystem(subject), parts, temperature: 0.2 });
-    panel.done(0); panel.run(1);
-    const first = text.match(/^##\s+(.*)$/m);
-    const item = { id: uid(), subjectId: nsv.subjectId, fileIds: [...nsv.fileIds], note: nsv.note.trim(), loesung: text, titel: `${subject?.name || 'Blatt'} · ${new Date().toLocaleDateString('de-DE')}`, ersteAufgabe: first ? first[1].slice(0, 80) : '', chat: [], createdAt: Date.now(), annot: {} };
-    await annotateSheet(item, subject);
-    solvedList().unshift(item);
-    save();
-    nsv = null;
-    jellyTransition(() => go('solved', { id: item.id }));
-  } catch (e) {
-    panel.fail(0);
-    panel.errBox.replaceChildren(h('div', { class: 'card warn' }, h('p', {}, errorMsg(e)), fallbackTip(errorMsg(e)),
-      h('div', { class: 'row gap center' }, h('button', { class: 'btn', onclick: () => render() }, 'Nochmal versuchen'), h('button', { class: 'btn ghost', onclick: () => { nsv.processing = false; render(); } }, 'Zurück'))));
-  } finally { delete ui.busy.solve; }
-}
-
-// Lösungen direkt auf die Fotos schreiben (Positionen von der KI, 0–1000 relativ zum Bild).
-async function annotateSheet(item, subject) {
-  item.annot ||= {};
-  for (const fid of item.fileIds) {
-    if (!state.files[fid]?.mime?.startsWith('image/')) continue;
-    try {
-      const res = await generate({ system: P.baseSystem(subject), parts: [{ text: P.annotatePrompt(item.loesung) }, await filePart(fid)], json: true, temperature: 0.1 });
-      item.annot[fid] = (res.eintraege || []).filter((e) => Array.isArray(e.box) && e.box.length === 4 && e.box.every((n) => Number.isFinite(Number(n))) && ['text', 'kreuz', 'markieren', 'kreis', 'pruefen'].includes(e.art))
-        .map((e) => ({ ...e, box: e.box.map((n) => Math.max(0, Math.min(1000, Number(n)))) }));
-    } catch (e) { console.warn('Eintragen fehlgeschlagen', e); }
-  }
+function startSolveBuild() {
+  const subject = subjectById(nsv.subjectId);
+  const item = { id: uid(), subjectId: nsv.subjectId, fileIds: [...nsv.fileIds], note: nsv.note.trim(), loesung: null, titel: `${subject?.name || 'Blatt'} · ${new Date().toLocaleDateString('de-DE')}`, ersteAufgabe: '', chat: [], createdAt: Date.now(), annot: {}, building: true };
+  solvedList().unshift(item);
+  save();
+  nsv = null;
+  queueJob({ key: `s_${item.id}`, type: 'solve', id: item.id });
+  go('solved', { id: item.id });
 }
 
 const SVG_CROSS = '<svg viewBox="0 0 10 10" preserveAspectRatio="none"><path d="M1.5 1.5 L8.5 8.5 M8.5 1.5 L1.5 8.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" fill="none"/></svg>';
@@ -1696,6 +1612,11 @@ function viewSolved({ id }) {
   const item = solvedList().find((x) => x.id === id);
   if (!item) { go('subjects'); return h('div'); }
   const subject = subjectById(item.subjectId);
+  if (item.building) {
+    const main = h('main', { class: 'content narrow' });
+    pending(main, `s:${item.id}`, 'Ich löse dein Arbeitsblatt …', ['Blatt lesen & Aufgaben lösen', 'Lösungen aufs Blatt schreiben'], () => solveSheet(item, () => save()));
+    return h('div', { class: 'screen' }, topbar({ back: () => go('subjects'), title: 'Blatt lösen' }), main);
+  }
   ui.solveOpen ??= false;
   const head = { title: `Lösungen: ${subject?.name || 'Arbeitsblatt'}`, subtitle: `${item.ersteAufgabe || ''}`, meta: [`Klasse ${state.profile?.grade || '?'}`, new Date(item.createdAt).toLocaleDateString('de-DE')], footer: `${subject?.name || ''} – Lösungen Arbeitsblatt` };
   const dl = h('button', { class: 'btn', onclick: async () => {
@@ -1752,7 +1673,7 @@ function viewSolved({ id }) {
         if (imgs.length && !hasAnnot && ui.solveView === 'blatt') {
           const btn = h('button', { class: 'btn primary block', onclick: async () => {
             btn.disabled = true; btn.textContent = 'Schreibe Lösungen aufs Blatt …';
-            try { await annotateSheet(item, subject); save(); } catch (e) { toast(errorMsg(e), 'error'); }
+            try { for (const f of imgs) if (!item.annot?.[f]?.length) delete item.annot[f]; await solveSheet(item); save(); } catch (e) { toast(errorMsg(e), 'error'); }
             render();
           } }, 'Lösungen aufs Blatt schreiben');
           return [seg, h('p', { class: 'muted small center' }, 'Für dieses Blatt gibt es noch keine Einträge auf dem Foto.'), btn, h('article', { class: 'lernzettel solve' }, solvedSheet(item, ui.solveOpen))];
@@ -1772,6 +1693,7 @@ function viewSolved({ id }) {
         return [seg, h('p', { class: 'muted small center' }, 'Versuch jede Aufgabe erst selbst, dann aufdecken. Die KI kann sich irren – bei Zweifeln nachfragen.'),
           h('article', { class: 'lernzettel solve' }, solvedSheet(item, ui.solveOpen))];
       })(),
+      h('div', { class: 'menu' }, item.fileIds.filter((fid) => state.files[fid]).map((fid, i) => menuRow(state.files[fid].mime?.startsWith('image/') ? 'image' : 'file', item.fileIds.length > 1 ? `Original Seite ${i + 1} ansehen` : 'Original ansehen', state.files[fid].name, () => openFile(fid)))),
       h('section', { class: 'card stack' }, h('div', { class: 'label' }, 'Nachfragen'), list, h('div', { class: 'chat-input' }, input, send))));
 }
 
@@ -1805,25 +1727,6 @@ function vocabStats(set) {
   const sure = set.words.filter((w) => (w.box || 0) >= 3).length;
   const wrong = set.words.filter((w) => (w.wrong || 0) > 0 && (w.box || 0) < 3).length;
   return { total, sure, wrong, pct: total ? Math.round((sure / total) * 100) : 0 };
-}
-
-// Lernplan: Vokabeln in Tagesportionen bis zum Test, mit Wiederholung nach 1 und 3 Tagen; letzter Tag = alles + Probe-Test.
-function buildVocabPlan(set) {
-  const today = parseISO(isoDate(new Date()));
-  const days = [];
-  const end = set.testDate ? parseISO(set.testDate) : new Date(today.getTime() + 6 * 86400000);
-  const last = set.testDate ? (end <= today ? today : new Date(end.getTime() - 86400000)) : end;
-  for (let d = new Date(today); d <= last && days.length < 21; d.setDate(d.getDate() + 1)) days.push(isoDate(d));
-  const ids = set.words.map((w) => w.id);
-  const learnDays = days.length > 1 ? days.length - 1 : 1;
-  const chunk = Math.max(1, Math.ceil(ids.length / learnDays));
-  const plan = days.map((iso, i) => ({ iso, neu: i < learnDays ? ids.slice(i * chunk, (i + 1) * chunk) : [], wdh: [], probe: i === days.length - 1, done: false }));
-  plan.forEach((e, i) => {
-    const back = [plan[i - 1], plan[i - 3]].filter(Boolean).flatMap((x) => x.neu);
-    e.wdh = e.probe && days.length > 1 ? ids : [...new Set(back)].filter((id) => !e.neu.includes(id));
-  });
-  if (days.length === 1) { plan[0].neu = ids; plan[0].wdh = []; }
-  set.plan = plan;
 }
 
 function todaysEntry(set) {
@@ -1881,7 +1784,7 @@ function viewVocab() {
       const st = vocabStats(set);
       return h('button', { class: 'menu-row', onclick: () => go('vset', { id: set.id }) },
         h('span', { class: 'menu-ico' }, icon('languages', 20)),
-        h('span', { class: 'menu-text' }, h('span', { class: 'menu-label' }, set.titel), h('span', { class: 'menu-sub' }, `${set.sprache} · ${st.total} Vokabeln · ${st.pct} % sicher${set.testDate ? ` · Test ${relDay(set.testDate).toLowerCase()}` : ''}`)),
+        h('span', { class: 'menu-text' }, h('span', { class: 'menu-label' }, set.titel), h('span', { class: 'menu-sub' }, set.building ? 'Jelly liest die Seiten …' : `${set.sprache} · ${st.total} Vokabeln · ${st.pct} % sicher${set.testDate ? ` · Test ${relDay(set.testDate).toLowerCase()}` : ''}`)),
         progressRing(st.pct, 40));
     })),
     h('button', { class: 'btn primary block', onclick: () => startVocabNew() }, icon('camera', 18), 'Neue Vokabelseite'),
@@ -1905,18 +1808,13 @@ function startVocabNew(addTo = null) {
 function viewVocabNew() {
   if (!nv) { startVocabNew(); return h('div'); }
   const cancel = async () => { for (const id of nv.fileIds) await removeFile(id); nv = null; go('vocab'); };
-  if (nv.processing) {
-    const panel = waitPanel('Ich lese deine Vokabeln …');
-    const screen = h('div', { class: 'screen' }, topbar({ close: () => go('vocab') }), h('main', { class: 'content narrow' }, panel.el));
-    processVocab(panel);
-    return screen;
-  }
+  if (nv.processing) { startVocabBuild(); return h('div'); }
   const grid = h('div', { class: 'grid3' });
   const draw = async () => {
     const tiles = [];
     for (const id of nv.fileIds) {
       const url = await thumbURL(id);
-      tiles.push(h('div', { class: 'tile filled' }, url ? h('img', { src: url }) : h('div', { class: 'tile-file' }, icon('file', 30), h('span', {}, state.files[id]?.name || '')),
+      tiles.push(h('div', { class: 'tile filled' }, url ? h('img', { src: url, onclick: () => openFile(id) }) : h('div', { class: 'tile-file', onclick: () => openFile(id) }, icon('file', 30), h('span', {}, state.files[id]?.name || '')),
         h('button', { class: 'tile-del', onclick: async () => { nv.fileIds = nv.fileIds.filter((x) => x !== id); await removeFile(id); draw(); } }, icon('close', 16))));
     }
     const addTile = (label, opts) => h('button', { class: 'tile', onclick: async () => {
@@ -1942,42 +1840,19 @@ function viewVocabNew() {
     } }, 'Vokabeln auslesen')));
 }
 
-async function processVocab(panel) {
-  const key = 'vnew';
-  if (ui.busy[key]) return;
-  ui.busy[key] = true;
-  const start = panel.addSteps([...nv.fileIds.map((id, i) => `Seite ${i + 1} lesen`), 'Lernplan erstellen']);
-  try {
-    let titel = '', sprache = '';
-    const words = [];
-    for (let i = 0; i < nv.fileIds.length; i++) {
-      panel.mark(start + i, 'run');
-      const res = await generate({ system: P.vocabSystem(), parts: [{ text: P.vocabExtractPrompt() }, await filePart(nv.fileIds[i])], json: true, temperature: 0.1 });
-      titel ||= res.titel || '';
-      sprache ||= res.sprache || '';
-      for (const v of res.vokabeln || []) if (v?.wort && v?.uebersetzung) words.push({ id: uid(), w: String(v.wort).trim(), t: String(v.uebersetzung).trim(), ex: v.beispiel || '', info: v.info || '', box: 0 });
-      panel.mark(start + i, 'done');
-    }
-    if (!words.length) throw new AIError('Ich konnte auf den Seiten keine Vokabeln erkennen. Sind die Fotos scharf?');
-    panel.mark(start + nv.fileIds.length, 'run');
-    let set = nv.addTo ? vsetById(nv.addTo) : null;
-    if (set) {
-      set.words.push(...words.filter((w) => !set.words.some((x) => normAnswer(x.w) === normAnswer(w.w))));
-      set.fileIds.push(...nv.fileIds);
-    } else {
-      set = { id: uid(), titel: titel || 'Vokabeln', sprache: sprache || 'Englisch', words, fileIds: [...nv.fileIds], testDate: nv.testDate || null, createdAt: Date.now(), sess: {} };
-      vocab().sets.push(set);
-    }
-    buildVocabPlan(set);
-    save();
-    panel.mark(start + nv.fileIds.length, 'done');
-    toast(`${words.length} Vokabeln erkannt – prüf die Liste kurz auf Lesefehler.`, 'ok');
-    nv = null;
-    jellyTransition(() => go('vset', { id: set.id }));
-  } catch (e) {
-    panel.errBox.replaceChildren(h('div', { class: 'card warn' }, h('p', {}, errorMsg(e)), fallbackTip(errorMsg(e)),
-      h('div', { class: 'row gap center' }, h('button', { class: 'btn', onclick: () => render() }, 'Nochmal versuchen'), h('button', { class: 'btn ghost', onclick: () => { nv.processing = false; render(); } }, 'Zurück'))));
-  } finally { delete ui.busy[key]; }
+function startVocabBuild() {
+  let set = nv.addTo ? vsetById(nv.addTo) : null;
+  if (set) {
+    set.pendingFiles = [...(set.pendingFiles || []), ...nv.fileIds];
+  } else {
+    set = { id: uid(), titel: 'Neue Vokabeln', sprache: '', words: [], fileIds: [], pendingFiles: [...nv.fileIds], testDate: nv.testDate || null, createdAt: Date.now(), sess: {} };
+    vocab().sets.push(set);
+  }
+  set.building = true;
+  save();
+  nv = null;
+  queueJob({ key: `v_${set.id}`, type: 'vocab', id: set.id });
+  go('vset', { id: set.id });
 }
 
 // ---------- Eine Vokabelliste
@@ -2007,6 +1882,14 @@ function startVocabQuiz(set, mode, entryIdx = null) {
 function viewVocabSet({ id }) {
   const set = vsetById(id);
   if (!set) { go('vocab'); return h('div'); }
+  if (set.building) {
+    const main = h('main', { class: 'content narrow' });
+    pending(main, `v:${set.id}`, 'Ich lese deine Vokabeln …', ['Seiten lesen', 'Lernplan erstellen'], async () => {
+      const n = await buildVocabSet(set);
+      toast(`${n} Vokabeln erkannt – prüf die Liste kurz auf Lesefehler.`, 'ok');
+    });
+    return h('div', { class: 'screen' }, topbar({ back: () => go('vocab'), title: set.titel }), main);
+  }
   const st = vocabStats(set);
   const entry = todaysEntry(set);
   let countdown = 'Kein Testdatum';
@@ -2046,6 +1929,7 @@ function vocabSetMenu(set) {
     h('div', { class: 'label' }, 'Name'), name,
     h('div', { class: 'label' }, 'Sprache'), lang,
     h('div', { class: 'label' }, 'Testdatum'), date,
+    (set.fileIds || []).length ? h('div', { class: 'menu' }, set.fileIds.map((fid, i) => menuRow('image', `Seite ${i + 1} ansehen`, state.files[fid]?.name || '', () => openFile(fid)))) : null,
     h('button', { class: 'btn primary block', onclick: () => {
       const dateChanged = (date.value || null) !== (set.testDate || null);
       set.titel = name.value.trim() || set.titel; set.sprache = lang.value; set.testDate = date.value || null;
@@ -2158,21 +2042,28 @@ function viewVocabTests({ sprache }) {
   const profileBox = h('div', { class: 'stack' });
   const drawList = () => {
     list.replaceChildren(...t.fileIds.map((fid) => h('div', { class: 'menu-row' },
-      h('span', { class: 'menu-ico' }, icon('file', 20)), h('span', { class: 'menu-text' }, h('span', { class: 'menu-label' }, state.files[fid]?.name || 'Test')),
+      h('span', { class: 'menu-ico' }, icon('file', 20)), h('button', { class: 'menu-text file-open', onclick: () => openFile(fid) }, h('span', { class: 'menu-label' }, state.files[fid]?.name || 'Test'), h('span', { class: 'menu-sub' }, 'Antippen zum Öffnen')),
       h('button', { class: 'iconbtn small', 'aria-label': 'Löschen', onclick: async () => { t.fileIds = t.fileIds.filter((x) => x !== fid); await removeFile(fid); save(); drawList(); } }, icon('trash', 18)))));
     if (!t.fileIds.length) add(list, h('div', { class: 'menu-row' }, h('span', { class: 'muted small' }, 'Noch keine alten Tests.')));
   };
-  const drawProfile = () => profileBox.replaceChildren(t.profil ? mdEl(t.profil) : h('p', { class: 'muted small' }, 'Wird erstellt, sobald du Tests hochlädst. Danach sehen die Probe-Tests aus wie die deiner Lehrkraft.'));
+  const drawProfile = () => profileBox.replaceChildren(
+    t.building && !ui.busy[`vt:${sprache}`] ? h('p', { class: 'muted small' }, backgroundAvailable() ? 'Jelly arbeitet im Hintergrund am Testprofil.' : 'Das Testprofil ist noch nicht fertig.') : null,
+    t.profil ? mdEl(t.profil) : h('p', { class: 'muted small' }, 'Wird erstellt, sobald du Tests hochlädst. Danach sehen die Probe-Tests aus wie die deiner Lehrkraft, und das Lehrerprofil des passenden Fachs übernimmt sie.'));
   const build = async () => {
     if (!t.fileIds.length) return;
     if (!aiReady()) return toast('Bitte zuerst die KI einrichten.', 'error');
-    profileBox.replaceChildren(h('p', { class: 'muted' }, 'Ich analysiere die Tests …'));
+    const key = `vt:${sprache}`;
+    if (ui.busy[key]) return;
+    t.building = true; save();
+    queueJob({ key: `t_${sprache}`, type: 'vtest', id: sprache });
+    ui.busy[key] = true;
+    profileBox.replaceChildren(h('p', { class: 'muted' }, 'Ich analysiere die Tests …'), backgroundAvailable() ? h('p', { class: 'muted small' }, 'Du kannst die App schließen, Jelly macht im Hintergrund weiter.') : null);
     try {
-      const parts = [{ text: P.vocabTestProfilePrompt(sprache) }];
-      for (const fid of t.fileIds) parts.push(await filePart(fid));
-      t.profil = await generate({ system: P.vocabSystem(), parts, temperature: 0.2 });
-      save(); toast('Testprofil erstellt.', 'ok');
+      const subject = await buildVocabTestProfile(sprache);
+      save();
+      toast(subject ? `Testprofil erstellt und ins Lehrerprofil von ${subject.name} übernommen.` : 'Testprofil erstellt.', 'ok');
     } catch (e) { toast(errorMsg(e), 'error'); }
+    delete ui.busy[key];
     drawProfile();
   };
   drawList(); drawProfile();
@@ -2286,6 +2177,7 @@ function viewSettings() {
             h('p', { class: 'muted small' }, `${p.minutesPerDay} Min./Tag · Korrektur: ${p.feedbackStyle === 'hart' ? 'schonungslos' : 'ermutigend'} · ${p.gradeScale === '0-15' ? 'Punkte 0–15' : 'Noten 1–6'}`),
             h('button', { class: 'btn primary block', onclick: () => { o.remove(); draft = null; go('onboarding'); } }, 'Fragebogen neu ausfüllen')]);
         }),
+        menuRow('folder', 'Hochgeladene Dateien', `${Object.keys(state.files || {}).length} Dateien`, () => go('files')),
         menuRow('save', 'Datensicherung', 'Backup speichern oder einspielen', () => {
           sheet('Datensicherung', [
             h('p', { class: 'muted small' }, 'Alles liegt nur auf diesem Gerät. Wenn Safari-Daten gelöscht werden, ist es weg – mach ab und zu ein Backup. Der API-Schlüssel wird nicht mitgesichert.'),
@@ -2300,6 +2192,19 @@ function viewSettings() {
     tabbar('settings'));
 }
 
+function viewFiles() {
+  const order = ['material', 'archive', 'sheet', 'vocab', 'vtest', 'answer'];
+  const files = Object.values(state.files || {}).sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0));
+  const groups = order.map((k) => [k, files.filter((f) => f.kind === k)]).concat([['other', files.filter((f) => !order.includes(f.kind))]]).filter(([, l]) => l.length);
+  const sub = (f) => [subjectById(f.subjectId)?.name, f.addedAt ? new Date(f.addedAt).toLocaleDateString('de-DE') : '', f.mime === 'application/pdf' ? 'PDF' : f.mime?.startsWith('image/') ? 'Foto' : 'Text'].filter(Boolean).join(' · ');
+  return h('div', { class: 'screen' }, topbar({ back: () => go('settings'), title: 'Hochgeladene Dateien' }),
+    h('main', { class: 'content narrow' },
+      files.length ? null : h('p', { class: 'muted center' }, 'Noch keine Dateien hochgeladen.'),
+      groups.map(([k, list]) => h('section', { class: 'files-group' },
+        h('div', { class: 'label' }, `${k === 'other' ? 'Sonstiges' : fileKindLabel(k)} (${list.length})`),
+        h('div', { class: 'menu' }, list.map((f) => menuRow(f.mime?.startsWith('image/') ? 'image' : 'file', f.digest?.titel || f.name, sub(f), () => openFile(f.id))))))));
+}
+
 function privacySheet() {
   sheet('Datenschutz', [mdEl(`**Kurz:** Lern-KI hat keinen eigenen Server, kein Tracking, keine Werbung und keine Analyse-Tools.
 
@@ -2310,7 +2215,7 @@ function privacySheet() {
 ## Wohin wird etwas geschickt?
 - **Google Gemini:** Material, Fotos, Fragen und Antworten, wenn Jelly etwas erstellt oder korrigiert. Laut Googles Bedingungen werden Eingaben von Nutzern in der EU **nicht zur Produktverbesserung** genutzt, auch in der kostenlosen Stufe.
 - **Ersatz-Anbieter** (Groq, Mistral oder OpenRouter) – nur wenn du ihn einrichtest und Google überlastet ist. Es gelten dessen Bedingungen; Groq und OpenRouter sitzen in den USA.
-- **Jelly im Hintergrund** (nur mit Konto): Damit Lernzettel & Co. auch bei geschlossener App fertig werden, liest ein kleiner Dienst auf **GitHub** (Microsoft, Server in den USA) deinen Stand aus Firestore, schickt die Anfragen mit deinem Schlüssel an Gemini und legt die Ergebnisse wieder in Firestore ab. Gespeichert wird bei GitHub nichts, die öffentlichen Protokolle enthalten keine Inhalte.
+- **Jelly im Hintergrund** (nur mit Konto): Damit Lernzettel & Co. auch bei geschlossener App fertig werden, liest ein kleiner Dienst auf **GitHub** (Microsoft, Server in den USA) deinen Stand und deine hochgeladenen Dateien aus Firestore, schickt die Anfragen mit deinem Schlüssel an Gemini und legt die Ergebnisse wieder in Firestore ab. Gespeichert wird bei GitHub nichts, die öffentlichen Protokolle enthalten keine Inhalte.
 - **YouTube** – nur wenn du das Warte-Video abspielst.
 - **GitHub Pages** liefert die App aus; dabei sieht GitHub (USA) wie bei jeder Website deine IP-Adresse.
 - Schriften und PDF-Bibliothek liegen in der App selbst – dafür wird kein fremder Server kontaktiert.
@@ -2443,12 +2348,18 @@ async function handleUser(user) {
     route = state.profile ? (['onboarding', 'login'].includes(keep.name) ? { name: 'plan', params: {} } : keep) : { name: 'onboarding', params: {} };
     render();
     toast('Neuer Stand von deinem anderen Gerät geladen.', 'ok');
-  }, onBackground: (ids) => {
+  }, onBackground: (items) => {
     if (!booted) return;
     const here = route;
-    if (route.name === 'session' && ids.includes(route.params.unitId)) jellyTransition(() => { if (route === here) render(); });
-    else if (['plan', 'pick'].includes(route.name)) render();
-    toast(ids.length === 1 ? 'Jelly hat im Hintergrund einen Inhalt fertig gemacht.' : `Jelly hat im Hintergrund ${ids.length} Inhalte fertig gemacht.`, 'ok');
+    const ids = items.map((x) => x.id);
+    const p = route.params || {};
+    const mine = (route.name === 'session' && ids.includes(p.unitId)) || (route.name === 'vset' && ids.includes(`v_${p.id}`)) || (route.name === 'solved' && ids.includes(`s_${p.id}`));
+    if (mine) jellyTransition(() => { if (route === here) render(); });
+    else if (['plan', 'pick', 'vocab', 'subjects', 'subject', 'vtests'].includes(route.name)) render();
+    const counts = {};
+    for (const x of items) counts[x.label || 'Inhalt'] = (counts[x.label || 'Inhalt'] || 0) + 1;
+    const txt = Object.entries(counts).map(([l, n]) => (n > 1 ? `${n}× ${l}` : l)).join(', ');
+    toast(`Jelly hat im Hintergrund weitergearbeitet: ${txt}.`, 'ok');
   } });
   const started = Date.now();
   await Promise.race([synced, new Promise((r) => { const t = setInterval(() => { if (!ui.conflictOpen && Date.now() - started > 10000) { clearInterval(t); r(); } }, 300); })]);

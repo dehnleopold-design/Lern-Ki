@@ -87,13 +87,13 @@ Hinweis: In Home-Bildschirm-Apps auf iPhone/iPad kann das Google-Popup unzuverl�
 
 ## Jelly im Hintergrund (optional, GitHub Actions)
 
-Mit Konto kann Jelly fehlende Lernzettel, Quiz und Aufgaben auch bei **geschlossener App** erstellen. Das läuft kostenlos über GitHub Actions (`.github/workflows/background.yml` → `server/background.mjs`):
+Mit Konto erstellt Jelly auch bei **geschlossener App** weiter: Blätter lesen, Lehrerprofil, Lernplan, Lernzettel, Quiz, Aufgaben, Vokabeln auslesen, Vokabeltest-Profile und gelöste Arbeitsblätter. Das läuft kostenlos über GitHub Actions (`.github/workflows/background.yml` → `server/background.mjs`):
 
 1. Nach dem Lernplan (und beim Schließen der App, falls noch etwas fehlt) legt die App einen Auftrag in Firestore an (`users/{uid}/bgjobs`).
 2. Alle 5 Minuten schaut GitHub nach Aufträgen. GitHub verzögert solche Läufe oft um einige Minuten, realistisch sind 5–30 Minuten.
 3. Der Dienst nutzt den KI-Schlüssel aus dem synchronisierten Stand und legt die Ergebnisse getrennt ab (`users/{uid}/bgresults`). Die App übernimmt sie beim nächsten Öffnen.
 
-Der Lernplan selbst (Blätter lesen, Themen aufteilen) entsteht weiter in der App.
+Solange die App offen ist, erstellt sie selbst und der Dienst pausiert (sonst teilen sich beide die Gratis-Limits des Schlüssels).
 
 Einrichtung:
 1. Firebase → Projekteinstellungen → **Dienstkonten** → „Neuen privaten Schlüssel generieren“ (JSON-Datei).

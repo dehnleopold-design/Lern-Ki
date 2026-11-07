@@ -23,6 +23,19 @@ export function langInfo(subject) {
   return { fach, teach };
 }
 
+// Vokabeltests gehören zum passenden Sprachfach (Spanisch-Tests → Fach Spanisch).
+export function vocabSpracheOf(subject) {
+  const { fach } = langInfo(subject);
+  if (!fach) return null;
+  const want = LANG_NAMES[fach].toLowerCase();
+  const tests = state.vocab?.tests || {};
+  return Object.keys(tests).find((k) => k.toLowerCase().startsWith(want.slice(0, 4))) || LANG_NAMES[fach];
+}
+export function vocabProfileFor(subject) {
+  const sp = vocabSpracheOf(subject);
+  return sp ? state.vocab?.tests?.[sp]?.profil || '' : '';
+}
+
 function langSystem(subject) {
   const { fach, teach } = langInfo(subject);
   const T = LANG_NAMES[teach];
@@ -99,6 +112,8 @@ export function examContext(exam) {
   const subject = subjectOf(exam);
   const parts = [];
   if (subject?.teacherProfile) parts.push(`## LEHRERPROFIL (aus alten Klausuren abgeleitet)\n${subject.teacherProfile}`);
+  const vp = vocabProfileFor(subject);
+  if (vp) parts.push(`## VOKABELTESTS DIESER LEHRKRAFT (Profil aus alten Tests)\n${vp}`);
   if (subject?.teacherNotes) parts.push(`## EIGENE NOTIZEN DES SCHÜLERS ZUR LEHRKRAFT\n${subject.teacherNotes}`);
   if (exam.topicsText) parts.push(`## THEMEN LAUT SCHÜLER\n${exam.topicsText}`);
   if (exam.weaknesses?.length) parts.push(`## BISHER ERKANNTE SCHWÄCHEN (gezielt trainieren!)\n${exam.weaknesses.slice(-15).map((w) => `- ${w}`).join('\n')}`);
@@ -150,12 +165,13 @@ Nichts erfinden.`;
 }
 
 export function teacherProfilePrompt(subject) {
-  return `Leite aus den alten Klausuren unten ein präzises LEHRERPROFIL für das Fach ${subject.name} ab. Es dient später dazu, Übungsaufgaben exakt im Stil dieser Lehrkraft zu erstellen und streng wie sie zu korrigieren.
+  const vp = vocabProfileFor(subject);
+  return `Leite aus den alten Klausuren${vp ? ' und Vokabeltests' : ''} unten ein präzises LEHRERPROFIL für das Fach ${subject.name} ab. Es dient später dazu, Übungsaufgaben exakt im Stil dieser Lehrkraft zu erstellen und streng wie sie zu korrigieren.
 Gliederung (Markdown, knapp, konkret, mit Beispielen aus den Klausuren):
-**Aufbau & Umfang** – **Typische Aufgabenarten & Operatoren** – **Materialien** – **Punkteverteilung / AFB I–III** – **Bewertungsmaßstab** (worauf geachtet wird, wofür abgezogen wird) – **Typische Fehler** – **Tipps für die nächste Klausur**.
+**Aufbau & Umfang** – **Typische Aufgabenarten & Operatoren** – **Materialien** – **Punkteverteilung / AFB I–III** – **Bewertungsmaßstab** (worauf geachtet wird, wofür abgezogen wird) – **Typische Fehler** – **Tipps für die nächste Klausur**${vp ? ' – **Vokabeltests** (Aufgabentypen, Richtung, Strenge bei Rechtschreibung, Artikeln und Akzenten)' : ''}.
 Wenn die Datenlage dünn ist, sag das.
 
-${(subject.archive || []).map(fileDigestText).filter(Boolean).join('\n\n')}`;
+${(subject.archive || []).map(fileDigestText).filter(Boolean).join('\n\n')}${vp ? `\n\n### VOKABELTESTS DIESER LEHRKRAFT (Profil aus alten Tests)\n${vp}` : ''}`;
 }
 
 // ---------- 2. Lernplan (nach Themen) ----------
