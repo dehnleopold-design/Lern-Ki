@@ -14,7 +14,7 @@ setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.19 (7.11.)';
+const APP_VERSION = '2.20 (7.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -401,7 +401,7 @@ function viewPlan() {
       h('main', { class: 'content narrow center' },
         mascot(130),
         h('h1', { class: 'display' }, 'Dein Plan entsteht gerade'),
-        h('p', { class: 'muted' }, ui.busy[`prep:${exam.id}`] ? 'Jelly liest deine Unterlagen …' : backgroundAvailable() ? 'Jelly arbeitet im Hintergrund daran. Das dauert meist 5 bis 30 Minuten.' : 'Tippe auf „Weitermachen“, damit Jelly den Plan fertig baut.'),
+        h('p', { class: 'muted' }, ui.busy[`prep:${exam.id}`] ? 'Jelly liest deine Unterlagen …' : backgroundAvailable() ? 'Jelly arbeitet im Hintergrund daran, sobald die App geschlossen ist.' : 'Tippe auf „Weitermachen“, damit Jelly den Plan fertig baut.'),
         h('button', { class: 'btn primary', onclick: () => go('prepare', { examId: exam.id }) }, 'Hier weitermachen')),
       tabbar('plan'));
     return screen;
@@ -905,7 +905,7 @@ async function prepareAll(exam, panel) {
 // ---------- Hintergrund (läuft über GitHub Actions, siehe server/background.mjs) ----------
 function bgHint() {
   return h('div', { class: 'card bg-hint row gap' }, icon('sparkles', 20),
-    h('p', { class: 'small', style: { margin: 0 } }, 'Du kannst die App jetzt schließen. Jelly macht im Hintergrund weiter. Das dauert dann meist 5 bis 30 Minuten. Beim nächsten Öffnen ist alles da.'));
+    h('p', { class: 'small', style: { margin: 0 } }, 'Du kannst die App jetzt schließen. Jelly macht im Hintergrund weiter, sobald sie zu ist. Beim nächsten Öffnen ist alles da.'));
 }
 
 // Gibt dem Hintergrund-Dienst einen Auftrag (nur mit Konto + Sync). Er legt erst los, wenn die App zu ist.
@@ -2215,7 +2215,7 @@ function privacySheet() {
 ## Wohin wird etwas geschickt?
 - **Google Gemini:** Material, Fotos, Fragen und Antworten, wenn Jelly etwas erstellt oder korrigiert. Laut Googles Bedingungen werden Eingaben von Nutzern in der EU **nicht zur Produktverbesserung** genutzt, auch in der kostenlosen Stufe.
 - **Ersatz-Anbieter** (Groq, Mistral oder OpenRouter) – nur wenn du ihn einrichtest und Google überlastet ist. Es gelten dessen Bedingungen; Groq und OpenRouter sitzen in den USA.
-- **Jelly im Hintergrund** (nur mit Konto): Damit Lernzettel & Co. auch bei geschlossener App fertig werden, liest ein kleiner Dienst auf **GitHub** (Microsoft, Server in den USA) deinen Stand und deine hochgeladenen Dateien aus Firestore, schickt die Anfragen mit deinem Schlüssel an Gemini und legt die Ergebnisse wieder in Firestore ab. Gespeichert wird bei GitHub nichts, die öffentlichen Protokolle enthalten keine Inhalte.
+- **Jelly im Hintergrund** (nur mit Konto): Damit Lernzettel & Co. auch bei geschlossener App fertig werden, liest eine Funktion in **Google Cloud (Firebase, Rechenzentrum Frankfurt)** deinen Stand und deine hochgeladenen Dateien aus Firestore, schickt die Anfragen mit deinem Schlüssel an Gemini und legt die Ergebnisse wieder in Firestore ab. Die Protokolle der Funktion enthalten keine Inhalte.
 - **YouTube** – nur wenn du das Warte-Video abspielst.
 - **GitHub Pages** liefert die App aus; dabei sieht GitHub (USA) wie bei jeder Website deine IP-Adresse.
 - Schriften und PDF-Bibliothek liegen in der App selbst – dafür wird kein fremder Server kontaktiert.

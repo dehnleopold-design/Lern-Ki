@@ -85,19 +85,21 @@ service cloud.firestore {
 
 Hinweis: In Home-Bildschirm-Apps auf iPhone/iPad kann das Google-Popup unzuverlässig sein. E-Mail/Passwort funktioniert immer.
 
-## Jelly im Hintergrund (optional, GitHub Actions)
+## Jelly im Hintergrund (optional, Firebase Cloud Functions)
 
-Mit Konto erstellt Jelly auch bei **geschlossener App** weiter: Blätter lesen, Lehrerprofil, Lernplan, Lernzettel, Quiz, Aufgaben, Vokabeln auslesen, Vokabeltest-Profile und gelöste Arbeitsblätter. Das läuft kostenlos über GitHub Actions (`.github/workflows/background.yml` → `server/background.mjs`):
+Mit Konto erstellt Jelly auch bei **geschlossener App** weiter: Blätter lesen, Lehrerprofil, Lernplan, Lernzettel, Quiz, Aufgaben, Vokabeln auslesen, Vokabeltest-Profile und gelöste Arbeitsblätter. Das läuft über Firebase Cloud Functions im Rechenzentrum Frankfurt (`functions/index.js`, Logik in `server/worker.mjs`).
 
-1. Nach dem Lernplan (und beim Schließen der App, falls noch etwas fehlt) legt die App einen Auftrag in Firestore an (`users/{uid}/bgjobs`).
-2. Alle 5 Minuten schaut GitHub nach Aufträgen. GitHub verzögert solche Läufe oft um einige Minuten, realistisch sind 5–30 Minuten.
-3. Der Dienst nutzt den KI-Schlüssel aus dem synchronisierten Stand und legt die Ergebnisse getrennt ab (`users/{uid}/bgresults`). Die App übernimmt sie beim nächsten Öffnen.
+1. Die App legt Aufträge in Firestore an (`users/{uid}/bgjobs`).
+2. Sobald die App geschlossen wird, startet die Funktion. Alle 10 Minuten schaut sie zusätzlich nach Liegengebliebenem.
+3. Sie nutzt den KI-Schlüssel aus dem synchronisierten Stand und legt die Ergebnisse getrennt ab (`users/{uid}/bgresults`). Die App übernimmt sie beim nächsten Öffnen.
 
-Solange die App offen ist, erstellt sie selbst und der Dienst pausiert (sonst teilen sich beide die Gratis-Limits des Schlüssels).
+Solange die App offen ist, erstellt sie selbst und die Funktion pausiert (sonst teilen sich beide die Gratis-Limits des Schlüssels).
+Die Funktion lädt `server/worker.mjs` und die App-Module bei jeder neuen Version von der Website (Liste in `server/files.json`). Änderungen daran brauchen deshalb kein neues Deployment, nur Änderungen an `functions/index.js`.
 
-Einrichtung:
-1. Firebase → Projekteinstellungen → **Dienstkonten** → „Neuen privaten Schlüssel generieren“ (JSON-Datei).
-2. GitHub-Repo → Settings → Secrets and variables → Actions → **New repository secret**, Name `FIREBASE_SERVICE_ACCOUNT`, Inhalt der JSON-Datei einfügen.
-3. Die Workflow-Datei muss auf dem Standard-Branch (`main`) liegen, sonst startet GitHub den Zeitplan nicht.
-
-Hinweise: Der Dienstschlüssel hat Zugriff auf **alle** Konten im Firebase-Projekt, also niemals weitergeben. Die Protokolle sind bei öffentlichen Repos öffentlich. Der Dienst gibt deshalb keine Inhalte aus. Bei öffentlichen Repos schaltet GitHub Zeitpläne nach 60 Tagen ohne Aktivität im Repo ab. Dann unter Actions wieder aktivieren.
+Einrichtung (einmalig):
+1. Firebase-Konsole → Projekt → Tarif auf **Blaze** umstellen. Danach unter Google Cloud → Abrechnung → **Budgets & Benachrichtigungen** ein Budget von z. B. 1 € mit E-Mail-Warnung anlegen (Warnung, keine harte Grenze).
+2. **Google Cloud Shell** öffnen: https://shell.cloud.google.com/?project=jelly-721e4 und dort ausführen:
+   ```
+   git clone -b claude/knowunity-exam-prep-app-ycrff7 https://github.com/dehnleopold-design/Lern-Ki.git && cd Lern-Ki && (cd functions && npm install) && npx -y firebase-tools@latest deploy --only functions --project jelly-721e4
+   ```
+   Fragt das Programm nach einer Anmeldung, `npx -y firebase-tools@latest login --no-localhost` ausführen und den Anweisungen folgen, danach den Befehl wiederholen.
