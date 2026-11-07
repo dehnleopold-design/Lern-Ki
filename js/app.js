@@ -11,7 +11,7 @@ import { downloadLernzettel, sheetHTML, SHEET_CSS } from './pdf.js';
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.14 (7.11.)';
+const APP_VERSION = '2.15 (7.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -212,7 +212,7 @@ function viewOnboarding() {
         const preset = DEFAULT_SUBJECTS.find((x) => x[0] === name);
         s = makeSubject(name, preset?.[1], preset?.[2]);
       }
-      s.language = d.english.includes(name) ? 'en' : 'de';
+      if (!s.langSet) s.language = d.english.includes(name) ? 'en' : 'de';
       s.level = d.levels[name] || s.level || 2;
       keep.push(s);
     }
@@ -1433,7 +1433,7 @@ function viewSubjects() {
       h('div', { class: 'label' }, 'Deine Fächer'),
       h('div', { class: 'menu' }, state.subjects.map((s) => h('button', { class: 'menu-row', onclick: () => go('subject', { id: s.id }) },
         subjectBadge(s, 38),
-        h('span', { class: 'menu-text' }, h('span', { class: 'menu-label' }, s.name), h('span', { class: 'menu-sub' }, `${(s.archive || []).length ? `${s.archive.length} alte Klausuren` : 'Noch keine alten Klausuren'}${s.language === 'en' ? ' · Englisch' : ''}`)),
+        h('span', { class: 'menu-text' }, h('span', { class: 'menu-label' }, s.name), h('span', { class: 'menu-sub' }, `${(s.archive || []).length ? `${s.archive.length} alte Klausuren` : 'Noch keine alten Klausuren'}${P.langInfo(s).teach !== 'de' ? ` · ${P.LANG_NAMES[P.langInfo(s).teach]}` : ''}`)),
         icon('chev', 18)))),
       h('button', { class: 'link-small', onclick: () => addSubjectDialog() }, icon('plus', 16), 'Fach hinzufügen')),
     tabbar('subjects'));
@@ -1506,7 +1506,7 @@ function viewSubject({ id }) {
   return h('div', { class: 'screen' },
     topbar({ back: () => go('subjects'), title: '' }),
     h('main', { class: 'content narrow' },
-      h('div', { class: 'subject-hero' }, subjectBadge(s, 56), h('h1', { class: 'display' }, s.name), s.language === 'en' ? h('span', { class: 'chip-static' }, 'Unterricht auf Englisch') : null),
+      h('div', { class: 'subject-hero' }, subjectBadge(s, 56), h('h1', { class: 'display' }, s.name), P.langInfo(s).teach !== 'de' ? h('span', { class: 'chip-static' }, `Unterricht auf ${P.LANG_NAMES[P.langInfo(s).teach]}`) : null),
       h('button', { class: 'btn primary block', onclick: () => startNewExam(s.id) }, icon('plus', 18), 'Klausur anlegen'),
       h('div', { class: 'folds' },
         fold('layers', 'Alte Klausuren', `${(s.archive || []).length} hochgeladen`, [
@@ -1521,7 +1521,8 @@ function viewSubject({ id }) {
           h('div', { class: 'label' }, 'Name'),
           h('input', { class: 'input', value: s.name, onchange: (e) => { if (e.target.value.trim()) { s.name = e.target.value.trim(); save(); } } }),
           h('div', { class: 'label' }, 'Unterrichtssprache'),
-          h('div', { class: 'seg' }, [['de', 'Deutsch'], ['en', 'Englisch']].map(([v, l]) => h('button', { class: `seg-btn ${s.language === v ? 'active' : ''}`, onclick: () => { s.language = v; save(); render(); } }, l))),
+          h('div', { class: 'seg seg-wrap' }, [['de', 'Deutsch'], ['en', 'Englisch'], ['es', 'Spanisch'], ['fr', 'Französisch']].map(([v, l]) => h('button', { class: `seg-btn ${P.langInfo(s).teach === v ? 'active' : ''}`, onclick: () => { s.language = v; s.langSet = true; save(); render(); } }, l))),
+          P.langInfo(s).fach ? h('p', { class: 'muted small' }, `Sprachfach erkannt: Lernzettel kommen gemischt (Erklärungen auf Deutsch, Beispiele auf ${P.LANG_NAMES[P.langInfo(s).fach]}).`) : null,
           h('div', { class: 'label' }, 'Dein Stand'),
           h('div', { class: 'seg' }, [[1, 'schwach'], [2, 'mittel'], [3, 'stark']].map(([v, l]) => h('button', { class: `seg-btn ${s.level === v ? 'active' : ''}`, onclick: () => { s.level = v; save(); render(); } }, l))),
           h('div', { class: 'label' }, 'Was weißt du über deine Lehrkraft?'),

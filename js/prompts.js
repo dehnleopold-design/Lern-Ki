@@ -10,15 +10,58 @@ export function subjectOf(exam) {
   return state.subjects.find((s) => s.id === exam.subjectId);
 }
 
+// ---------- Sprache des Fachs ----------
+export const LANG_NAMES = { de: 'Deutsch', en: 'Englisch', es: 'Spanisch', fr: 'Französisch', la: 'Latein' };
+
+// fach: Sprachfach (Englisch/Spanisch/Französisch/Latein als Fach) · teach: Unterrichtssprache
+export function langInfo(subject) {
+  const n = (subject?.name || '').toLowerCase();
+  const fach = subject?.fremdsprache !== undefined ? subject.fremdsprache
+    : /spanisch|español|espanol/.test(n) ? 'es' : /franz|français/.test(n) ? 'fr' : /latein|latin/.test(n) ? 'la' : /^(englisch|english)\b/.test(n) ? 'en' : null;
+  let teach = subject?.language || 'de';
+  if (fach && !subject?.langSet) teach = fach === 'la' ? 'de' : fach; // Latein wird auf Deutsch unterrichtet
+  return { fach, teach };
+}
+
+function langSystem(subject) {
+  const { fach, teach } = langInfo(subject);
+  const T = LANG_NAMES[teach];
+  if (fach === 'la') return `\nSPRACHFACH LATEIN. Unterrichtssprache: ${T}.
+- Aufgaben und Erklärungen auf ${T}; lateinische Texte, Formen und Beispielsätze auf Latein.
+- Typisch: Übersetzen Latein → Deutsch, Formen bestimmen, Satzglieder/Konstruktionen (AcI, Partizipien, Ablativus absolutus …) erkennen, Textverständnis und Interpretation.
+- Lateinische Formen exakt; jeden Fehler in Form oder Übersetzung zitieren und korrigieren.`;
+  if (fach) return `\nSPRACHFACH ${LANG_NAMES[fach].toUpperCase()}. Unterrichtssprache: ${T}.
+- Aufgabenstellungen, Materialien und Musterlösungen auf ${T}, so wie die Lehrkraft sie auf Arbeitsblättern und in Klausuren formuliert.${teach !== 'de' ? '\n- Grammatik-Erklärungen und Feedback dürfen auf Deutsch sein, Beispiele und Korrekturen stehen in der Zielsprache.' : ''}
+- Bewerte Sprache streng: Jeden Fehler (Grammatik, Wortwahl, Rechtschreibung, Akzente) zitieren und korrigieren.`;
+  if (teach !== 'de') return `\nUNTERRICHTSSPRACHE IN DIESEM FACH: ${T.toUpperCase()} (bilingualer Unterricht).
+- Aufgaben, Materialien, Musterlösungen und Feedback auf ${T}.
+- Bewerte zusätzlich Fachsprache und Grammatik: Jeden Sprachfehler zitieren und korrigieren.
+- Schwierige Fachbegriffe darfst du kurz in Klammern auf Deutsch erklären.`;
+  return '';
+}
+
+// Sprachregel für Lernzettel: Sprachfächer gemischt, bilinguale Fächer in der Unterrichtssprache.
+function lernzettelLang(subject) {
+  const { fach, teach } = langInfo(subject);
+  if (fach) return `Sprache: GEMISCHT. Erklärungen, Regeln und Überschriften auf Deutsch; Beispiele, Mustersätze, Wendungen, Redemittel und Vokabeln auf ${LANG_NAMES[fach]} (mit deutscher Übersetzung). Grammatik-Begriffe so, wie die Lehrkraft sie auf den Arbeitsblättern verwendet.`;
+  if (teach !== 'de') return `Sprache: ${LANG_NAMES[teach].toUpperCase()} (bilingualer Unterricht). Wichtige Fachbegriffe beim ersten Auftreten mit deutscher Übersetzung in Klammern.`;
+  return 'Sprache: Deutsch.';
+}
+
+function taskLang(subject) {
+  const { fach, teach } = langInfo(subject);
+  if (fach === 'la') return 'Sprache: Aufgabenstellungen auf Deutsch, lateinische Texte und Formen auf Latein.';
+  if (teach !== 'de') return `Sprache: Fragen bzw. Aufgabenstellungen auf ${LANG_NAMES[teach]}, so wie die Lehrkraft sie formuliert. Erklärungen dürfen auf Deutsch sein.`;
+  return 'Sprache: Deutsch.';
+}
+
+// Arbeitsblätter der Lehrkraft zeigen, was ihr wichtig ist. Das Buch liefert zusätzliche Fakten.
+const AB_FOCUS = `ORIENTIERUNG AN DER LEHRKRAFT: Die Arbeitsblätter und Hefteinträge zeigen, was die Lehrkraft für wichtig hält. Gewichte die Inhalte danach (Schwerpunkte der Lehrkraft, Aufgaben auf den Blättern) und übernimm ihre Begriffe und Formulierungen. Fakten aus dem Buch gehören trotzdem dazu, wo sie diese Schwerpunkte stützen, ergänzen oder genauer machen. Beziehe dich immer wieder ausdrücklich auf ein bestimmtes Arbeitsblatt (z. B. „wie auf dem AB ‚Zellatmung‘“), aber nicht bei jedem Punkt.`;
+
 export function baseSystem(subject) {
   const p = state.profile || {};
   const harsh = (p.feedbackStyle || 'hart') === 'hart';
-  const lang = subject?.language === 'en'
-    ? `\nUNTERRICHTSSPRACHE IN DIESEM FACH: ENGLISCH (bilingualer Unterricht).
-- Aufgaben, Materialien, Musterlösungen und Feedback auf Englisch.
-- Bewerte zusätzlich Fachsprache und Grammatik: Jeden Sprachfehler zitieren und korrigieren.
-- Schwierige Fachbegriffe darfst du kurz in Klammern auf Deutsch erklären.`
-    : '';
+  const lang = langSystem(subject);
   return `Du bist "Jelly", ein Lerncoach, der eine Person gezielt auf eine Klassenarbeit/Klausur vorbereitet.
 
 SCHÜLER/IN: ${p.name || 'unbekannt'}, Klasse ${p.grade || '?'}, ${p.schoolType || 'Schule'}, Bundesland ${p.state || 'unbekannt'}.
@@ -59,8 +102,12 @@ export function examContext(exam) {
   if (subject?.teacherNotes) parts.push(`## EIGENE NOTIZEN DES SCHÜLERS ZUR LEHRKRAFT\n${subject.teacherNotes}`);
   if (exam.topicsText) parts.push(`## THEMEN LAUT SCHÜLER\n${exam.topicsText}`);
   if (exam.weaknesses?.length) parts.push(`## BISHER ERKANNTE SCHWÄCHEN (gezielt trainieren!)\n${exam.weaknesses.slice(-15).map((w) => `- ${w}`).join('\n')}`);
-  const mats = (exam.materialIds || []).map(fileDigestText).filter(Boolean);
-  if (mats.length) parts.push(`## UNTERRICHTSMATERIAL\n${mats.join('\n\n')}`);
+  const isBook = (id) => /buch/i.test(state.files[id]?.digest?.art || '');
+  const ids = exam.materialIds || [];
+  const abs = ids.filter((id) => !isBook(id)).map(fileDigestText).filter(Boolean);
+  const book = ids.filter(isBook).map(fileDigestText).filter(Boolean);
+  if (abs.length) parts.push(`## ARBEITSBLÄTTER & HEFTEINTRÄGE DER LEHRKRAFT (Hauptquelle: Schwerpunkte, Begriffe, Formulierungen)\n${abs.join('\n\n')}`);
+  if (book.length) parts.push(`## BUCHSEITEN (Ergänzung: Fakten übernehmen, Gewichtung nach den Arbeitsblättern)\n${book.join('\n\n')}`);
   if (exam.useArchive !== false && subject) {
     const arch = (subject.archive || []).map(fileDigestText).filter(Boolean);
     if (arch.length) parts.push(`## ALTE KLAUSUREN DIESER LEHRKRAFT\n${arch.join('\n\n')}`);
@@ -131,7 +178,7 @@ Gib NUR JSON zurück:
  "titel": "z. B. Geography Klausur",
  "themenUebersicht": "2–4 Sätze: was drankommt und worauf es laut Material/Lehrkraft ankommt",
  "luecken": ["Was im Material fehlt oder unklar ist und der Schüler klären sollte"],
- "themen": [ { "titel": "kurzer Thementitel", "beschreibung": "was genau dazugehört (1–2 Sätze)", "schwerpunkte": ["…"], "tag": "YYYY-MM-DD oder null" } ]
+ "themen": [ { "titel": "kurzer Thementitel", "beschreibung": "was genau dazugehört (1–2 Sätze)", "schwerpunkte": ["was die Lehrkraft laut Arbeitsblättern und alten Klausuren bei diesem Thema betont"], "tag": "YYYY-MM-DD oder null" } ]
 }
 
 KONTEXT:
@@ -167,9 +214,7 @@ export function lernzettelPrompt(exam, topic, isOverall) {
   const scope = isOverall
     ? `einen GESAMT-LERNZETTEL für die komplette Klausur (alle Themen: ${(exam.plan?.themen || []).map((t) => t.titel).join(', ')}). Umfang wie 3 volle DIN-A4-Seiten (ca. 1600–2200 Wörter). Ein Abschnitt pro Thema mit allen Kerninhalten, dazu ein Abschnitt zur METHODIK (Operatoren, Umgang mit Diagrammen/Statistiken/Quellen in 3 Schritten) und – falls in der Klausur geschrieben wird – ein SCHREIB-GUIDE mit Struktur und Beispielsätzen in [!EXAMPLE]-Kästen (z. B. PEEL, Erörterung, Analyse-Aufbau – je nachdem, was die Lehrkraft verlangt).`
     : `einen ausführlichen LERNZETTEL zum Thema "${topic.titel}" (${topic.beschreibung || ''}${topic.schwerpunkte?.length ? `; Schwerpunkte: ${topic.schwerpunkte.join(', ')}` : ''}). Umfang wie 1,5–2 volle DIN-A4-Seiten (ca. 900–1400 Wörter).`;
-  const lang = subject?.language === 'en'
-    ? 'Sprache: ENGLISCH (bilingualer Unterricht). Wichtige Fachbegriffe beim ersten Auftreten mit deutscher Übersetzung in Klammern, z. B. "Weather (Wetter)".'
-    : 'Sprache: Deutsch.';
+  const lang = lernzettelLang(subject);
   return `Schreibe ${scope}
 
 ZIEL: Ein Lernzettel, mit dem man die Klausur bestehen kann, ohne nochmal ins Heft zu schauen – so ausführlich und präzise wie ein sehr guter selbst erstellter Lernzettel einer Oberstufenschülerin. Er ist die Grundlage für das Quiz und die Anwendungsaufgaben.
@@ -180,6 +225,7 @@ INHALT:
 - Methodenwissen: Wie geht man an typische Aufgaben heran (z. B. Diagramm beschreiben → erklären → bewerten)?
 - Typische Klausurfallen in [!WARN], Klausurtipps der Lehrkraft in [!TIP].
 - Nur was im Material steht oder sicheres Standardwissen dieser Klassenstufe ist. Nichts erfinden; Unklares weglassen.
+- ${AB_FOCUS} Gliedere, wo es passt, nach dem Aufbau der Arbeitsblätter.
 - ${lang}
 - Kein Vorwort, kein Schlusswort, keine Überschrift für das ganze Dokument (die setzt die App).
 
@@ -191,8 +237,12 @@ ${examContext(exam)}`;
 
 // ---------- 3b. Fakten-Quiz ----------
 export function quizPrompt(exam, topic, lernzettel, previous) {
-  return `Erstelle ein kurzes Quiz (8 Fragen) zum Thema "${topic.titel}". Es prüft schnell abrufbares Wissen: Fachbegriffe, Fakten, Zahlen, Werte, Formeln, Einheiten, Zuordnungen – keine langen Erklärungen. Nur klausurrelevantes Wissen, keine Nebensächlichkeiten.
-Mische die Fragetypen: ca. 4× "mc" (4 Optionen, plausible Falschantworten), 2× "wahrfalsch", 2× "eingabe" (Antwort ist ein Wort, Begriff oder eine Zahl).
+  return `Erstelle ein kurzes Quiz (8 Fragen) zum Thema "${topic.titel}"${topic.schwerpunkte?.length ? ` (Schwerpunkte: ${topic.schwerpunkte.join(', ')})` : ''}.
+Es prüft, ob die SCHWERPUNKTE DER LEHRKRAFT sitzen: zentrale Begriffe und was sie bedeuten, Zusammenhänge (Ursache → Folge), Abläufe, Unterschiede, Zuordnungen und typische Denkfehler. Die Fragen sind eher allgemein und verständnisorientiert, kein Abfragen von Einzelfakten.
+- Höchstens 2 Fragen zu einer einzelnen Zahl, einem Datum oder Detail, und nur wenn die Lehrkraft genau das erkennbar betont.
+- Richte die Auswahl nach den Schwerpunkten und Aufgaben auf den Arbeitsblättern. Nutze die Begriffe so, wie sie auf den Blättern stehen. Etwa 2 Fragen beziehen sich ausdrücklich auf ein Arbeitsblatt. Fakten aus dem Buch sind erlaubt, wenn sie zu diesen Schwerpunkten gehören.
+- ${taskLang(subjectOf(exam))}
+Mische die Fragetypen: ca. 4× "mc" (4 Optionen, plausible Falschantworten), 2× "wahrfalsch", 2× "eingabe" (Antwort ist ein Begriff oder kurzer Ausdruck).
 ${previous?.length ? `Diese Fragen gab es schon – stelle andere:\n${previous.slice(-20).map((q) => `- ${q}`).join('\n')}` : ''}
 
 Gib NUR JSON zurück:
@@ -228,6 +278,8 @@ Die Formate müssen zu dem passen, was die Lehrkraft in Klausuren tatsächlich v
 WICHTIG:
 - KEINE Lösung, kein Erklärtext und keine Hinweise auf die Lösung in Aufgabenstellung oder Material. Das Wissen steht im Lernzettel.
 - ${TEACHER_STYLE}
+- ${AB_FOCUS} Mindestens eine Aufgabe knüpft direkt an ein Arbeitsblatt an (greift dessen Material, Beispiel oder Aufgabentyp auf, ohne es zu kopieren).
+- ${taskLang(subjectOf(exam))}
 - Jede Aufgabe beginnt mit einem Operator, hat einen Erwartungshorizont (wird erst nach der Abgabe gezeigt), eine realistische Punktzahl und Bearbeitungszeit.
 ${previousTitles.length ? `- Bereits gestellte Aufgaben (NICHT wiederholen, aber Schwächen erneut prüfen):\n${previousTitles.slice(-25).map((t) => `  - ${t}`).join('\n')}` : ''}
 
@@ -347,9 +399,12 @@ ${words.map((w) => `- ${w.w} = ${w.t}${w.ex ? ` (Beispiel: ${w.ex})` : ''}`).joi
 
 // ---------- 8. Arbeitsblatt lösen ----------
 export function solvePrompt(subject, note) {
-  const lang = subject?.language === 'en'
-    ? 'Sprache der Lösungen: ENGLISCH (bilingualer Unterricht); wichtige Fachbegriffe beim ersten Mal mit deutscher Übersetzung in Klammern. Überschriften "Aufgabe" dürfen deutsch bleiben.'
-    : 'Sprache: Deutsch (bei Fremdsprachen-Aufgaben in der Zielsprache antworten).';
+  const { fach, teach } = langInfo(subject);
+  const lang = fach
+    ? `Sprache: Antworten in der Sprache, die die Aufgabe verlangt (${LANG_NAMES[fach]} bzw. bei Übersetzungen Deutsch). Erklärungen zu Grammatik und Fehlern auf Deutsch.`
+    : teach !== 'de'
+      ? `Sprache der Lösungen: ${LANG_NAMES[teach].toUpperCase()} (bilingualer Unterricht); wichtige Fachbegriffe beim ersten Mal mit deutscher Übersetzung in Klammern. Überschriften "Aufgabe" dürfen deutsch bleiben.`
+      : 'Sprache: Deutsch (bei Fremdsprachen-Aufgaben in der Zielsprache antworten).';
   return `Das ist ein ARBEITSBLATT (eingescannt, evtl. mehrere Seiten). Lies es vollständig und genau – auch Texte, Tabellen, Diagramme, Karten und Materialien – und LÖSE ALLE AUFGABEN.
 Ziel: Der Schüler lernt an deinen Lösungen. Sie müssen fachlich korrekt, vollständig und auf dem Niveau einer sehr guten Klassenarbeit sein – so, wie die Lehrkraft sie im Erwartungshorizont hätte.
 ${note ? `Hinweis des Schülers: ${note}\n` : ''}
