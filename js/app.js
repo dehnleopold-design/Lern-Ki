@@ -10,7 +10,7 @@ import { downloadLernzettel, sheetHTML, SHEET_CSS } from './pdf.js';
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.12 (7.11.)';
+const APP_VERSION = '2.13 (7.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -995,7 +995,7 @@ async function prepareAll(exam, panel) {
     finally {
       delete ui.busy[u.id];
       // Ist die Einheit gerade geöffnet, sofort anzeigen
-      if (route.name === 'session' && route.params.unitId === u.id) { delete ui.busy[`err:${u.id}`]; render(); }
+      if (route.name === 'session' && route.params.unitId === u.id) { delete ui.busy[`err:${u.id}`]; const here = route; (hasContent(u) ? jellyTransition(() => { if (route === here) render(); }) : render()); }
     }
   };
   await pool(phase1, 2, one);
