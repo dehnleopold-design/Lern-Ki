@@ -1,5 +1,6 @@
 import { state, loadState, save, replaceState, clearAll, allBlobs, putBlob, uid, useAccount, hasLocalProfile } from './store.js';
-import { startSync, syncNow, syncStatus, onSyncStatus } from './sync.js';
+import { startSync, syncNow, syncStatus, onSyncStatus, deleteCloudData } from './sync.js';
+import { deleteAccount } from './auth.js';
 import { authEnabled, initAuth, signInGoogle, signInEmail, registerEmail, resetPassword, signOutUser, currentUser, authErrorText } from './auth.js';
 import { generate, aiReady, listGeminiModels, pickDefaultModel, AIError, onAIStatus, FALLBACK_PRESETS, listOpenAIModels, pickFallbackModel } from './ai.js';
 import { addFile, removeFile, filePart, thumbURL, pickFiles } from './files.js';
@@ -9,7 +10,7 @@ import { downloadLernzettel, sheetHTML, SHEET_CSS } from './pdf.js';
 import { cleanText } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.10 (6.11.)';
+const APP_VERSION = '2.11 (7.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -283,9 +284,9 @@ function aiSetupBlock(compact = false, onChange = null) {
         h('li', {}, 'Öffne ', h('a', { href: 'https://aistudio.google.com/apikey', target: '_blank', rel: 'noopener' }, 'aistudio.google.com/apikey'), ' und melde dich mit einem Google-Konto an.'),
         h('li', {}, '„API-Schlüssel erstellen“ tippen und den Schlüssel kopieren.'),
         h('li', {}, 'Hier einfügen und prüfen.')),
-      !compact ? h('p', { class: 'muted small' }, 'Wichtig: Laut Googles Bedingungen muss der Kontoinhaber volljährig sein – ggf. erstellt ein Elternteil den Schlüssel. In der kostenlosen Stufe darf Google Eingaben zur Verbesserung seiner Dienste nutzen. Lade daher keine sensiblen Daten hoch.') : null,
+      !compact ? h('p', { class: 'muted small' }, 'Wichtig: Laut Googles Bedingungen muss der Kontoinhaber volljährig sein – ggf. erstellt ein Elternteil den Schlüssel. Für Nutzer in der EU nutzt Google die Eingaben laut seinen Bedingungen nicht zur Produktverbesserung, auch in der kostenlosen Stufe. Trotzdem: keine Namen oder Noten anderer Personen hochladen.') : null,
       keyInput, testBtn, h('div', { class: 'label' }, 'Modell'), select, status,
-      compact ? h('p', { class: 'muted small' }, 'Hinweis: Google verlangt Volljährigkeit für den API-Schlüssel – ggf. macht das ein Elternteil. Kostenlose Stufe: Google darf Eingaben auswerten, also keine sensiblen Daten hochladen.') : null);
+      compact ? h('p', { class: 'muted small' }, 'Hinweis: Google verlangt Volljährigkeit für den API-Schlüssel – ggf. macht das ein Elternteil. Für Nutzer in der EU nutzt Google die Eingaben laut seinen Bedingungen nicht zur Produktverbesserung.') : null);
   };
   // Ersatz-Anbieter für Überlastung
   const fallbackBlock = () => {
@@ -618,6 +619,22 @@ function waitVideo() {
   const v = state.settings.waitVideo ?? DEFAULT_WAIT_VIDEO;
   const id = youtubeId(v);
   if (!id) return null;
+  let allowed = false;
+  try { allowed = localStorage.getItem('lernki-yt-ok') === '1'; } catch {}
+  if (!allowed) {
+    // Zwei-Klick-Lösung: Erst nach Antippen wird YouTube (Google) kontaktiert.
+    const ph = h('div', { class: 'video-consent' },
+      h('div', { class: 'strong' }, 'Video beim Warten'),
+      h('p', { class: 'muted small' }, 'Beim Abspielen lädt YouTube (Google) das Video – dabei wird deine IP-Adresse an Google übertragen.'),
+      h('div', { class: 'row gap wrap center' },
+        h('button', { class: 'btn small primary', onclick: () => { ph.replaceWith(loadVideo(id)); } }, icon('play', 16), 'Abspielen'),
+        h('button', { class: 'btn small ghost', onclick: () => { try { localStorage.setItem('lernki-yt-ok', '1'); } catch {} ph.replaceWith(loadVideo(id)); } }, 'Immer abspielen')));
+    return ph;
+  }
+  return loadVideo(id);
+}
+
+function loadVideo(id) {
   const holder = h('div');
   const wrap = h('div', { class: 'video-wrap' }, holder);
   const giveUp = (why) => {
@@ -2263,7 +2280,18 @@ function viewSettings() {
               return line;
             })(),
             h('button', { class: 'btn block', onclick: () => syncNow() }, icon('refresh', 18), 'Jetzt synchronisieren'),
-            h('button', { class: 'btn ghost block danger-text', onclick: async () => { try { await signOutUser(); } catch { try { localStorage.removeItem('lernki-last-uid'); } catch {} location.reload(); } } }, 'Abmelden')]);
+            h('button', { class: 'btn ghost block danger-text', onclick: async () => { try { await signOutUser(); } catch { try { localStorage.removeItem('lernki-last-uid'); } catch {} location.reload(); } } }, 'Abmelden'),
+            h('button', { class: 'link-small danger-text', onclick: async () => {
+              if (!(await confirmDialog('Konto endgültig löschen? Alle Daten in der Cloud UND auf diesem Gerät werden gelöscht. Das lässt sich nicht rückgängig machen. Tipp: vorher Mehr → Datensicherung → Backup.', 'Endgültig löschen'))) return;
+              try {
+                await deleteCloudData();
+                await deleteAccount();
+                await clearAll();
+                try { localStorage.removeItem('lernki-last-uid'); localStorage.removeItem('lernki-last-email'); } catch {}
+                toast('Konto und Daten gelöscht.', 'ok');
+                setTimeout(() => location.reload(), 800);
+              } catch (e) { toast(authErrorText(e).startsWith('Anmeldung fehlgeschlagen') ? errorMsg(e) : authErrorText(e), 'error'); }
+            } }, 'Konto und alle Daten löschen')]);
         })) : null,
       h('div', { class: 'menu' },
         menuRow('user', 'Profil', `${p.name} · Klasse ${p.grade} · ${p.state}`, () => {
@@ -2279,9 +2307,34 @@ function viewSettings() {
             h('button', { class: 'btn ghost block', onclick: importBackup }, 'Backup einspielen')]);
         })),
       h('div', { class: 'menu' },
+        menuRow('info', 'Datenschutz', 'Was wird wo gespeichert?', () => privacySheet())),
+      h('div', { class: 'menu' },
         menuRow('trash', 'Alle Daten löschen', null, async () => { if (await confirmDialog('Wirklich ALLE Daten löschen (Profil, Fächer, Klausuren, Archiv)?', 'Alles löschen')) { await clearAll(); draft = null; nx = null; go('onboarding'); } }, 'danger')),
       h('p', { class: 'muted small center' }, `Lern-KI · Version ${APP_VERSION}`)),
     tabbar('settings'));
+}
+
+function privacySheet() {
+  sheet('Datenschutz', [mdEl(`**Kurz:** Lern-KI hat keinen eigenen Server, kein Tracking, keine Werbung und keine Analyse-Tools.
+
+## Wo liegen deine Daten?
+- **Auf deinem Gerät** (im Browser-Speicher): alles, was du in der App anlegst.
+- **Mit Konto zusätzlich in Firebase/Firestore** (Google, Rechenzentrum **Frankfurt**): derselbe Stand, damit deine Geräte abgleichen können. Nur dein Konto kann ihn lesen. Für die Anmeldung speichert Google deine E-Mail-Adresse und ggf. deinen Namen (Firebase Authentication).
+
+## Wohin wird etwas geschickt?
+- **Google Gemini:** Material, Fotos, Fragen und Antworten, wenn Jelly etwas erstellt oder korrigiert. Laut Googles Bedingungen werden Eingaben von Nutzern in der EU **nicht zur Produktverbesserung** genutzt, auch in der kostenlosen Stufe.
+- **Ersatz-Anbieter** (Groq, Mistral oder OpenRouter) – nur wenn du ihn einrichtest und Google überlastet ist. Es gelten dessen Bedingungen; Groq und OpenRouter sitzen in den USA.
+- **YouTube** – nur wenn du das Warte-Video abspielst.
+- **GitHub Pages** liefert die App aus; dabei sieht GitHub (USA) wie bei jeder Website deine IP-Adresse.
+- Schriften und PDF-Bibliothek liegen in der App selbst – dafür wird kein fremder Server kontaktiert.
+
+## Deine Rechte
+- **Kopie deiner Daten:** Mehr → Datensicherung → Backup herunterladen.
+- **Löschen:** Mehr → Konto & Sync → „Konto und alle Daten löschen“ (ohne Konto: Mehr → Alle Daten löschen).
+
+## Bitte beachten
+- Lade keine Namen, Noten oder Fotos **anderer Personen** hoch (z. B. Klassenlisten, Klausuren mit fremden Namen).
+- Unter 16 Jahren sollten deine Eltern einverstanden sein; den Gemini-Schlüssel muss laut Google eine volljährige Person erstellen.`)]);
 }
 
 async function exportBackup() {
@@ -2385,7 +2438,18 @@ async function handleUser(user) {
   await loadState();
   // Neuere Daten von einem anderen Gerät holen (max. 10 s warten, dann im Hintergrund weiter)
   let booted = false;
-  const synced = startSync(user, { onRemoteApplied: async () => {
+  const synced = startSync(user, { onConflict: (remote) => new Promise((done) => {
+    ui.conflictOpen = true;
+    const resolve = (v) => { ui.conflictOpen = false; app.replaceChildren(h('div', { class: 'boot' }, mascot(90), h('p', { class: 'muted' }, 'Gleiche ab …'))); done(v); };
+    const when = new Date(remote.updatedAt).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    const box = h('div', { class: 'boot' }, mascot(80),
+      h('h2', { class: 'display' }, 'Welche Daten behalten?'),
+      h('p', { class: 'muted', style: { maxWidth: '420px' } }, `Auf diesem Gerät gibt es schon Daten (${state.profile?.name || 'Profil'}, ${state.exams.length} Klausuren). In deinem Konto liegen andere Daten (zuletzt gespeichert ${when}). Was soll ab jetzt überall gelten?`),
+      h('button', { class: 'btn primary', onclick: () => resolve('remote') }, 'Daten aus dem Konto nehmen'),
+      h('button', { class: 'btn', onclick: () => resolve('local') }, 'Daten von diesem Gerät nehmen'),
+      h('p', { class: 'muted small', style: { maxWidth: '420px' } }, 'Tipp: Mach vorher unter Mehr → Datensicherung ein Backup, wenn du unsicher bist.'));
+    app.replaceChildren(box);
+  }), onRemoteApplied: async () => {
     if (!booted) return;
     const keep = route;
     await loadState();
@@ -2393,7 +2457,8 @@ async function handleUser(user) {
     render();
     toast('Neuer Stand von deinem anderen Gerät geladen.', 'ok');
   } });
-  await Promise.race([synced, new Promise((r) => setTimeout(r, 10000))]);
+  const started = Date.now();
+  await Promise.race([synced, new Promise((r) => { const t = setInterval(() => { if (!ui.conflictOpen && Date.now() - started > 10000) { clearInterval(t); r(); } }, 300); })]);
   await boot(user);
   booted = true;
 }

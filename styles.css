@@ -484,3 +484,6 @@ ul { margin: 4px 0; padding-left: 22px; }
 .zoom-btn { position: absolute; right: 10px; top: 10px; width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center; background: rgba(9,8,13,.75); color: #fff; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); box-shadow: 0 4px 14px rgba(0,0,0,.4); }
 
 .fb-box { border-top: 1px solid var(--line); padding-top: 16px; margin-top: 6px; }
+
+.video-consent { background: var(--surface); border: 1px dashed var(--line); border-radius: var(--radius); padding: 16px; display: flex; flex-direction: column; gap: 8px; text-align: center; }
+.video-consent p { margin: 0; }

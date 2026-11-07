@@ -29,6 +29,7 @@ export async function registerEmail(email, pw, name) {
 }
 export const resetPassword = (email) => fb.sendPasswordResetEmail(auth, email);
 export const signOutUser = () => fb.signOut(auth);
+export const deleteAccount = () => fb.deleteUser(auth.currentUser);
 export const currentUser = () => auth?.currentUser || null;
 export const firebaseApp = () => appInst;
 
@@ -48,6 +49,7 @@ export function authErrorText(e) {
     'auth/popup-closed-by-user': 'Google-Anmeldung abgebrochen.',
     'auth/cancelled-popup-request': 'Google-Anmeldung abgebrochen.',
     'auth/unauthorized-domain': 'Diese Adresse ist in Firebase noch nicht freigegeben (Autorisierte Domains).',
+    'auth/requires-recent-login': 'Zur Sicherheit bitte einmal ab- und wieder anmelden, dann nochmal löschen.',
     'auth/operation-not-allowed': 'Diese Anmeldeart ist in Firebase noch nicht aktiviert.',
   };
   return map[code] || `Anmeldung fehlgeschlagen${code ? ` (${code})` : ''}.`;

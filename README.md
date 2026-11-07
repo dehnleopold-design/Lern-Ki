@@ -24,7 +24,7 @@ Die App selbst kostet nichts und hat keinen eigenen Server. Alle Daten bleiben i
 Die KI ist **Google Gemini** über einen eigenen API-Schlüssel. Google bietet dafür eine kostenlose Stufe an. Dazu musst du Folgendes wissen:
 
 - Die kostenlose Stufe hat **Tageslimits**. Wird ein Limit erreicht, zeigt die App das an. Dann später weitermachen oder in den Einstellungen ein anderes Modell wählen.
-- In der kostenlosen Stufe darf Google Eingaben zur Verbesserung seiner Dienste nutzen. Lade also nichts Sensibles hoch.
+- Laut Googles Gemini-Bedingungen gelten für Nutzer in der EU auch in der kostenlosen Stufe die Datenregeln der bezahlten Stufe: Eingaben werden nicht zur Produktverbesserung genutzt. Lade trotzdem keine Namen oder Noten anderer Personen hoch.
 - Für einen API-Schlüssel verlangt Google, dass der Kontoinhaber volljährig ist. Gegebenenfalls erstellt ein Elternteil den Schlüssel.
 - Welche Modelle gerade kostenlos sind, ändert Google regelmäßig. Deshalb lädt die App die Modellliste live. Die aktuellen Bedingungen stehen unter https://ai.google.dev/pricing.
 

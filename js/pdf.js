@@ -3,7 +3,7 @@
 
 import { md, esc } from './ui.js';
 
-const LIB = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
+const LIB = 'assets/vendor/html2pdf.bundle.min.js'; // lokal, MIT-Lizenz (html2pdf.js 0.10.1)
 let libPromise = null;
 
 function loadLib() {
@@ -13,7 +13,7 @@ function loadLib() {
       const sc = document.createElement('script');
       sc.src = LIB;
       sc.onload = () => resolve(window.html2pdf);
-      sc.onerror = () => { libPromise = null; reject(new Error('PDF-Erstellung braucht Internet.')); };
+      sc.onerror = () => { libPromise = null; reject(new Error('PDF-Bibliothek konnte nicht geladen werden.')); };
       document.head.append(sc);
     });
   }

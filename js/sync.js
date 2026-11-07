@@ -20,6 +20,7 @@ let pushTimer = null;
 let pushing = false;
 let local = { base: 0, dirty: false, dirtyAt: 0 };
 let onApplied = null;
+let onConflict = null;
 let statusListener = null;
 
 export const syncStatus = { state: 'aus', at: 0, error: '' };
@@ -50,8 +51,9 @@ function friendly(e) {
   return e?.message || 'Unbekannter Fehler';
 }
 
-export async function startSync(user, { onRemoteApplied } = {}) {
+export async function startSync(user, { onRemoteApplied, onConflict: conflictFn } = {}) {
   onApplied = onRemoteApplied;
+  onConflict = conflictFn;
   uid = user.uid;
   try {
     fs = await import(`https://www.gstatic.com/firebasejs/${V}/firebase-firestore.js`);
@@ -89,6 +91,12 @@ export async function syncNow(first = false) {
       if (hasLocal) await push(true);
       else setStatus('ok');
       return;
+    }
+    // Erste Verbindung dieses Geräts, aber hier UND im Konto liegen schon Daten → nachfragen statt überschreiben
+    if (!local.base && hasLocal && onConflict) {
+      const choice = await onConflict(remote);
+      if (choice === 'local') { await push(true, true); return; }
+      if (choice === 'remote') { await pull(remote); return; }
     }
     const remoteNewer = remote.updatedAt > local.base;
     if (remoteNewer && (!local.dirty || remote.updatedAt > local.dirtyAt || (first && !hasLocal))) {
@@ -130,7 +138,7 @@ async function pull(remote) {
   try { onApplied?.(); } catch {}
 }
 
-export async function push(force = false) {
+export async function push(force = false, overwrite = false) {
   if (!db || pushing) return;
   if (!force && !local.dirty) return;
   pushing = true;
@@ -140,7 +148,7 @@ export async function push(force = false) {
     // Erst schauen, ob inzwischen ein anderes Gerät Neueres hochgeladen hat
     const snap = await fs.getDoc(metaRef());
     const remote = snap.exists() ? snap.data() : null;
-    if (remote && remote.updatedAt > local.base && remote.device !== deviceId() && remote.updatedAt > local.dirtyAt) {
+    if (!overwrite && remote && remote.updatedAt > local.base && remote.device !== deviceId() && remote.updatedAt > local.dirtyAt) {
       pushing = false;
       await pull(remote);
       return;
@@ -177,4 +185,16 @@ export async function push(force = false) {
   } catch (e) {
     setStatus('fehler', friendly(e));
   } finally { pushing = false; }
+}
+
+// Alle Daten dieses Kontos aus der Cloud löschen (Recht auf Löschung).
+export async function deleteCloudData() {
+  if (!db) throw new Error('Keine Verbindung zum Online-Speicher.');
+  const snap = await fs.getDoc(metaRef());
+  if (!snap.exists()) return;
+  const meta = snap.data();
+  for (const [id, n] of Object.entries(meta.blobs || {})) for (let i = 0; i < n; i++) await fs.deleteDoc(blobRef(id, i));
+  for (let i = 0; i < (meta.n || 0); i++) await fs.deleteDoc(chunkRef(i));
+  await fs.deleteDoc(metaRef());
+  db = null; // danach nichts mehr hochladen
 }
