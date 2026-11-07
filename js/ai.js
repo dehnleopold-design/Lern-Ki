@@ -239,12 +239,12 @@ export async function listOpenAIModels(baseUrl, key) {
   const res = await fetch(baseUrl.replace(/\/+$/, '') + '/models', { headers: key ? { Authorization: `Bearer ${key}` } : {} });
   if (!res.ok) throw new AIError(res.status === 401 || res.status === 403 ? 'Der Schlüssel wurde abgelehnt.' : `Fehler ${res.status}`);
   const data = await res.json();
-  return (data.data || []).map((m) => m.id).filter((id) => !/(whisper|tts|embed|guard|moderation|audio|speech|transcri|image-gen|dall)/i.test(id)).sort();
+  return (data.data || []).map((m) => m.id).filter((id) => !/(whisper|tts|orpheus|playai|embed|guard|moderation|audio|speech|transcri|image-gen|dall|compound)/i.test(id)).sort();
 }
 
 // Bevorzugt Modelle, die Bilder verstehen (für Fotos von Arbeitsblättern)
 export function pickFallbackModel(ids) {
-  const score = (id) => (/(scout|maverick|llama-4)/i.test(id) ? 50 : 0) + (/(pixtral|vision|vl\b|-vl-)/i.test(id) ? 40 : 0) + (/(mistral-medium|mistral-small|mistral-large)/i.test(id) ? 30 : 0) + (/:free$/i.test(id) ? 10 : 0) + (/(70b|large|medium)/i.test(id) ? 5 : 0);
+  const score = (id) => (/gpt-oss-120b/i.test(id) ? 45 : 0) + (/(allam|-7b|-8b|instant)/i.test(id) ? -40 : 0) + (/(scout|maverick|llama-4)/i.test(id) ? 50 : 0) + (/(pixtral|vision|vl\b|-vl-)/i.test(id) ? 40 : 0) + (/(mistral-medium|mistral-small|mistral-large)/i.test(id) ? 30 : 0) + (/:free$/i.test(id) ? 10 : 0) + (/(70b|large|medium)/i.test(id) ? 5 : 0);
   return [...ids].sort((a, b) => score(b) - score(a))[0] || '';
 }
 
