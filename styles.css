@@ -508,3 +508,4 @@ ul { margin: 4px 0; padding-left: 22px; }
 .bg-hint svg { color: var(--accent-2); flex-shrink: 0; margin-top: 2px; }
 .seg.seg-wrap { display: grid; grid-template-columns: 1fr 1fr; }
 .fb-tip { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.card.warn p { white-space: pre-line; }

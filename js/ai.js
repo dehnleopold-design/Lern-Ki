@@ -45,7 +45,9 @@ export function pickDefaultModel(models) {
 }
 
 function friendly(status, body) {
-  if (status === 429) return 'Limit der kostenlosen Stufe erreicht. Warte ein paar Minuten (oder bis morgen) oder wähle in den Einstellungen ein anderes Modell.';
+  if (status === 429 && /PerDay/i.test(body)) return 'Tageslimit der kostenlosen Stufe erreicht. Es setzt sich um 9 Uhr (deutsche Zeit) zurück.';
+  if (status === 429) return 'Limit der kostenlosen Stufe erreicht (zu viele Anfragen pro Minute). Gleich nochmal versuchen.';
+  if (status === 413) return 'Die Anfrage ist für diesen Anbieter zu groß.';
   if (status === 400 && /API key/i.test(body)) return 'Der API-Schlüssel ist ungültig.';
   if (status === 403) return 'Zugriff verweigert – API-Schlüssel oder Modell prüfen.';
   if (status === 404) return 'Dieses Modell gibt es nicht (mehr). Bitte in den Einstellungen ein anderes wählen.';
@@ -72,10 +74,22 @@ async function freeModels() {
 }
 
 // Merkt sich, welches Modell zuletzt funktioniert hat, und welche gerade überlastet sind.
+// Überlastete Modelle werden 10 Minuten übersprungen, Modelle am Tageslimit 60 Minuten.
+// Im Browser wird das gespeichert, damit nicht jede neue Anfrage erst alle Modelle durchprobiert.
 let lastWorking = null;
-const cooldown = {};
-const COOLDOWN_MS = 3 * 60 * 1000;
-const cooling = (m) => cooldown[m] && Date.now() - cooldown[m] < COOLDOWN_MS;
+const COOL_KEY = 'lernki-cool';
+const cooldown = (() => { try { return JSON.parse(localStorage.getItem(COOL_KEY)) || {}; } catch { return {}; } })();
+const cooling = (m) => (cooldown[m] || 0) > Date.now();
+function cool(m, e) {
+  cooldown[m] = Date.now() + (e?.daily ? 60 : 10) * 60000;
+  try { localStorage.setItem(COOL_KEY, JSON.stringify(cooldown)); } catch {}
+}
+function uncool(m) {
+  if (!cooldown[m]) return;
+  delete cooldown[m];
+  try { localStorage.setItem(COOL_KEY, JSON.stringify(cooldown)); } catch {}
+}
+const why = (e) => e?.pdf ? 'kann keine PDFs' : e?.daily ? 'Tageslimit' : e?.status === 429 ? 'Minutenlimit' : e?.status === 413 ? 'Anfrage zu groß' : e?.status ? `überlastet (${e.status})` : /zu lange/.test(e?.message || '') ? 'keine Antwort' : 'Fehler';
 const ROUND_WAIT = [0, 10000, 25000, 45000]; // Pausen zwischen den Runden durch alle Modelle
 
 /**
@@ -95,10 +109,18 @@ export async function generate({ system, parts, history = [], json = false, temp
   const all = await freeModels();
   let lastErr = null;
   let fallbackTried = false;
+  const log = new Map(); // was jedes Modell geantwortet hat (für eine ehrliche Fehlermeldung)
+  const fail = (e) => {
+    if (log.size) e.message = `${e.message}\n\nAntworten: ${[...log].map(([m, w]) => `${m}: ${w}`).join(' · ')}`;
+    return e;
+  };
+  const fb = async () => {
+    try { return await tryFallback(args); } catch (e) { log.set(FALLBACK_PRESETS[s.fb?.preset]?.label || 'Ersatz', why(e)); if (!e.pdf) lastErr = e; return undefined; }
+  };
   // Sind gerade alle Gemini-Modelle als überlastet bekannt? Dann direkt den Ersatz fragen.
   if (fallbackReady() && all.length && all.every(cooling)) {
     fallbackTried = true;
-    try { return await tryFallback(args); } catch (e) { if (!e.pdf) lastErr = e; }
+    const r = await fb(); if (r !== undefined) return r;
   }
   for (let round = 0; round < ROUND_WAIT.length; round++) {
     if (round === 1 && fallbackReady()) { /* Ersatz sofort, ohne Wartezeit */ } else if (ROUND_WAIT[round]) {
@@ -111,29 +133,35 @@ export async function generate({ system, parts, history = [], json = false, temp
     const order = [...new Set([lastWorking, ...all.filter((m) => !cooling(m)), ...all])].filter((m) => m && all.includes(m));
     if (round === 1 && fallbackReady() && !fallbackTried) {
       fallbackTried = true;
-      try { return await tryFallback(args); } catch (e) { if (!e.pdf) lastErr = e; }
+      const r = await fb(); if (r !== undefined) return r;
     }
     for (const model of order) {
       if (model !== s.model || round > 0) report(`Versuche ${model} …`);
       try {
         const text = await callGemini(args, model);
         lastWorking = model;
-        delete cooldown[model];
+        uncool(model);
         report('');
         return json ? parseJSON(text) : text;
       } catch (e) {
         lastErr = e;
-        if (!(e.retryable || e.status === 429 || e.status === 404)) { report(''); throw e; }
-        cooldown[model] = Date.now();
+        log.set(model, why(e));
+        if (!(e.retryable || e.status === 429 || e.status === 404)) { report(''); throw fail(e); }
+        cool(model, e);
         if (lastWorking === model) lastWorking = null;
       }
     }
   }
   if (fallbackReady() && !fallbackTried) {
-    try { return await tryFallback(args); } catch (e) { if (!e.pdf) lastErr = e; }
+    const r = await fb(); if (r !== undefined) return r;
   }
   report('');
-  throw lastErr;
+  // Alle Modelle am Tageslimit? Dann ist "überlastet" die falsche Meldung.
+  const g = [...log].filter(([m]) => all.includes(m));
+  if (g.length && g.every(([, w]) => w === 'Tageslimit')) {
+    lastErr = new AIError('Das Tageslimit aller kostenlosen Gemini-Modelle ist für heute aufgebraucht. Es setzt sich um 9 Uhr (deutsche Zeit) zurück.' + (fallbackReady() ? '' : ' Bis dahin hilft ein Ersatz-Anbieter (Mehr → KI-Verbindung).'));
+  }
+  throw fail(lastErr);
 }
 
 async function callGemini({ system, parts, history, json, temperature }, model) {
@@ -168,6 +196,7 @@ async function callGemini({ system, parts, history, json, temperature }, model) 
     const err = new AIError(friendly(res.status, txt));
     err.retryable = res.status >= 500;
     err.status = res.status;
+    err.daily = res.status === 429 && /PerDay/i.test(txt);
     throw err;
   }
   const data = await res.json();
@@ -178,9 +207,36 @@ async function callGemini({ system, parts, history, json, temperature }, model) 
   return text;
 }
 
-async function callOpenAI({ system, parts, history, json, temperature }, cfg = null) {
+// Kürzt den längsten Textteil (meist das Unterrichtsmaterial), bis alles unter maxChars passt.
+function shrinkParts(parts, system, maxChars) {
+  const len = (system || '').length + parts.reduce((n, p) => n + (p.text?.length || 0), 0);
+  if (len <= maxChars) return parts;
+  const out = parts.map((p) => ({ ...p }));
+  const big = out.filter((p) => p.text).sort((a, b) => b.text.length - a.text.length)[0];
+  if (!big) return parts;
+  const keep = Math.max(2000, big.text.length - (len - maxChars));
+  big.text = big.text.slice(0, keep) + '\n[… Material gekürzt, weil der Anbieter nur kurze Anfragen erlaubt]';
+  return out;
+}
+
+// Groq erlaubt kostenlos nur wenige Tausend Tokens pro Minute (Antwort eingerechnet).
+const GROQ_MAX_CHARS = 16000;
+
+async function callOpenAI(args, cfg = null) {
   const s = state.settings;
   cfg ||= { baseUrl: s.baseUrl, key: s.oaKey, model: s.oaModel };
+  if (!cfg.maxChars && /groq\.com/.test(cfg.baseUrl)) cfg = { ...cfg, maxChars: GROQ_MAX_CHARS };
+  try {
+    return await callOpenAIOnce(args, cfg);
+  } catch (e) {
+    // Zu groß? Einmal deutlich gekürzt nochmal versuchen.
+    if (e.status === 413 || (e.status === 429 && e.tooBig)) return callOpenAIOnce(args, { ...cfg, maxChars: Math.min(cfg.maxChars || 40000, 10000) });
+    throw e;
+  }
+}
+
+async function callOpenAIOnce({ system, parts, history, json, temperature }, cfg) {
+  if (cfg.maxChars) parts = shrinkParts(parts, system, cfg.maxChars);
   const content = parts.map((p) => {
     if (!p.file) return { type: 'text', text: p.text };
     if (p.file.mime.startsWith('image/')) return { type: 'image_url', image_url: { url: `data:${p.file.mime};base64,${p.file.data}` } };
@@ -217,6 +273,7 @@ async function callOpenAI({ system, parts, history, json, temperature }, cfg = n
     const err = new AIError(friendly(res.status, txt));
     err.retryable = res.status >= 500;
     err.status = res.status;
+    err.tooBig = /too large|tokens per minute|TPM|context.length/i.test(txt);
     throw err;
   }
   const data = await res.json();
