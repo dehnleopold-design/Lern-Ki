@@ -1,5 +1,5 @@
 // Offline-Cache für die App-Dateien. KI-Anfragen gehen immer ins Netz.
-const CACHE = 'lernki-v23';
+const CACHE = 'lernki-v24';
 const SHELL = ['./', 'index.html', 'styles.css', 'manifest.webmanifest', 'assets/icon.svg', 'assets/fonts.css',
   'js/app.js', 'js/ai.js', 'js/store.js', 'js/files.js', 'js/prompts.js', 'js/ui.js', 'js/grades.js', 'js/pdf.js', 'js/auth.js', 'js/firebase-config.js', 'js/sync.js'];
 

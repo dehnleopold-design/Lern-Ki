@@ -303,3 +303,37 @@ export function relDay(s) {
   if (diff > 1) return `In ${diff} Tagen`;
   return `Vor ${-diff} Tagen`;
 }
+
+// ---------- Übergang: Schwarm kleiner Quallen (wenn etwas fertig geladen ist) ----------
+const JELLY_COLORS = ['#b79cff', '#9b6bff', '#d9c4ff', '#8b5cf6', '#c4a7ff', '#a78bfa'];
+const MINI_JELLY = `<svg viewBox="0 0 40 52" width="100%" height="100%" aria-hidden="true">
+  <g fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" opacity=".75">
+    <path d="M12 24 q-3 7 0 13 q3 6 -1 12"/><path d="M20 25 q3 7 0 13 q-3 6 1 12"/><path d="M28 24 q3 7 0 13 q-3 6 1 12"/>
+  </g>
+  <path d="M4 24 C4 11 11 3 20 3 C29 3 36 11 36 24 Q33 28 30 25 Q27 29 24 25 Q20 29 16 25 Q13 29 10 25 Q7 28 4 24 Z" fill="currentColor"/>
+  <ellipse cx="13" cy="11" rx="4.5" ry="2.4" fill="#fff" opacity=".35" transform="rotate(-25 13 11)"/>
+</svg>`;
+
+/**
+ * Spielt den Quallen-Übergang. `swap` wird aufgerufen, wenn der Schwarm den Bildschirm bedeckt –
+ * dann wird darunter die neue Ansicht gezeichnet. Bei "Bewegung reduzieren" sofort ohne Animation.
+ */
+export function jellyTransition(swap) {
+  if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches || document.querySelector('.jelly-swarm')) { swap?.(); return; }
+  const n = window.innerWidth < 600 ? 38 : 64;
+  const swarm = document.createElement('div');
+  swarm.className = 'jelly-swarm';
+  for (let i = 0; i < n; i++) {
+    const j = document.createElement('div');
+    j.className = 'mini-jelly';
+    const size = 26 + Math.random() * 46;
+    j.style.cssText = `left:${Math.random() * 100}%;width:${size}px;height:${size * 1.3}px;color:${JELLY_COLORS[i % JELLY_COLORS.length]};`
+      + `--dx:${(Math.random() - 0.5) * 120}px;--rot:${(Math.random() - 0.5) * 30}deg;`
+      + `animation-duration:${1.6 + Math.random() * 0.8}s;animation-delay:${Math.random() * 0.5}s;`;
+    j.innerHTML = `<div class="mini-jelly-body" style="animation-delay:${Math.random() * 0.4}s">${MINI_JELLY}</div>`;
+    swarm.append(j);
+  }
+  document.body.append(swarm);
+  setTimeout(() => { try { swap?.(); } catch (e) { console.error(e); } }, 900);
+  setTimeout(() => swarm.remove(), 3100);
+}

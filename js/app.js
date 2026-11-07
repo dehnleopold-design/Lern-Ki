@@ -7,10 +7,10 @@ import { addFile, removeFile, filePart, thumbURL, pickFiles } from './files.js';
 import * as P from './prompts.js';
 import { gradeLabel, gradeOptions, percentToGrade, reachesTarget, scale } from './grades.js';
 import { downloadLernzettel, sheetHTML, SHEET_CSS } from './pdf.js';
-import { cleanText } from './ui.js';
+import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.11 (7.11.)';
+const APP_VERSION = '2.12 (7.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -869,7 +869,7 @@ async function processExam(panel) {
     ui.selectedUnit = null;
     const failed = await prepareAll(exam, panel);
     toast(failed ? `Plan fertig. ${failed} Inhalt(e) konnten nicht vorbereitet werden – sie werden beim Öffnen erstellt.` : 'Alles fertig vorbereitet!', failed ? 'info' : 'ok');
-    if (route.name === 'newExam') go('plan');
+    if (route.name === 'newExam') jellyTransition(() => go('plan'));
   } catch (e) {
     panel.fail(step);
     panel.errBox.replaceChildren(h('div', { class: 'card warn' }, h('p', {}, errorMsg(e)),
@@ -1024,7 +1024,7 @@ function viewPrepare({ examId, rebuild }) {
         }
         const failed = await prepareAll(exam, panel);
         toast(failed ? `${failed} Inhalt(e) konnten nicht vorbereitet werden – sie werden beim Öffnen erstellt.` : 'Alles fertig vorbereitet!', failed ? 'info' : 'ok');
-        if (route.name === 'prepare') go('plan');
+        if (route.name === 'prepare') jellyTransition(() => go('plan'));
       } catch (e) {
         panel.errBox.replaceChildren(h('div', { class: 'card warn' }, h('p', {}, errorMsg(e)),
           h('div', { class: 'row gap center' }, h('button', { class: 'btn', onclick: () => render() }, 'Nochmal versuchen'), h('button', { class: 'btn ghost', onclick: () => go('plan') }, 'Zurück'))));
@@ -1090,9 +1090,10 @@ function viewSession({ examId, unitId }) {
       panel.run(1);
       const overlay = h('div', { class: 'overlay center wait-overlay' }, h('div', { class: 'content narrow' }, panel.el));
       add(document.body, overlay);
-      try { await gradeSession(exam, unit, sess); } catch (e) { toast(errorMsg(e), 'error'); }
-      overlay.remove();
-      render();
+      let graded = false;
+      try { await gradeSession(exam, unit, sess); graded = true; } catch (e) { toast(errorMsg(e), 'error'); }
+      const finish = () => { overlay.remove(); render(); };
+      if (graded) jellyTransition(finish); else finish();
     } }, 'Abgeben & korrigieren lassen');
     add(main, submit);
   } else {
@@ -1257,10 +1258,11 @@ function pending(main, key, title, steps, producer) {
   if (ui.busy[key]) return;
   ui.busy[key] = true;
   const here = route; // nur neu zeichnen, wenn man noch auf derselben Seite ist
+  let ok = false;
   producer()
-    .then(() => save())
+    .then(() => { ok = true; save(); })
     .catch((e) => { ui.busy[`err:${key}`] = errorMsg(e); })
-    .finally(() => { delete ui.busy[key]; if (route === here) render(); });
+    .finally(() => { delete ui.busy[key]; if (route === here) (ok ? jellyTransition(() => { if (route === here) render(); }) : render()); });
 }
 
 function ensureSheetCSS() {
@@ -1624,7 +1626,7 @@ async function processSolve(panel) {
     solvedList().unshift(item);
     save();
     nsv = null;
-    go('solved', { id: item.id });
+    jellyTransition(() => go('solved', { id: item.id }));
   } catch (e) {
     panel.fail(0);
     panel.errBox.replaceChildren(h('div', { class: 'card warn' }, h('p', {}, errorMsg(e)),
@@ -1987,7 +1989,7 @@ async function processVocab(panel) {
     panel.mark(start + nv.fileIds.length, 'done');
     toast(`${words.length} Vokabeln erkannt – prüf die Liste kurz auf Lesefehler.`, 'ok');
     nv = null;
-    go('vset', { id: set.id });
+    jellyTransition(() => go('vset', { id: set.id }));
   } catch (e) {
     panel.errBox.replaceChildren(h('div', { class: 'card warn' }, h('p', {}, errorMsg(e)),
       h('div', { class: 'row gap center' }, h('button', { class: 'btn', onclick: () => render() }, 'Nochmal versuchen'), h('button', { class: 'btn ghost', onclick: () => { nv.processing = false; render(); } }, 'Zurück'))));
