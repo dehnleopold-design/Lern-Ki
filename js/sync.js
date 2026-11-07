@@ -8,7 +8,8 @@
 // Prinzip: Der neuere Stand gewinnt. Änderungen werden nach ein paar Sekunden hochgeladen;
 // beim Öffnen und beim Zurückkehren in die App wird geprüft, ob ein anderes Gerät etwas Neueres hat.
 
-import { state, onChange, applyRemoteState, kvGet, kvPut, getBlob, putBlob, blobKeys } from './store.js';
+import { state, save, onChange, applyRemoteState, kvGet, kvPut, getBlob, putBlob, blobKeys } from './store.js';
+import { allUnits } from './gen.js';
 import { firebaseApp } from './auth.js';
 
 const V = '10.12.2';
@@ -22,6 +23,8 @@ let local = { base: 0, dirty: false, dirtyAt: 0 };
 let onApplied = null;
 let onConflict = null;
 let statusListener = null;
+let bgListener = null;
+let bgDocs = [];
 
 export const syncStatus = { state: 'aus', at: 0, error: '' };
 const setStatus = (st, error = '') => { syncStatus.state = st; syncStatus.error = error; if (st === 'ok') syncStatus.at = Date.now(); try { statusListener?.(); } catch {} };
@@ -38,6 +41,8 @@ function deviceId() {
 const metaRef = () => fs.doc(db, 'users', uid, 'state', 'meta');
 const chunkRef = (i) => fs.doc(db, 'users', uid, 'state', `c${i}`);
 const blobRef = (id, i) => fs.doc(db, 'users', uid, 'blobs', `${id}_${i}`);
+const jobRef = (examId) => fs.doc(db, 'users', uid, 'bgjobs', examId);
+const resultsCol = () => fs.collection(db, 'users', uid, 'bgresults');
 
 async function saveLocalMeta() { await kvPut('sync', local); }
 
@@ -51,8 +56,9 @@ function friendly(e) {
   return e?.message || 'Unbekannter Fehler';
 }
 
-export async function startSync(user, { onRemoteApplied, onConflict: conflictFn } = {}) {
+export async function startSync(user, { onRemoteApplied, onConflict: conflictFn, onBackground } = {}) {
   onApplied = onRemoteApplied;
+  bgListener = onBackground;
   onConflict = conflictFn;
   uid = user.uid;
   try {
@@ -72,7 +78,39 @@ export async function startSync(user, { onRemoteApplied, onConflict: conflictFn 
     else if (local.dirty) push().catch(() => {});
   });
   await syncNow(true);
+  // Fertige Inhalte vom Hintergrund-Dienst sofort übernehmen, sobald sie da sind
+  try { fs.onSnapshot(resultsCol(), (snap) => { bgDocs = snap.docs; applyBackground(); }, () => {}); } catch {}
 }
+
+const filled = (x) => !!(x && (x.lernzettel || x.fragen || x.aufgaben));
+
+// Ergebnisse des Hintergrund-Dienstes in den Stand übernehmen. Gelöscht werden sie erst,
+// wenn der Stand mit ihnen hochgeladen ist (sonst könnten sie bei einem Abgleich verloren gehen).
+function applyBackground() {
+  if (!db || !bgDocs.length) return;
+  const added = [];
+  for (const d of bgDocs) {
+    const { examId, data } = d.data() || {};
+    const exam = state.exams.find((x) => x.id === examId);
+    const unit = exam && allUnits(exam).find((u) => u.id === d.id);
+    if (unit && !filled(state.sessions[d.id])) {
+      try { state.sessions[d.id] = JSON.parse(data); added.push(d.id); } catch {}
+    } else if (!local.dirty && !pushing) {
+      fs.deleteDoc(d.ref).catch(() => {});
+    }
+  }
+  if (added.length) { save(); try { bgListener?.(added); } catch {} }
+}
+
+// Auftrag an den Hintergrund-Dienst: fehlende Inhalte dieser Klausur erstellen.
+export async function requestBackground(examId) {
+  if (!db) return false;
+  try {
+    await fs.setDoc(jobRef(examId), { requestedAt: Date.now(), device: deviceId(), attempts: 0 });
+    return true;
+  } catch { return false; }
+}
+export const backgroundAvailable = () => !!db;
 
 function schedulePush() {
   clearTimeout(pushTimer);
@@ -182,6 +220,7 @@ export async function push(force = false, overwrite = false) {
     await saveLocalMeta();
     setStatus('ok');
     if (stillDirty) schedulePush();
+    else setTimeout(applyBackground, 0); // übernommene Hintergrund-Ergebnisse sind jetzt in der Cloud → aufräumen
   } catch (e) {
     setStatus('fehler', friendly(e));
   } finally { pushing = false; }
@@ -190,6 +229,10 @@ export async function push(force = false, overwrite = false) {
 // Alle Daten dieses Kontos aus der Cloud löschen (Recht auf Löschung).
 export async function deleteCloudData() {
   if (!db) throw new Error('Keine Verbindung zum Online-Speicher.');
+  for (const name of ['bgjobs', 'bgresults']) {
+    const all = await fs.getDocs(fs.collection(db, 'users', uid, name));
+    for (const d of all.docs) await fs.deleteDoc(d.ref);
+  }
   const snap = await fs.getDoc(metaRef());
   if (!snap.exists()) return;
   const meta = snap.data();

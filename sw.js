@@ -1,7 +1,7 @@
 // Offline-Cache für die App-Dateien. KI-Anfragen gehen immer ins Netz.
-const CACHE = 'lernki-v25';
+const CACHE = 'lernki-v26';
 const SHELL = ['./', 'index.html', 'styles.css', 'manifest.webmanifest', 'assets/icon.svg', 'assets/fonts.css',
-  'js/app.js', 'js/ai.js', 'js/store.js', 'js/files.js', 'js/prompts.js', 'js/ui.js', 'js/grades.js', 'js/pdf.js', 'js/auth.js', 'js/firebase-config.js', 'js/sync.js'];
+  'js/app.js', 'js/gen.js', 'js/ai.js', 'js/store.js', 'js/files.js', 'js/prompts.js', 'js/ui.js', 'js/grades.js', 'js/pdf.js', 'js/auth.js', 'js/firebase-config.js', 'js/sync.js'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));

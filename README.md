@@ -84,3 +84,20 @@ service cloud.firestore {
 ```
 
 Hinweis: In Home-Bildschirm-Apps auf iPhone/iPad kann das Google-Popup unzuverlässig sein. E-Mail/Passwort funktioniert immer.
+
+## Jelly im Hintergrund (optional, GitHub Actions)
+
+Mit Konto kann Jelly fehlende Lernzettel, Quiz und Aufgaben auch bei **geschlossener App** erstellen. Das läuft kostenlos über GitHub Actions (`.github/workflows/background.yml` → `server/background.mjs`):
+
+1. Nach dem Lernplan (und beim Schließen der App, falls noch etwas fehlt) legt die App einen Auftrag in Firestore an (`users/{uid}/bgjobs`).
+2. Alle 5 Minuten schaut GitHub nach Aufträgen. GitHub verzögert solche Läufe oft um einige Minuten, realistisch sind 5–30 Minuten.
+3. Der Dienst nutzt den KI-Schlüssel aus dem synchronisierten Stand und legt die Ergebnisse getrennt ab (`users/{uid}/bgresults`). Die App übernimmt sie beim nächsten Öffnen.
+
+Der Lernplan selbst (Blätter lesen, Themen aufteilen) entsteht weiter in der App.
+
+Einrichtung:
+1. Firebase → Projekteinstellungen → **Dienstkonten** → „Neuen privaten Schlüssel generieren“ (JSON-Datei).
+2. GitHub-Repo → Settings → Secrets and variables → Actions → **New repository secret**, Name `FIREBASE_SERVICE_ACCOUNT`, Inhalt der JSON-Datei einfügen.
+3. Die Workflow-Datei muss auf dem Standard-Branch (`main`) liegen, sonst startet GitHub den Zeitplan nicht.
+
+Hinweise: Der Dienstschlüssel hat Zugriff auf **alle** Konten im Firebase-Projekt, also niemals weitergeben. Die Protokolle sind bei öffentlichen Repos öffentlich. Der Dienst gibt deshalb keine Inhalte aus. Bei öffentlichen Repos schaltet GitHub Zeitpläne nach 60 Tagen ohne Aktivität im Repo ab. Dann unter Actions wieder aktivieren.

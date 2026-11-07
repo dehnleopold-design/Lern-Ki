@@ -1,16 +1,17 @@
 import { state, loadState, save, replaceState, clearAll, allBlobs, putBlob, uid, useAccount, hasLocalProfile } from './store.js';
-import { startSync, syncNow, syncStatus, onSyncStatus, deleteCloudData } from './sync.js';
+import { startSync, syncNow, syncStatus, onSyncStatus, deleteCloudData, push, requestBackground, backgroundAvailable } from './sync.js';
 import { deleteAccount } from './auth.js';
 import { authEnabled, initAuth, signInGoogle, signInEmail, registerEmail, resetPassword, signOutUser, currentUser, authErrorText } from './auth.js';
 import { generate, aiReady, listGeminiModels, pickDefaultModel, AIError, onAIStatus, FALLBACK_PRESETS, listOpenAIModels, pickFallbackModel } from './ai.js';
 import { addFile, removeFile, filePart, thumbURL, pickFiles } from './files.js';
 import * as P from './prompts.js';
+import { allUnits, hasContent, lernzettelText, missingPhases, genLernzettel, genQuiz, genAufgaben, generateUnit } from './gen.js';
 import { gradeLabel, gradeOptions, percentToGrade, reachesTarget, scale } from './grades.js';
 import { downloadLernzettel, sheetHTML, SHEET_CSS } from './pdf.js';
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.13 (7.11.)';
+const APP_VERSION = '2.14 (7.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -340,10 +341,6 @@ function activeExam() {
     state.activeExamId = e.id;
   }
   return e;
-}
-
-function allUnits(exam) {
-  return (exam.plan?.abschnitte || []).flatMap((s, si) => s.einheiten.map((u) => ({ ...u, _section: si })));
 }
 
 const STEP_NAME = { lernzettel: 'Lernzettel', quiz: 'Quiz', aufgaben: 'Anwendungsaufgaben', gesamtzettel: 'Gesamt-Lernzettel', probeklausur: 'Probeklassenarbeit' };
@@ -813,7 +810,8 @@ function viewNewExam() {
   // 5: Verarbeitung
   if (nx.step === 5) {
     const panel = waitPanel('Ich lese deine Unterlagen und baue deinen Plan …');
-    const screen = h('div', { class: 'screen' }, topbar({ close: cancel }), h('main', { class: 'content narrow' }, panel.el));
+    const screen = h('div', { class: 'screen' }, topbar({ close: cancel }), h('main', { class: 'content narrow' }, panel.el,
+      backgroundAvailable() ? h('p', { class: 'muted small center bg-hint' }, 'Bitte lass die App offen, bis der Lernplan steht. Danach kann Jelly im Hintergrund weitermachen.') : null));
     processExam(panel);
     return screen;
   }
@@ -865,6 +863,7 @@ async function processExam(panel) {
     panel.run(step);
     await createPlan(exam);
     panel.done(step);
+    if (queueBackground(exam)) document.querySelector('.bg-hint')?.replaceWith(bgHint());
     nx = null;
     ui.selectedUnit = null;
     const failed = await prepareAll(exam, panel);
@@ -927,45 +926,6 @@ function rebuildPlan(exam) {
 }
 
 // ---------- Inhalte erzeugen (einzeln beim Öffnen oder alle vorab) ----------
-function hasContent(u) {
-  const x = state.sessions[u.id];
-  return !!(x && (x.lernzettel || x.fragen || x.aufgaben));
-}
-
-async function genLernzettel(exam, unit) {
-  const overall = unit.typ === 'gesamtzettel';
-  const topic = overall ? null : exam.plan?.themen?.[unit.themaIndex];
-  const text = await generate({ system: P.baseSystem(subjectById(exam.subjectId)), parts: [{ text: P.lernzettelPrompt(exam, topic || { titel: unit.titel }, overall) }], temperature: 0.3 });
-  state.sessions[unit.id] = { examId: exam.id, lernzettel: text, createdAt: Date.now() };
-}
-
-async function genQuiz(exam, unit) {
-  const topic = exam.plan?.themen?.[unit.themaIndex] || { titel: unit.titel };
-  const prev = state.sessions[unit.id]?.alteFragen || [];
-  const res = await generate({ system: P.baseSystem(subjectById(exam.subjectId)), parts: [{ text: P.quizPrompt(exam, topic, lernzettelText(exam, unit.themaIndex), prev) }], json: true, temperature: 0.7 });
-  const fragen = (res.fragen || []).filter((q) => q?.frage && ['mc', 'wahrfalsch', 'eingabe'].includes(q.typ)
-    && (q.typ !== 'mc' || (Array.isArray(q.optionen) && q.optionen.length >= 2 && Number.isInteger(q.richtig))));
-  if (!fragen.length) throw new AIError('Keine brauchbaren Quizfragen erhalten. Bitte nochmal versuchen.');
-  state.sessions[unit.id] = { examId: exam.id, fragen, antworten: {}, idx: 0, alteFragen: [...prev, ...fragen.map((q) => q.frage.slice(0, 100))] };
-}
-
-async function genAufgaben(exam, unit) {
-  const prev = Object.values(state.sessions).filter((x) => x.examId === exam.id).flatMap((x) => (x.aufgaben || []).map((a) => a.aufgabe.slice(0, 120)));
-  const topic = exam.plan?.themen?.[unit.themaIndex];
-  const lz = topic ? lernzettelText(exam, unit.themaIndex) : null;
-  const res = await generate({ system: P.baseSystem(subjectById(exam.subjectId)), parts: [{ text: P.sessionPrompt(exam, unit, prev, { topic, lernzettel: lz }) }], json: true, temperature: 0.7 });
-  const aufgaben = (res.aufgaben || []).filter((a) => a?.aufgabe).map((a, i) => ({ ...a, id: a.id || `a${i + 1}`, punkte: Number(a.punkte) || 4 }));
-  if (!aufgaben.length) throw new AIError('Keine Aufgaben erhalten. Bitte nochmal versuchen.');
-  // startedAt erst beim ersten Öffnen setzen (sonst läuft der Probeklausur-Timer schon ab der Erstellung)
-  state.sessions[unit.id] = { examId: exam.id, zeitMinuten: res.zeitMinuten || null, aufgaben, answers: {}, answerImages: {}, grading: null, chats: {}, startedAt: null };
-}
-
-function generateUnit(exam, unit) {
-  if (unit.typ === 'lernzettel' || unit.typ === 'gesamtzettel') return genLernzettel(exam, unit);
-  if (unit.typ === 'quiz') return genQuiz(exam, unit);
-  return genAufgaben(exam, unit);
-}
-
 // Zwei Anfragen gleichzeitig: schneller, aber noch im Rahmen der kostenlosen Limits.
 async function pool(items, limit, fn) {
   const queue = [...items];
@@ -976,10 +936,7 @@ async function pool(items, limit, fn) {
 
 // Erstellt alle noch fehlenden Inhalte: erst Lernzettel (die anderen bauen darauf auf), dann Quiz + Aufgaben, dann Abschluss.
 async function prepareAll(exam, panel) {
-  const todo = allUnits(exam).filter((u) => !hasContent(u) && u.status !== 'skipped');
-  const phase1 = todo.filter((u) => u.typ === 'lernzettel');
-  const phase2 = todo.filter((u) => u.typ === 'quiz' || u.typ === 'aufgaben' || ['verstehen', 'ueben', 'anwenden'].includes(u.typ));
-  const phase3 = todo.filter((u) => u.typ === 'gesamtzettel' || u.typ === 'probeklausur');
+  const [phase1, phase2, phase3] = missingPhases(exam);
   const ordered = [...phase1, ...phase2, ...phase3];
   const label = (u) => ({ lernzettel: 'Lernzettel', quiz: 'Quiz', aufgaben: 'Anwendungsaufgaben', gesamtzettel: 'Gesamt-Lernzettel', probeklausur: 'Probeklassenarbeit' }[u.typ] || 'Einheit')
     + (u.themaIndex !== null && u.themaIndex !== undefined && exam.plan?.themen?.[u.themaIndex] ? `: ${exam.plan.themen[u.themaIndex].titel}` : '');
@@ -1004,12 +961,35 @@ async function prepareAll(exam, panel) {
   return failed;
 }
 
+// ---------- Hintergrund (läuft über GitHub Actions, siehe server/background.mjs) ----------
+function bgHint() {
+  return h('div', { class: 'card bg-hint row gap' }, icon('sparkles', 20),
+    h('p', { class: 'small', style: { margin: 0 } }, 'Du kannst die App jetzt schließen. Jelly macht im Hintergrund weiter. Das dauert dann meist 5 bis 30 Minuten. Beim nächsten Öffnen ist alles da.'));
+}
+
+// Gibt dem Hintergrund-Dienst den Auftrag, Fehlendes zu erstellen (nur mit Konto + Sync).
+function queueBackground(exam) {
+  if (!backgroundAvailable() || !exam?.plan) return false;
+  push(true).catch(() => {}).finally(() => requestBackground(exam.id));
+  return true;
+}
+
+// Beim Verlassen der App: Fehlt noch etwas, übernimmt der Hintergrund-Dienst.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'hidden' || !backgroundAvailable()) return;
+  const today = isoDate(new Date());
+  for (const exam of state.exams) {
+    if (!exam.plan || (exam.date && exam.date < today)) continue;
+    if (missingPhases(exam).flat().length) requestBackground(exam.id);
+  }
+});
+
 function viewPrepare({ examId, rebuild }) {
   const exam = examById(examId);
   if (!exam) { go('plan'); return h('div'); }
   const panel = waitPanel(rebuild ? 'Ich erstelle deinen Plan neu und bereite alles vor …' : 'Ich bereite alle fehlenden Inhalte vor …');
   const screen = h('div', { class: 'screen' }, topbar({ close: () => go('plan') }),
-    h('main', { class: 'content narrow' }, panel.el, h('p', { class: 'muted small center' }, 'Du kannst das auch abbrechen – Fehlendes wird dann beim Öffnen erstellt.')));
+    h('main', { class: 'content narrow' }, panel.el, backgroundAvailable() ? bgHint() : h('p', { class: 'muted small center' }, 'Du kannst das auch abbrechen – Fehlendes wird dann beim Öffnen erstellt.')));
   const key = `prep:${examId}`;
   if (!ui.busy[key]) {
     ui.busy[key] = true;
@@ -1020,6 +1000,7 @@ function viewPrepare({ examId, rebuild }) {
           panel.mark(k, 'run');
           await createPlan(exam);
           panel.mark(k, 'done');
+          queueBackground(exam);
           ui.selectedUnit = null;
         }
         const failed = await prepareAll(exam, panel);
@@ -1237,12 +1218,6 @@ function markDone(exam, unitId, sess, keepOpen = false) {
 }
 
 // ================================================================ LERNZETTEL & QUIZ
-function lernzettelText(exam, themaIndex) {
-  const sec = (exam.plan?.abschnitte || []).find((x) => x.themaIndex === themaIndex && !x.abschluss);
-  const u = sec?.einheiten.find((x) => x.typ === 'lernzettel');
-  return u ? state.sessions[u.id]?.lernzettel || null : null;
-}
-
 // Startet eine KI-Erzeugung einmal, zeigt solange den Warte-Bildschirm und bei Fehlern "Nochmal".
 function pending(main, key, title, steps, producer) {
   const err = ui.busy[key] ? null : ui.busy[`err:${key}`];
@@ -2326,6 +2301,7 @@ function privacySheet() {
 ## Wohin wird etwas geschickt?
 - **Google Gemini:** Material, Fotos, Fragen und Antworten, wenn Jelly etwas erstellt oder korrigiert. Laut Googles Bedingungen werden Eingaben von Nutzern in der EU **nicht zur Produktverbesserung** genutzt, auch in der kostenlosen Stufe.
 - **Ersatz-Anbieter** (Groq, Mistral oder OpenRouter) – nur wenn du ihn einrichtest und Google überlastet ist. Es gelten dessen Bedingungen; Groq und OpenRouter sitzen in den USA.
+- **Jelly im Hintergrund** (nur mit Konto): Damit Lernzettel & Co. auch bei geschlossener App fertig werden, liest ein kleiner Dienst auf **GitHub** (Microsoft, Server in den USA) deinen Stand aus Firestore, schickt die Anfragen mit deinem Schlüssel an Gemini und legt die Ergebnisse wieder in Firestore ab. Gespeichert wird bei GitHub nichts, die öffentlichen Protokolle enthalten keine Inhalte.
 - **YouTube** – nur wenn du das Warte-Video abspielst.
 - **GitHub Pages** liefert die App aus; dabei sieht GitHub (USA) wie bei jeder Website deine IP-Adresse.
 - Schriften und PDF-Bibliothek liegen in der App selbst – dafür wird kein fremder Server kontaktiert.
@@ -2458,6 +2434,12 @@ async function handleUser(user) {
     route = state.profile ? (['onboarding', 'login'].includes(keep.name) ? { name: 'plan', params: {} } : keep) : { name: 'onboarding', params: {} };
     render();
     toast('Neuer Stand von deinem anderen Gerät geladen.', 'ok');
+  }, onBackground: (ids) => {
+    if (!booted) return;
+    const here = route;
+    if (route.name === 'session' && ids.includes(route.params.unitId)) jellyTransition(() => { if (route === here) render(); });
+    else if (['plan', 'pick'].includes(route.name)) render();
+    toast(ids.length === 1 ? 'Jelly hat im Hintergrund einen Inhalt fertig gemacht.' : `Jelly hat im Hintergrund ${ids.length} Inhalte fertig gemacht.`, 'ok');
   } });
   const started = Date.now();
   await Promise.race([synced, new Promise((r) => { const t = setInterval(() => { if (!ui.conflictOpen && Date.now() - started > 10000) { clearInterval(t); r(); } }, 300); })]);

@@ -1,0 +1,8 @@
+{
+  "name": "lern-ki",
+  "private": true,
+  "type": "module",
+  "description": "Nur für den Hintergrund-Dienst (GitHub Actions). Die App selbst braucht keine Pakete.",
+  "scripts": { "background": "node server/background.mjs" },
+  "dependencies": { "firebase-admin": "^12.7.0" }
+}

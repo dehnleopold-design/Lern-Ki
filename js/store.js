@@ -153,8 +153,13 @@ function flush() {
   saveTimer = null;
   tx('kv', 'readwrite', (s) => s.put(JSON.parse(JSON.stringify(state)), 'state')).catch(() => {});
 }
-addEventListener('pagehide', flush);
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flush(); });
+if (typeof document !== 'undefined') { // im Hintergrund-Dienst (Node) gibt es kein Fenster
+  addEventListener('pagehide', flush);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flush(); });
+}
+
+// Nur für den Hintergrund-Dienst: Stand setzen, ohne zu speichern.
+export function setState(next) { state = Object.assign(defaultState(), next); }
 
 export function replaceState(next) {
   state = Object.assign(defaultState(), next);
