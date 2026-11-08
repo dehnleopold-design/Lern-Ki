@@ -260,7 +260,8 @@ Es prüft, ob die SCHWERPUNKTE DER LEHRKRAFT sitzen: zentrale Begriffe und was s
 - Höchstens 2 Fragen zu einer einzelnen Zahl, einem Datum oder Detail, und nur wenn die Lehrkraft genau das erkennbar betont.
 - Richte die Auswahl nach den Schwerpunkten und Aufgaben auf den Arbeitsblättern. Nutze die Begriffe so, wie sie auf den Blättern stehen. Etwa 2 Fragen beziehen sich ausdrücklich auf ein Arbeitsblatt. Fakten aus dem Buch sind erlaubt, wenn sie zu diesen Schwerpunkten gehören.
 - ${taskLang(subjectOf(exam))}
-Mische die Fragetypen: ca. 4× "mc" (4 Optionen, plausible Falschantworten), 2× "wahrfalsch", 2× "eingabe" (Antwort ist ein Begriff oder kurzer Ausdruck).
+Mische die Fragetypen: ca. 4× "mc" (4 Optionen, plausible Falschantworten), 2× "wahrfalsch" (eine wahre, eine falsche Aussage), 2× "eingabe" (Antwort ist ein Begriff oder kurzer Ausdruck).
+In Erklärungen nie auf Buchstaben oder Positionen verweisen ("Antwort B"), sondern die Antwort selbst nennen – die App mischt die Reihenfolge.
 ${previous?.length ? `Diese Fragen gab es schon – stelle andere:\n${previous.slice(-20).map((q) => `- ${q}`).join('\n')}` : ''}
 
 Gib NUR JSON zurück:

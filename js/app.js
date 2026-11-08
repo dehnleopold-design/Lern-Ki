@@ -5,7 +5,7 @@ import { authEnabled, initAuth, signInGoogle, signInEmail, registerEmail, resetP
 import { generate, aiReady, listGeminiModels, pickDefaultModel, AIError, onAIStatus, FALLBACK_PRESETS, listOpenAIModels, pickFallbackModel, fallbackReady } from './ai.js';
 import { addFile, removeFile, filePart, thumbURL, pickFiles } from './files.js';
 import * as P from './prompts.js';
-import { allUnits, hasContent, lernzettelText, missingPhases, genLernzettel, genQuiz, genAufgaben, generateUnit, setPartLoader, digestFile, groupOf, isGroupLead, resetGroup, buildTeacherProfile, examFileIds, examNeedsProfile, createPlan, buildVocabPlan, buildVocabSet, buildVocabTestProfile, solveSheet, pendingJobs } from './gen.js';
+import { allUnits, hasContent, lernzettelText, missingPhases, genLernzettel, genQuiz, genAufgaben, generateUnit, mixOptions, setPartLoader, digestFile, groupOf, isGroupLead, resetGroup, buildTeacherProfile, examFileIds, examNeedsProfile, createPlan, buildVocabPlan, buildVocabSet, buildVocabTestProfile, solveSheet, pendingJobs } from './gen.js';
 import { gradeLabel, gradeOptions, percentToGrade, reachesTarget, scale } from './grades.js';
 import { downloadLernzettel, sheetHTML, SHEET_CSS } from './pdf.js';
 import { openFile, fileKindLabel } from './viewer.js';
@@ -14,7 +14,7 @@ setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.22 (8.11.)';
+const APP_VERSION = '2.23 (8.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -1312,6 +1312,8 @@ const correctText = (q) => q.typ === 'mc' ? q.optionen[q.richtig] : q.typ === 'w
 // opts: { strict, verdict(pct) → Text, actions(pct, right, total) → Elemente unter dem Ergebnis }
 function runQuiz(main, sess, opts = {}) {
   const qs = sess.fragen;
+  // Schon erstellte Quizze: noch nicht beantwortete Fragen nachträglich mischen
+  if (qs.reduce((n, q, i) => n + (!sess.antworten?.[i] && mixOptions(q) ? 1 : 0), 0)) save();
   const total = qs.length;
   if (sess.idx >= total) {
     const right = qs.filter((_, i) => sess.antworten[i]?.correct).length;
@@ -2054,6 +2056,7 @@ function viewVocabQuiz({ id, mode }) {
       const fragen = (res.fragen || []).filter((q) => q?.frage && ['mc', 'wahrfalsch', 'eingabe'].includes(q.typ) && (q.typ !== 'mc' || (Array.isArray(q.optionen) && Number.isInteger(q.richtig))))
         .map((q) => (q.typ === 'eingabe' ? { ...q, antworten: [...new Set((q.antworten || []).flatMap(variants))] } : q));
       if (!fragen.length) throw new AIError('Keine brauchbaren Testaufgaben erhalten. Bitte nochmal versuchen.');
+      fragen.forEach(mixOptions);
       // Zuordnung zu Vokabeln (für die Lernkartei), soweit erkennbar
       for (const q of fragen) {
         const hay = normAnswer(`${q.frage} ${(q.antworten || []).join(' ')} ${(q.optionen || [])[q.richtig] || ''}`);

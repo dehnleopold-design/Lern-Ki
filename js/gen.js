@@ -46,6 +46,18 @@ export async function genLernzettel(exam, unit) {
   state.sessions[unit.id] = { examId: exam.id, lernzettel: text, createdAt: Date.now() };
 }
 
+// KI-Modelle setzen die richtige Antwort auffällig oft an dieselbe Stelle (häufig B).
+// Deshalb werden die Antwortmöglichkeiten immer zufällig gemischt. Gibt true zurück, wenn etwas gemischt wurde.
+export function mixOptions(q) {
+  if (q?.typ !== 'mc' || q.mix || !Array.isArray(q.optionen) || !Number.isInteger(q.richtig)) return false;
+  const order = q.optionen.map((_, i) => i);
+  for (let i = order.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
+  q.optionen = order.map((i) => q.optionen[i]);
+  q.richtig = order.indexOf(q.richtig);
+  q.mix = true;
+  return true;
+}
+
 export async function genQuiz(exam, unit) {
   const topic = exam.plan?.themen?.[unit.themaIndex] || { titel: unit.titel };
   const prev = state.sessions[unit.id]?.alteFragen || [];
@@ -53,6 +65,7 @@ export async function genQuiz(exam, unit) {
   const fragen = (res.fragen || []).filter((q) => q?.frage && ['mc', 'wahrfalsch', 'eingabe'].includes(q.typ)
     && (q.typ !== 'mc' || (Array.isArray(q.optionen) && q.optionen.length >= 2 && Number.isInteger(q.richtig))));
   if (!fragen.length) throw new AIError('Keine brauchbaren Quizfragen erhalten. Bitte nochmal versuchen.');
+  fragen.forEach(mixOptions);
   state.sessions[unit.id] = { examId: exam.id, fragen, antworten: {}, idx: 0, alteFragen: [...prev, ...fragen.map((q) => q.frage.slice(0, 100))] };
 }
 
