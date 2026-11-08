@@ -553,3 +553,4 @@ button.menu-text.file-open { display: flex; flex-direction: column; }
 .exam-row.past { opacity: .6; }
 .slot-row input { flex: 1; min-width: 0; }
 .grow { flex: 1; min-width: 0; }
+.plan-seg { margin-bottom: 14px; width: 100%; }

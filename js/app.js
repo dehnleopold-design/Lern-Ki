@@ -14,7 +14,7 @@ setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.25 (8.11.)';
+const APP_VERSION = '2.26 (8.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -68,7 +68,7 @@ function tabbar(active) {
       if (route.name === 'solve') render();
     });
   } }, icon('camera', 24));
-  return h('nav', { class: 'tabbar' }, tab('plan', 'route', 'Plan'), tab('subjects', 'library', 'Fächer'), cam, tab('vocab', 'languages', 'Vokabeln'), tab('week', 'calendar', 'Woche'), tab('settings', 'gear', 'Mehr'));
+  return h('nav', { class: 'tabbar' }, tab('plan', 'route', 'Prüfung'), tab('subjects', 'library', 'Fächer'), cam, tab('vocab', 'languages', 'Vokabeln'), tab('week', 'calendar', 'Pläne'), tab('settings', 'gear', 'Mehr'));
 }
 
 function topbar({ back, close, title, progress }) {
@@ -408,16 +408,36 @@ function progressRing(pct, size = 64) {
      <span>${pct}%</span>` });
 }
 
+// Reiter "Prüfung": Lernplan der aktuellen Klausur oder alle Termine (Klassenarbeits-/Klausurplan)
+function planSeg() {
+  ui.planTab ??= 'lernplan';
+  return h('div', { class: 'seg plan-seg' },
+    h('button', { class: `seg-btn ${ui.planTab === 'lernplan' ? 'active' : ''}`, onclick: () => { ui.planTab = 'lernplan'; render(); } }, 'Lernplan'),
+    h('button', { class: `seg-btn ${ui.planTab === 'termine' ? 'active' : ''}`, onclick: () => { ui.planTab = 'termine'; render(); } }, 'Termine'));
+}
+
+function viewTermine() {
+  const main = h('main', { class: 'content narrow' }, planSeg());
+  const screen = h('div', { class: 'screen with-tabs' },
+    h('header', { class: 'topbar' }, h('span', { class: 'iconbtn-spacer' }), h('div', { class: 'topbar-title' }, 'Prüfungstermine'),
+      h('button', { class: 'iconbtn', 'aria-label': 'Menü', onclick: () => examPlanMenu() }, icon('more'))),
+    main, tabbar('plan'));
+  drawExamPlan(main);
+  return screen;
+}
+
 function viewPlan() {
+  if (ui.planTab === 'termine') return viewTermine();
   const exam = activeExam();
   const screen = h('div', { class: 'screen with-tabs' });
   if (!exam) {
     add(screen,
       h('header', { class: 'topbar' }, h('span', { class: 'iconbtn-spacer' }), h('div', { class: 'topbar-title' }, `Hi ${state.profile.name}!`), h('span', { class: 'iconbtn-spacer' })),
       h('main', { class: 'content narrow center' },
+        planSeg(),
         mascot(140),
         h('h1', { class: 'display' }, 'Welche Klausur steht an?'),
-        (() => { const next = allExamDates().filter((x) => daysUntil(x.date) >= 0 && !x.examId).slice(0, 3); return next.length ? [h('div', { class: 'label' }, 'Aus deinem Klassenarbeitsplan'), h('div', { class: 'menu' }, next.map(examRow))] : null; })(),
+        (() => { const next = allExamDates().filter((x) => daysUntil(x.date) >= 0 && !x.examId).slice(0, 3); return next.length ? [h('div', { class: 'label' }, 'Anstehende Prüfungen'), h('div', { class: 'menu' }, next.map(examRow))] : null; })(),
         h('p', { class: 'muted' }, 'Leg eine Klausur an, lade deine Arbeitsblätter hoch – ich baue dir daraus Lernzettel, Quizze, Aufgaben und eine Probeklassenarbeit.'),
         h('button', { class: 'btn primary', onclick: () => startNewExam() }, 'Klausur anlegen')),
       tabbar('plan'));
@@ -428,6 +448,7 @@ function viewPlan() {
     add(screen,
       h('header', { class: 'topbar' }, h('span', { class: 'iconbtn-spacer' }), h('div', { class: 'topbar-title' }, subjectById(exam.subjectId)?.name || 'Klausur'), h('button', { class: 'iconbtn', 'aria-label': 'Klausuren', onclick: () => examSheet() }, icon('more'))),
       h('main', { class: 'content narrow center' },
+        planSeg(),
         mascot(130),
         h('h1', { class: 'display' }, 'Dein Plan entsteht gerade'),
         h('p', { class: 'muted' }, ui.busy[`prep:${exam.id}`] ? 'Jelly liest deine Unterlagen …' : backgroundAvailable() ? 'Jelly arbeitet im Hintergrund daran, sobald die App geschlossen ist.' : 'Tippe auf „Weitermachen“, damit Jelly den Plan fertig baut.'),
@@ -496,7 +517,7 @@ function viewPlan() {
   const legacy = !hasTopics && units.length ? h('div', { class: 'menu' }, units.map((u) => menuRow(UNIT_ICON[u.typ] || 'pencil', u.titel, stepInfo(u), () => open(u)))) : null;
 
   add(screen, header,
-    h('main', { class: 'content narrow' }, hero,
+    h('main', { class: 'content narrow' }, planSeg(), hero,
       units.length ? [tiles, legacy] : h('div', { class: 'card' }, h('p', {}, 'Für diese Klausur gibt es noch keinen Plan.'), h('button', { class: 'btn primary', onclick: () => rebuildPlan(exam) }, 'Plan erstellen'))),
     tabbar('plan'));
   return screen;
@@ -890,6 +911,7 @@ function startExamBuild() {
   state.activeExamId = exam.id;
   const item = nx.planItem && xp().items.find((it) => it.id === nx.planItem);
   if (item) item.examId = exam.id; // Eintrag im Klassenarbeitsplan ↔ Lernplan
+  ui.planTab = 'lernplan';
   save();
   nx = null;
   ui.selectedUnit = null;
@@ -2207,17 +2229,12 @@ function allExamDates() {
 }
 
 function viewWeek() {
-  ui.weekTab ??= 'plan';
   const t = tt();
   const screen = h('div', { class: 'screen with-tabs' },
-    h('header', { class: 'topbar' }, h('span', { class: 'iconbtn-spacer' }), h('div', { class: 'topbar-title' }, 'Woche'),
-      h('button', { class: 'iconbtn', 'aria-label': 'Menü', onclick: () => (ui.weekTab === 'plan' ? timetableMenu() : examPlanMenu()) }, icon('more'))));
-  const main = h('main', { class: 'content narrow' },
-    h('div', { class: 'seg' },
-      h('button', { class: `seg-btn ${ui.weekTab === 'plan' ? 'active' : ''}`, onclick: () => { ui.weekTab = 'plan'; render(); } }, 'Stundenplan'),
-      h('button', { class: `seg-btn ${ui.weekTab === 'arbeiten' ? 'active' : ''}`, onclick: () => { ui.weekTab = 'arbeiten'; render(); } }, 'Arbeiten')));
+    h('header', { class: 'topbar' }, h('span', { class: 'iconbtn-spacer' }), h('div', { class: 'topbar-title' }, 'Stundenplan'),
+      h('button', { class: 'iconbtn', 'aria-label': 'Menü', onclick: () => timetableMenu() }, icon('more'))));
+  const main = h('main', { class: 'content narrow' });
   add(screen, main, tabbar('week'));
-  if (ui.weekTab === 'arbeiten') { drawExamPlan(main); return screen; }
 
   if (!t.lessons.length) {
     add(main, h('div', { class: 'center stack' }, mascot(110),
@@ -2254,7 +2271,7 @@ function viewWeek() {
     h('button', { class: 'btn block', onclick: () => editLesson(null, day) }, icon('plus', 18), 'Stunde eintragen'));
   // Nächste Arbeiten als Hinweis
   const next = allExamDates().filter((x) => daysUntil(x.date) >= 0).slice(0, 2);
-  if (next.length) add(main, h('div', { class: 'label' }, 'Nächste Arbeiten'), h('div', { class: 'menu' }, next.map((x) => examRow(x))));
+  if (next.length) add(main, h('div', { class: 'label' }, 'Nächste Prüfungen'), h('div', { class: 'menu' }, next.map((x) => examRow(x))));
   return screen;
 }
 
@@ -2397,7 +2414,7 @@ function drawExamPlan(main) {
 function examPlanMenu() {
   const p = xp();
   const files = p.fileIds.filter((id) => state.files[id] && isGroupLead(id));
-  const o = sheet('Klassenarbeiten', [h('div', { class: 'menu' },
+  const o = sheet('Prüfungstermine', [h('div', { class: 'menu' },
     menuRow('upload', 'Plan hochladen', 'Termine werden ergänzt, nichts wird gelöscht', () => { o.remove(); uploadPlan('xp'); }),
     ...files.map((id, i) => menuRow('image', files.length > 1 ? `Hochgeladenen Plan ${i + 1} ansehen` : 'Hochgeladenen Plan ansehen', state.files[id].name, () => { o.remove(); openFile(id); })),
     menuRow('plus', 'Arbeit eintragen', null, () => { o.remove(); editExamItem(null); }))]);
@@ -2408,7 +2425,7 @@ function editExamItem(x) {
   if (x?.src === 'exam') { // Klausur aus dem Lernplan, noch kein Eintrag im Arbeitsplan
     const e = examById(x.examId);
     const o = sheet(`${itemName(x)} · ${fmtDate(x.date)}`, [h('div', { class: 'menu' },
-      menuRow('route', 'Zum Lernplan', untilLabel(x.date), () => { o.remove(); state.activeExamId = e.id; save(); go('plan'); }))]);
+      menuRow('route', 'Zum Lernplan', untilLabel(x.date), () => { o.remove(); state.activeExamId = e.id; ui.planTab = 'lernplan'; save(); go('plan'); }))]);
     return;
   }
   const isNew = !x;
@@ -2440,7 +2457,7 @@ function editExamItem(x) {
     h('div', { class: 'label' }, 'Thema (optional)'), thema,
     h('div', { class: 'row gap' }, h('div', { class: 'grow' }, h('div', { class: 'label' }, 'Stunde'), stunde), h('div', { class: 'grow' }, h('div', { class: 'label' }, 'Raum'), raum)), datalist('dl-rooms2', knownRooms()),
     exam
-      ? h('button', { class: 'btn primary block', onclick: () => { if (!store()) return; o.remove(); state.activeExamId = exam.id; save(); go('plan'); } }, icon('route', 18), 'Zum Lernplan')
+      ? h('button', { class: 'btn primary block', onclick: () => { if (!store()) return; o.remove(); state.activeExamId = exam.id; ui.planTab = 'lernplan'; save(); go('plan'); } }, icon('route', 18), 'Zum Lernplan')
       : h('button', { class: 'btn primary block', onclick: () => {
         if (!store()) return;
         if (!cur.subjectId) return toast('Für einen Lernplan muss das Fach angelegt sein (Fächer → +).');
@@ -2507,10 +2524,10 @@ async function importPlan(kind, ids) {
 
 function viewWeekImport({ kind, ids }) {
   const main = h('main', { class: 'content narrow' });
-  const back = () => { ui.weekTab = kind === 'tt' ? 'plan' : 'arbeiten'; go('week'); };
+  const back = () => { if (kind === 'tt') go('week'); else { ui.planTab = 'termine'; go('plan'); } };
   pending(main, `wimport:${kind}:${(ids || []).join(',')}`, kind === 'tt' ? 'Ich lese deinen Stundenplan …' : 'Ich lese deinen Klassenarbeitsplan …',
     ['Plan lesen', 'Eintragen'], async () => { await importPlan(kind, ids || []); setTimeout(back, 0); });
-  return h('div', { class: 'screen' }, topbar({ back, title: kind === 'tt' ? 'Stundenplan' : 'Klassenarbeiten' }), main);
+  return h('div', { class: 'screen' }, topbar({ back, title: kind === 'tt' ? 'Stundenplan' : 'Prüfungstermine' }), main);
 }
 
 // ================================================================ TUTOR-CHAT
