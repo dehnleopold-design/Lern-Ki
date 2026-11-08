@@ -14,7 +14,7 @@ setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.28 (8.11.)';
+const APP_VERSION = '2.29 (8.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -2237,8 +2237,12 @@ const blockMode = () => tt().blocks !== false;
 function ttRows() {
   const s = tt().slots;
   if (!blockMode()) return s.map((a) => ({ a, b: null, slots: [a.n] }));
+  // Eine Stunde mit single: true bleibt einzeln (z. B. die 7. Stunde), sonst wird sie mit der nächsten zusammengefasst
   const rows = [];
-  for (let i = 0; i < s.length; i += 2) rows.push({ a: s[i], b: s[i + 1] || null, slots: s[i + 1] ? [s[i].n, s[i + 1].n] : [s[i].n] });
+  for (let i = 0; i < s.length;) {
+    if (!s[i].single && s[i + 1]) { rows.push({ a: s[i], b: s[i + 1], slots: [s[i].n, s[i + 1].n] }); i += 2; }
+    else { rows.push({ a: s[i], b: null, slots: [s[i].n] }); i += 1; }
+  }
   return rows;
 }
 
@@ -2325,6 +2329,8 @@ function editSlot(row) {
   const o = sheet(row.b ? `${row.a.n}.–${row.b.n}. Stunde` : `${row.a.n}. Stunde`, [
     h('div', { class: 'row gap' }, h('div', { class: 'grow' }, h('div', { class: 'label' }, 'Beginn'), von), h('div', { class: 'grow' }, h('div', { class: 'label' }, 'Ende'), bis)),
     h('button', { class: 'btn primary block', onclick: () => { row.a.von = von.value; last.bis = bis.value; save(); o.remove(); render(); } }, 'Speichern'),
+    blockMode() && row.b ? h('button', { class: 'btn block', onclick: () => { row.a.single = true; save(); o.remove(); render(); } }, `Als Einzelstunde (nur ${row.a.n}. Stunde)`) : null,
+    blockMode() && !row.b && tt().slots.some((x) => x.n === row.a.n + 1) ? h('button', { class: 'btn block', onclick: () => { delete row.a.single; save(); o.remove(); render(); } }, `Mit der ${row.a.n + 1}. Stunde zur Doppelstunde verbinden`) : null,
   ]);
 }
 
