@@ -14,7 +14,7 @@ setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.27 (8.11.)';
+const APP_VERSION = '2.28 (8.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -53,7 +53,7 @@ function go(name, params = {}) {
 function render() {
   app.replaceChildren();
   if (!state.profile && !['onboarding', 'login'].includes(route.name)) route = { name: 'onboarding', params: {} };
-  const views = { login: viewLogin, onboarding: viewOnboarding, prepare: viewPrepare, plan: viewPlan, pick: viewPick, vocab: viewVocab, solve: viewSolveNew, solved: viewSolved, vnew: viewVocabNew, vset: viewVocabSet, vwords: viewVocabWords, vplan: viewVocabPlan, vquiz: viewVocabQuiz, vtests: viewVocabTests, files: viewFiles, week: viewWeek, wimport: viewWeekImport, newExam: viewNewExam, session: viewSession, subjects: viewSubjects, subject: viewSubject, tutor: viewTutor, settings: viewSettings };
+  const views = { login: viewLogin, onboarding: viewOnboarding, prepare: viewPrepare, plan: viewPlan, pick: viewPick, vocab: viewVocab, solve: viewSolveNew, solved: viewSolved, vnew: viewVocabNew, vset: viewVocabSet, vwords: viewVocabWords, vplan: viewVocabPlan, vquiz: viewVocabQuiz, vtests: viewVocabTests, files: viewFiles, week: viewWeek, wimport: viewWeekImport, calendar: viewCalendar, newExam: viewNewExam, session: viewSession, subjects: viewSubjects, subject: viewSubject, tutor: viewTutor, settings: viewSettings };
   const v = (views[route.name] || viewPlan)(route.params);
   add(app, v);
 }
@@ -419,7 +419,7 @@ function planSeg() {
 function viewTermine() {
   const main = h('main', { class: 'content narrow' }, planSeg());
   const screen = h('div', { class: 'screen with-tabs' },
-    h('header', { class: 'topbar' }, h('span', { class: 'iconbtn-spacer' }), h('div', { class: 'topbar-title' }, 'Prüfungstermine'),
+    h('header', { class: 'topbar' }, h('button', { class: 'iconbtn', 'aria-label': 'Kalender', onclick: () => openCalendar('plan') }, icon('calendar', 20)), h('div', { class: 'topbar-title' }, 'Prüfungstermine'),
       h('button', { class: 'iconbtn', 'aria-label': 'Menü', onclick: () => examPlanMenu() }, icon('more'))),
     main, tabbar('plan'));
   drawExamPlan(main);
@@ -2232,6 +2232,16 @@ const TILE_COLORS = ['#8b5cf6', '#a78bfa', '#f0abfc', '#f472b6', '#f87171', '#fd
 const lessonColor = (l) => l.color || subjectById(l.subjectId)?.color || '#8b5cf6';
 const lessonShort = (l) => l.label || subjectById(l.subjectId)?.short || (l.fach || 'Fach').slice(0, 5);
 
+// Doppelstunden-Modus: eine Kachel = zwei Stunden (1–2, 3–4 …). Gespeichert wird weiterhin je Stunde.
+const blockMode = () => tt().blocks !== false;
+function ttRows() {
+  const s = tt().slots;
+  if (!blockMode()) return s.map((a) => ({ a, b: null, slots: [a.n] }));
+  const rows = [];
+  for (let i = 0; i < s.length; i += 2) rows.push({ a: s[i], b: s[i + 1] || null, slots: s[i + 1] ? [s[i].n, s[i + 1].n] : [s[i].n] });
+  return rows;
+}
+
 function viewWeek() {
   const t = tt();
   const today = new Date();
@@ -2241,21 +2251,23 @@ function viewWeek() {
   const now = `${String(today.getHours()).padStart(2, '0')}:${String(today.getMinutes()).padStart(2, '0')}`;
   const isThisWeek = !t.ab || showWeek === nowWeek;
 
-  const grid = h('div', { class: 'tt-grid' },
+  const grid = h('div', { class: `tt-grid ${blockMode() ? 'blocks' : ''}` },
     h('div', { class: 'tt-corner' }),
     DAYS.map((d, i) => h('div', { class: `tt-day ${i === todayIdx && isThisWeek ? 'today' : ''}` }, d)));
-  for (const sl of t.slots) {
-    add(grid, h('button', { class: 'tt-time', 'aria-label': `Zeiten der ${sl.n}. Stunde`, onclick: () => editSlot(sl) },
-      h('strong', {}, sl.n), h('span', {}, sl.von || '–'), h('span', { class: 'tt-bis' }, sl.bis || '')));
+  for (const row of ttRows()) {
+    const von = row.a.von, bis = (row.b || row.a).bis;
+    add(grid, h('button', { class: 'tt-time', 'aria-label': `Zeiten der ${row.slots.join('.–')}. Stunde`, onclick: () => editSlot(row) },
+      h('strong', {}, row.slots.join('–')), h('span', {}, von || '–'), h('span', { class: 'tt-bis' }, bis || '')));
     for (let d = 1; d <= 5; d++) {
-      const here = lessonsOn(d, showWeek).filter((l) => l.slot === sl.n);
-      if (!here.length) { add(grid, h('button', { class: 'tt-cell empty', 'aria-label': `${DAY_NAMES[d - 1]}, ${sl.n}. Stunde eintragen`, onclick: () => editLesson(null, d, sl.n) }, icon('plus', 16))); continue; }
+      const all = lessonsOn(d, showWeek).filter((l) => row.slots.includes(l.slot));
+      const here = all.filter((l) => l.slot === row.slots[0]).length ? all.filter((l) => l.slot === row.slots[0]) : all;
+      if (!here.length) { add(grid, h('button', { class: 'tt-cell empty', 'aria-label': `${DAY_NAMES[d - 1]}, ${row.slots.join('.–')}. Stunde eintragen`, onclick: () => editLesson(null, d, row.slots[0]) }, icon('plus', 16))); continue; }
       if (here.length > 1) { // mehrere Kurse zur Wahl (aus einem hochgeladenen Plan)
         add(grid, h('button', { class: 'tt-cell choice', onclick: () => chooseCourse(here) }, h('span', { class: 'tt-sub' }, 'Wählen'), h('span', { class: 'tt-meta' }, `${here.length} Kurse`)));
         continue;
       }
       const l = here[0];
-      const live = d - 1 === todayIdx && isThisWeek && sl.von && sl.bis && sl.von <= now && now <= sl.bis;
+      const live = d - 1 === todayIdx && isThisWeek && von && bis && von <= now && now <= bis;
       add(grid, h('button', { class: `tt-cell ${live ? 'live' : ''}`, style: { '--c': lessonColor(l) }, onclick: () => editLesson(l) },
         h('span', { class: 'tt-sub short' }, lessonShort(l)), h('span', { class: 'tt-sub long' }, l.label || lessonName(l)),
         l.teacher ? h('span', { class: 'tt-meta' }, l.teacher) : null,
@@ -2263,22 +2275,26 @@ function viewWeek() {
     }
   }
   const choices = new Set(t.lessons.map((l) => `${l.day}-${l.slot}-${l.week || ''}`).filter((k, i, a) => a.indexOf(k) !== i)).size;
+  const step = blockMode() ? 2 : 1;
   const main = h('main', { class: 'content wide-tt' },
     t.ab ? h('div', { class: 'row gap center' }, ['A', 'B'].map((w) => h('button', { class: `pill ${showWeek === w ? 'active' : ''}`, onclick: () => { ui.weekAB = w; render(); } }, `${w}-Woche${nowWeek === w ? ' (jetzt)' : ''}`))) : null,
     choices ? h('p', { class: 'muted small center' }, `In ${choices} Stunden stehen mehrere Kurse – tippe auf „Wählen“ und such deinen aus.`) : null,
     h('div', { class: 'tt-wrap' }, grid),
     h('div', { class: 'row gap center tt-rows' },
-      h('button', { class: 'btn small ghost', onclick: () => { const last = t.slots.at(-1); t.slots.push({ n: (last?.n || 0) + 1, von: last?.bis || '', bis: '' }); save(); render(); } }, icon('plus', 16), 'Stunde'),
-      t.slots.length > 1 ? h('button', { class: 'btn small ghost', onclick: async () => {
-        const n = t.slots.at(-1).n;
-        if (t.lessons.some((l) => l.slot === n) && !(await confirmDialog(`In der ${n}. Stunde ist etwas eingetragen. Trotzdem entfernen?`, 'Entfernen'))) return;
-        t.lessons = t.lessons.filter((l) => l.slot !== n); t.slots.pop(); save(); render();
-      } }, icon('minus', 16), 'Stunde') : null),
+      h('button', { class: 'btn small ghost', onclick: () => {
+        for (let k = 0; k < step; k++) { const last = t.slots.at(-1); t.slots.push({ n: (last?.n || 0) + 1, von: last?.bis || '', bis: '' }); }
+        save(); render();
+      } }, icon('plus', 16), blockMode() ? 'Doppelstunde' : 'Stunde'),
+      t.slots.length > step ? h('button', { class: 'btn small ghost', onclick: async () => {
+        const gone = t.slots.slice(-step).map((x) => x.n);
+        if (t.lessons.some((l) => gone.includes(l.slot)) && !(await confirmDialog(`In der letzten ${blockMode() ? 'Doppelstunde' : 'Stunde'} ist etwas eingetragen. Trotzdem entfernen?`, 'Entfernen'))) return;
+        t.lessons = t.lessons.filter((l) => !gone.includes(l.slot)); t.slots.splice(-step); save(); render();
+      } }, icon('minus', 16), blockMode() ? 'Doppelstunde' : 'Stunde') : null),
     t.lessons.length ? null : h('button', { class: 'btn block', onclick: () => uploadPlan('tt') }, icon('upload', 18), 'Oder Foto/PDF deines Plans hochladen'));
   const next = allExamDates().filter((x) => daysUntil(x.date) >= 0).slice(0, 2);
   if (next.length) add(main, h('div', { class: 'label' }, 'Nächste Prüfungen'), h('div', { class: 'menu' }, next.map((x) => examRow(x))));
   return h('div', { class: 'screen with-tabs' },
-    h('header', { class: 'topbar' }, h('span', { class: 'iconbtn-spacer' }), h('div', { class: 'topbar-title' }, 'Stundenplan'),
+    h('header', { class: 'topbar' }, h('button', { class: 'iconbtn', 'aria-label': 'Kalender', onclick: () => openCalendar('week') }, icon('calendar', 20)), h('div', { class: 'topbar-title' }, 'Stundenplan'),
       h('button', { class: 'iconbtn', 'aria-label': 'Menü', onclick: () => timetableMenu() }, icon('more'))),
     main, tabbar('week'));
 }
@@ -2287,6 +2303,8 @@ function timetableMenu() {
   const t = tt();
   const file = t.fileIds.find((id) => state.files[id]);
   const o = sheet('Stundenplan', [h('div', { class: 'menu' },
+    menuRow('layers', 'Doppelstunden', blockMode() ? 'An – eine Kachel = zwei Stunden' : 'Aus – jede Stunde einzeln', () => { t.blocks = !blockMode(); save(); o.remove(); render(); }),
+    menuRow('calendar', 'Kalender', 'Prüfungen, Stunden und eigene Termine', () => { o.remove(); openCalendar('week'); }),
     menuRow('upload', file ? 'Neuen Plan hochladen' : 'Plan hochladen (Foto/PDF)', t.lessons.length ? 'Ersetzt die eingetragenen Stunden' : 'Jelly trägt alles ein', () => { o.remove(); uploadPlan('tt'); }),
     file ? menuRow('image', 'Hochgeladenen Plan ansehen', null, () => { o.remove(); openFile(file); }) : null,
     file ? menuRow('refresh', 'Nochmal auslesen', 'Falls etwas falsch erkannt wurde', () => { o.remove(); go('wimport', { kind: 'tt', ids: t.fileIds.filter((id) => state.files[id]) }); }) : null,
@@ -2299,13 +2317,14 @@ function timetableMenu() {
     }, 'danger') : null)]);
 }
 
-// Beginn und Ende einer Stunde
-function editSlot(sl) {
-  const von = h('input', { class: 'input', type: 'time', value: sl.von || '' });
-  const bis = h('input', { class: 'input', type: 'time', value: sl.bis || '' });
-  const o = sheet(`${sl.n}. Stunde`, [
+// Beginn und Ende einer (Doppel-)Stunde
+function editSlot(row) {
+  const last = row.b || row.a;
+  const von = h('input', { class: 'input', type: 'time', value: row.a.von || '' });
+  const bis = h('input', { class: 'input', type: 'time', value: last.bis || '' });
+  const o = sheet(row.b ? `${row.a.n}.–${row.b.n}. Stunde` : `${row.a.n}. Stunde`, [
     h('div', { class: 'row gap' }, h('div', { class: 'grow' }, h('div', { class: 'label' }, 'Beginn'), von), h('div', { class: 'grow' }, h('div', { class: 'label' }, 'Ende'), bis)),
-    h('button', { class: 'btn primary block', onclick: () => { sl.von = von.value; sl.bis = bis.value; save(); o.remove(); render(); } }, 'Speichern'),
+    h('button', { class: 'btn primary block', onclick: () => { row.a.von = von.value; last.bis = bis.value; save(); o.remove(); render(); } }, 'Speichern'),
   ]);
 }
 
@@ -2346,9 +2365,12 @@ function editLesson(l, day = null, slot = null) {
   fach.addEventListener('change', () => { const s = matchSubject(fach.value); if (s?.teacher && !teacher.value) { teacher.value = s.teacher; preview(); } });
   const sameAll = h('label', { class: 'check-row' }, h('input', { type: 'checkbox', checked: true }), h('span', {}, 'Farbe für alle Stunden dieses Fachs'));
   const weekSel = t.ab ? h('select', { class: 'input' }, [['', 'Jede Woche'], ['A', 'Nur A-Woche'], ['B', 'Nur B-Woche']].map(([v, lab]) => h('option', { value: v, selected: (cur.week || '') === v }, lab))) : null;
-  const double = isNew ? h('label', { class: 'check-row' }, h('input', { type: 'checkbox' }), h('span', {}, 'Doppelstunde (auch die nächste Stunde)')) : null;
+  const pair = blockMode() ? (ttRows().find((r) => r.slots.includes(cur.slot))?.slots || [cur.slot]) : [cur.slot];
+  // Im Doppelstunden-Modus gehört die Stunde im anderen Teil des Blocks dazu (gleicher Tag, gleiches Fach)
+  const partners = l ? t.lessons.filter((x) => x !== l && x.day === l.day && pair.includes(x.slot) && lessonName(x) === lessonName(l) && (x.week || '') === (l.week || '')) : [];
+  const double = isNew && !blockMode() ? h('label', { class: 'check-row' }, h('input', { type: 'checkbox' }), h('span', {}, 'Doppelstunde (auch die nächste Stunde)')) : null;
   drawSwatches(); preview();
-  const o = sheet(`${DAY_NAMES[cur.day - 1]}, ${cur.slot}. Stunde`, [
+  const o = sheet(`${DAY_NAMES[cur.day - 1]}, ${pair.join('.–')}. Stunde`, [
     prev,
     h('div', { class: 'label' }, 'Fach'), fach, datalist('dl-subjects', state.subjects.map((s) => s.name)),
     h('div', { class: 'row gap' },
@@ -2368,6 +2390,11 @@ function editLesson(l, day = null, slot = null) {
       clear(cur.slot);
       if (isNew) t.lessons.push({ ...cur, ...vals });
       else Object.assign(t.lessons.find((x) => x.id === cur.id), vals);
+      for (const sn of pair.filter((n) => n !== cur.slot)) { // zweite Stunde des Blocks
+        const mate = partners.find((x) => x.slot === sn);
+        if (mate) Object.assign(mate, vals);
+        else { clear(sn); t.lessons.push({ ...cur, ...vals, id: uid(), slot: sn }); }
+      }
       if (double?.querySelector('input').checked) {
         if (!t.slots.some((x) => x.n === cur.slot + 1)) t.slots.push({ n: cur.slot + 1, von: slotOf(cur.slot)?.bis || '', bis: '' });
         clear(cur.slot + 1); t.lessons.push({ ...cur, ...vals, id: uid(), slot: cur.slot + 1 });
@@ -2376,7 +2403,7 @@ function editLesson(l, day = null, slot = null) {
       if (s && vals.teacher && !s.teacher) s.teacher = vals.teacher; // Lehrkraft fürs Fach merken
       save(); o.remove(); render();
     } }, 'Speichern'),
-    isNew ? null : h('button', { class: 'btn ghost block danger-text', onclick: () => { t.lessons = t.lessons.filter((x) => x.id !== cur.id); save(); o.remove(); render(); } }, 'Stunde löschen'),
+    isNew ? null : h('button', { class: 'btn ghost block danger-text', onclick: () => { t.lessons = t.lessons.filter((x) => x.id !== cur.id && !partners.includes(x)); save(); o.remove(); render(); } }, pair.length > 1 ? 'Doppelstunde löschen' : 'Stunde löschen'),
   ]);
 }
 
@@ -2399,7 +2426,8 @@ function examRow(x) {
     sub ? subjectBadge(sub, 36) : h('span', { class: 'menu-ico' }, icon('exam', 20)),
     h('span', { class: 'menu-text' },
       h('span', { class: 'menu-label' }, `${itemName(x)} · ${x.art || 'Arbeit'}`),
-      h('span', { class: 'menu-sub' }, [fmtDate(x.date), untilLabel(x.date), x.thema, x.stunde ? `${x.stunde} Std.` : '', x.raum ? `Raum ${x.raum}` : ''].filter(Boolean).join(' · '))),
+      h('span', { class: 'menu-sub' }, [fmtDate(x.date), untilLabel(x.date), x.thema, x.stunde ? `${x.stunde} Std.` : '', x.raum ? `Raum ${x.raum}` : ''].filter(Boolean).join(' · ')),
+      x.notiz ? h('span', { class: 'menu-sub note-sub' }, x.notiz) : null),
     x.examId && examById(x.examId) ? h('span', { class: 'chip-static' }, 'Lernplan') : null);
 }
 
@@ -2427,9 +2455,19 @@ function examPlanMenu() {
   const p = xp();
   const files = p.fileIds.filter((id) => state.files[id] && isGroupLead(id));
   const o = sheet('Prüfungstermine', [h('div', { class: 'menu' },
+    menuRow('user', 'Meine Klasse / Kurs', p.klasse ? `${p.klasse} – beim Hochladen nur diese Termine` : 'Noch nicht angegeben – wichtig bei Plänen für mehrere Klassen', () => { o.remove(); editClass(); }),
+    menuRow('calendar', 'Kalender', 'Monatsansicht, eigene Termine, Apple Kalender', () => { o.remove(); openCalendar('plan'); }),
     menuRow('upload', 'Plan hochladen', 'Termine werden ergänzt, nichts wird gelöscht', () => { o.remove(); uploadPlan('xp'); }),
     ...files.map((id, i) => menuRow('image', files.length > 1 ? `Hochgeladenen Plan ${i + 1} ansehen` : 'Hochgeladenen Plan ansehen', state.files[id].name, () => { o.remove(); openFile(id); })),
     menuRow('plus', 'Arbeit eintragen', null, () => { o.remove(); editExamItem(null); }))]);
+}
+
+function editClass() {
+  const p = xp();
+  const inp = h('input', { class: 'input', placeholder: 'z. B. 10c', value: p.klasse || '' });
+  const o = sheet('Meine Klasse / Kurs', [
+    h('p', { class: 'muted small' }, 'Steht der Plan für mehrere Klassen oder Kurse, übernimmt Jelly beim Hochladen nur die Termine, die für dich gelten. Unklare Termine bekommen eine Anmerkung.'),
+    inp, h('button', { class: 'btn primary block', onclick: () => { p.klasse = inp.value.trim(); save(); o.remove(); render(); } }, 'Speichern')]);
 }
 
 function editExamItem(x) {
@@ -2451,8 +2489,9 @@ function editExamItem(x) {
   const thema = h('input', { class: 'input', placeholder: 'z. B. Lineare Funktionen', value: cur.thema || '' });
   const stunde = h('input', { class: 'input', placeholder: 'z. B. 3.–4.', value: cur.stunde || '' });
   const raum = h('input', { class: 'input', placeholder: 'z. B. A104', value: cur.raum || '', list: 'dl-rooms2' });
+  const notiz = h('textarea', { class: 'input', rows: 2, placeholder: 'z. B. nur 10c, Gruppe B, Taschenrechner mitbringen', value: cur.notiz || '' });
   const exam = cur.examId && examById(cur.examId);
-  const read = () => ({ date: date.value, subjectId: subSel.value || null, fach: subSel.value ? '' : other.value.trim(), art: art.value, thema: thema.value.trim(), stunde: stunde.value.trim(), raum: raum.value.trim() });
+  const read = () => ({ date: date.value, subjectId: subSel.value || null, fach: subSel.value ? '' : other.value.trim(), art: art.value, thema: thema.value.trim(), stunde: stunde.value.trim(), raum: raum.value.trim(), notiz: notiz.value.trim() });
   const store = () => {
     const v = read();
     if (!v.date) { toast('Bitte ein Datum wählen.'); return false; }
@@ -2468,6 +2507,7 @@ function editExamItem(x) {
     h('div', { class: 'row gap' }, h('div', { class: 'grow' }, h('div', { class: 'label' }, 'Datum'), date), h('div', { class: 'grow' }, h('div', { class: 'label' }, 'Art'), art)),
     h('div', { class: 'label' }, 'Thema (optional)'), thema,
     h('div', { class: 'row gap' }, h('div', { class: 'grow' }, h('div', { class: 'label' }, 'Stunde'), stunde), h('div', { class: 'grow' }, h('div', { class: 'label' }, 'Raum'), raum)), datalist('dl-rooms2', knownRooms()),
+    h('div', { class: 'label' }, 'Anmerkung (optional)'), notiz,
     exam
       ? h('button', { class: 'btn primary block', onclick: () => { if (!store()) return; o.remove(); state.activeExamId = exam.id; ui.planTab = 'lernplan'; save(); go('plan'); } }, icon('route', 18), 'Zum Lernplan')
       : h('button', { class: 'btn primary block', onclick: () => {
@@ -2498,7 +2538,7 @@ async function uploadPlan(kind) {
 }
 
 async function importPlan(kind, ids) {
-  const parts = [{ text: kind === 'tt' ? P.timetablePrompt() : P.examPlanPrompt(isoDate(new Date())) }];
+  const parts = [{ text: kind === 'tt' ? P.timetablePrompt() : P.examPlanPrompt(isoDate(new Date()), xp().klasse || '') }];
   for (const id of ids) parts.push(await filePart(id));
   const res = await generate({ system: P.baseSystem(null), parts, json: true, temperature: 0.1 });
   if (kind === 'tt') {
@@ -2521,16 +2561,17 @@ async function importPlan(kind, ids) {
     toast(`${lessons.length} Stunden eingetragen.${unknown.length ? ` Nicht als Fach angelegt: ${unknown.slice(0, 4).join(', ')}${unknown.length > 4 ? ' …' : ''}.` : ''} Bitte kurz prüfen.`, 'ok');
   } else {
     const p = xp();
-    let added = 0;
+    let added = 0, other = 0;
     for (const x of res.eintraege || []) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(x?.datum || '') || !x.fach) continue;
+      if (x.fuerMich === false) { other++; continue; } // laut Plan für eine andere Klasse
       const s = matchSubject(x.fach);
       if (p.items.some((it) => it.date === x.datum && (s ? it.subjectId === s.id : it.fach === x.fach))) continue;
-      p.items.push({ id: uid(), date: x.datum, subjectId: s?.id || null, fach: s ? '' : String(x.fach), art: EXAM_KINDS.includes(x.art) ? x.art : 'Klassenarbeit', thema: String(x.thema || ''), stunde: String(x.stunde || ''), raum: String(x.raum || ''), examId: null });
+      p.items.push({ id: uid(), date: x.datum, subjectId: s?.id || null, fach: s ? '' : String(x.fach), art: EXAM_KINDS.includes(x.art) ? x.art : 'Klassenarbeit', thema: String(x.thema || ''), stunde: String(x.stunde || ''), raum: String(x.raum || ''), notiz: String(x.anmerkung || ''), examId: null });
       added++;
     }
     if (!added && !(res.eintraege || []).length) throw new AIError('Ich konnte im Bild keine Termine erkennen. Ist das Foto scharf und vollständig?');
-    toast(`${added} Termine eingetragen. Bitte kurz prüfen.`, 'ok');
+    toast(`${added} Termin${added === 1 ? '' : 'e'} eingetragen${other ? `, ${other} für andere Klassen übersprungen` : ''}. Bitte kurz prüfen.`, 'ok');
   }
 }
 
@@ -2540,6 +2581,167 @@ function viewWeekImport({ kind, ids }) {
   pending(main, `wimport:${kind}:${(ids || []).join(',')}`, kind === 'tt' ? 'Ich lese deinen Stundenplan …' : 'Ich lese deinen Klassenarbeitsplan …',
     ['Plan lesen', 'Eintragen'], async () => { await importPlan(kind, ids || []); setTimeout(back, 0); });
   return h('div', { class: 'screen' }, topbar({ back, title: kind === 'tt' ? 'Stundenplan' : 'Prüfungstermine' }), main);
+}
+
+const openCalendar = (from) => { ui.calBack = from; go('calendar'); };
+// ---------- Kalender: Prüfungen, Stundenplan und eigene Termine
+const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
+const ownEvents = () => (xp().events ||= []);
+
+// Alles an einem Tag: Prüfungen, eigene Termine, Stunden laut Stundenplan
+function dayItems(iso) {
+  const d = parseISO(iso);
+  const wd = (d.getDay() + 6) % 7;
+  const exams = allExamDates().filter((x) => x.date === iso);
+  const events = ownEvents().filter((e) => e.date === iso).sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+  const lessons = wd < 5 ? lessonsOn(wd + 1, abWeek(d)) : [];
+  return { exams, events, lessons };
+}
+
+function viewCalendar() {
+  const today = isoDate(new Date());
+  ui.calMonth ??= today.slice(0, 7);
+  ui.calDay ??= today;
+  const [y, m] = ui.calMonth.split('-').map(Number);
+  const first = new Date(y, m - 1, 1);
+  const shift = (n) => { const d = new Date(y, m - 1 + n, 1); ui.calMonth = isoDate(d).slice(0, 7); render(); };
+  const start = new Date(first); start.setDate(1 - ((first.getDay() + 6) % 7));
+  const cells = [];
+  for (let i = 0; i < 42; i++) {
+    const d = new Date(start); d.setDate(start.getDate() + i);
+    const iso = isoDate(d);
+    if (i >= 35 && d.getMonth() !== m - 1) break;
+    const { exams, events } = dayItems(iso);
+    const dots = [...exams.map((x) => subjectById(x.subjectId)?.color || '#f87171'), ...events.map((e) => e.color || '#94a3b8')].slice(0, 4);
+    cells.push(h('button', { class: `cal-cell ${d.getMonth() !== m - 1 ? 'other' : ''} ${iso === today ? 'today' : ''} ${iso === ui.calDay ? 'sel' : ''} ${exams.length ? 'has-exam' : ''}`, onclick: () => { ui.calDay = iso; render(); } },
+      h('span', { class: 'cal-num' }, d.getDate()),
+      h('span', { class: 'cal-dots' }, dots.map((c) => h('i', { style: { background: c } })))));
+  }
+  const { exams, events, lessons } = dayItems(ui.calDay);
+  const sel = parseISO(ui.calDay);
+  const main = h('main', { class: 'content narrow' },
+    h('div', { class: 'cal-head-row' },
+      h('button', { class: 'iconbtn', 'aria-label': 'Voriger Monat', onclick: () => shift(-1) }, icon('back', 20)),
+      h('strong', {}, `${MONTHS[m - 1]} ${y}`),
+      h('button', { class: 'iconbtn flip', 'aria-label': 'Nächster Monat', onclick: () => shift(1) }, icon('back', 20))),
+    h('div', { class: 'cal-grid' }, ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].map((d) => h('div', { class: 'cal-wd' }, d)), cells),
+    h('div', { class: 'row between cal-day-head' },
+      h('div', { class: 'label' }, `${sel.toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' })}${ui.calDay === today ? ' · heute' : ''}`),
+      h('button', { class: 'btn small', onclick: () => editEvent(null, ui.calDay) }, icon('plus', 16), 'Termin')),
+    exams.length ? h('div', { class: 'menu' }, exams.map(examRow)) : null,
+    events.length ? h('div', { class: 'menu' }, events.map((e) => h('button', { class: 'menu-row', onclick: () => editEvent(e) },
+      h('span', { class: 'swatch', style: { background: e.color || '#94a3b8' } }),
+      h('span', { class: 'menu-text' }, h('span', { class: 'menu-label' }, e.title), h('span', { class: 'menu-sub' }, [e.time ? `${e.time}${e.end ? `–${e.end}` : ''} Uhr` : 'ganztägig', e.note].filter(Boolean).join(' · ')))))) : null,
+    lessons.length ? h('details', { class: 'fold' },
+      h('summary', {}, h('span', { class: 'menu-ico' }, icon('clock', 20)), h('span', { class: 'menu-text' }, h('span', { class: 'menu-label' }, 'Stundenplan'), h('span', { class: 'menu-sub' }, `${lessons.length} Stunden`)), h('span', { class: 'fold-chev' }, icon('chev', 18))),
+      h('div', { class: 'fold-body' }, h('div', { class: 'menu' }, lessons.map((l) => {
+        const sl = slotOf(l.slot);
+        return h('div', { class: 'menu-row' }, h('span', { class: 'swatch', style: { background: lessonColor(l) } }),
+          h('span', { class: 'menu-text' }, h('span', { class: 'menu-label' }, `${l.slot}. ${lessonName(l)}`), h('span', { class: 'menu-sub' }, [sl?.von && sl?.bis ? `${sl.von}–${sl.bis}` : '', l.teacher, l.room].filter(Boolean).join(' · '))));
+      })))) : null,
+    !exams.length && !events.length && !lessons.length ? h('p', { class: 'muted center' }, 'Nichts eingetragen.') : null);
+  return h('div', { class: 'screen' },
+    h('header', { class: 'topbar' },
+      h('button', { class: 'iconbtn', 'aria-label': 'Zurück', onclick: () => go(ui.calBack || 'week') }, icon('back', 22)),
+      h('div', { class: 'topbar-title' }, 'Kalender'),
+      h('button', { class: 'iconbtn', 'aria-label': 'Menü', onclick: () => calendarMenu() }, icon('more'))),
+    main);
+}
+
+function editEvent(e, date = null) {
+  const isNew = !e;
+  const cur = e || { id: uid(), date: date || isoDate(new Date()), time: '', end: '', title: '', note: '', color: '#7dd3fc' };
+  const title = h('input', { class: 'input', placeholder: 'z. B. Wandertag, Abgabe Referat', value: cur.title });
+  const dt = h('input', { class: 'input', type: 'date', value: cur.date });
+  const tm = h('input', { class: 'input', type: 'time', value: cur.time || '' });
+  const en = h('input', { class: 'input', type: 'time', value: cur.end || '' });
+  const note = h('textarea', { class: 'input', rows: 2, placeholder: 'Anmerkung (optional)', value: cur.note || '' });
+  let color = cur.color;
+  const sw = h('div', { class: 'swatches' });
+  const draw = () => sw.replaceChildren(...TILE_COLORS.map((c) => h('button', { class: `swatch big ${color === c ? 'on' : ''}`, style: { background: c }, onclick: () => { color = c; draw(); } })));
+  draw();
+  const o = sheet(isNew ? 'Termin eintragen' : 'Termin', [
+    h('div', { class: 'label' }, 'Titel'), title,
+    h('div', { class: 'label' }, 'Datum'), dt,
+    h('div', { class: 'row gap' }, h('div', { class: 'grow' }, h('div', { class: 'label' }, 'Von (optional)'), tm), h('div', { class: 'grow' }, h('div', { class: 'label' }, 'Bis (optional)'), en)),
+    h('div', { class: 'label' }, 'Anmerkung'), note,
+    h('div', { class: 'label' }, 'Farbe'), sw,
+    h('button', { class: 'btn primary block', onclick: () => {
+      if (!title.value.trim() || !dt.value) return toast('Bitte Titel und Datum eintragen.');
+      Object.assign(cur, { title: title.value.trim(), date: dt.value, time: tm.value, end: en.value, note: note.value.trim(), color });
+      if (isNew) ownEvents().push(cur);
+      ui.calDay = cur.date; ui.calMonth = cur.date.slice(0, 7);
+      save(); o.remove(); render();
+    } }, 'Speichern'),
+    isNew ? null : h('button', { class: 'btn ghost block danger-text', onclick: () => { xp().events = ownEvents().filter((x) => x.id !== cur.id); save(); o.remove(); render(); } }, 'Termin löschen'),
+  ]);
+}
+
+function calendarMenu() {
+  const o = sheet('Kalender', [
+    h('p', { class: 'muted small' }, 'Übernimmt die Termine in den Kalender deines iPads oder iPhones. Danach bitte „Alle hinzufügen“ tippen. Spätere Änderungen in Jelly werden nicht automatisch übertragen.'),
+    h('div', { class: 'menu' },
+      menuRow('calendar', 'Prüfungen & Termine übernehmen', `${allExamDates().filter((x) => daysUntil(x.date) >= 0).length + ownEvents().filter((e) => daysUntil(e.date) >= 0).length} anstehende`, () => { o.remove(); exportICS(false); }),
+      menuRow('clock', 'Stundenplan übernehmen', 'Wöchentlich bis Ende des Schuljahres (31. Juli)', () => { o.remove(); exportICS(true); }))]);
+}
+
+// ---------- Export als .ics (Apple Kalender, Google Kalender, Outlook)
+function exportICS(lessonsToo) {
+  const pad = (n) => String(n).padStart(2, '0');
+  const ymd = (iso) => iso.replace(/-/g, '');
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
+  const esc = (t) => String(t || '').replace(/\\/g, '\\\\').replace(/\n/g, '\\n').replace(/[,;]/g, (c) => `\\${c}`);
+  const nextDay = (iso) => { const d = parseISO(iso); d.setDate(d.getDate() + 1); return isoDate(d); };
+  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Jelly Lern-KI//DE', 'CALSCALE:GREGORIAN', 'X-WR-CALNAME:Jelly'];
+  const ev = (uidStr, fields) => { lines.push('BEGIN:VEVENT', `UID:${uidStr}@jelly`, `DTSTAMP:${stamp}`, ...fields, 'END:VEVENT'); };
+  let n = 0;
+  if (!lessonsToo) {
+    for (const x of allExamDates().filter((e) => daysUntil(e.date) >= 0)) {
+      ev(`exam-${x.id}`, [`DTSTART;VALUE=DATE:${ymd(x.date)}`, `DTEND;VALUE=DATE:${ymd(nextDay(x.date))}`, `SUMMARY:${esc(`${itemName(x)} – ${x.art || 'Prüfung'}`)}`,
+        `DESCRIPTION:${esc([x.thema, x.stunde ? `${x.stunde} Stunde` : '', x.notiz].filter(Boolean).join('\n'))}`, ...(x.raum ? [`LOCATION:${esc(x.raum)}`] : []),
+        'BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${esc(`${itemName(x)} morgen`)}`, 'TRIGGER:-PT15H', 'END:VALARM']);
+      n++;
+    }
+    for (const e of ownEvents().filter((x) => daysUntil(x.date) >= 0)) {
+      const timed = !!e.time;
+      ev(`event-${e.id}`, [
+        timed ? `DTSTART:${ymd(e.date)}T${e.time.replace(':', '')}00` : `DTSTART;VALUE=DATE:${ymd(e.date)}`,
+        timed ? `DTEND:${ymd(e.date)}T${(e.end || e.time).replace(':', '')}00` : `DTEND;VALUE=DATE:${ymd(nextDay(e.date))}`,
+        `SUMMARY:${esc(e.title)}`, ...(e.note ? [`DESCRIPTION:${esc(e.note)}`] : [])]);
+      n++;
+    }
+  } else {
+    const now = new Date();
+    const endYear = now.getMonth() >= 7 ? now.getFullYear() + 1 : now.getFullYear();
+    const until = `${endYear}0731T235959`;
+    const monday = mondayOf(now);
+    for (const l of tt().lessons) {
+      // Doppelstunde = ein Termin: zweite Hälfte überspringen, erste bis zum Ende der zweiten
+      const pairOf = blockMode() ? ttRows().find((r) => r.slots.includes(l.slot))?.slots || [l.slot] : [l.slot];
+      const mate = (n) => tt().lessons.find((x) => x !== l && x.day === l.day && x.slot === n && lessonName(x) === lessonName(l) && (x.week || '') === (l.week || ''));
+      if (pairOf.length > 1 && l.slot === pairOf[1] && mate(pairOf[0])) continue;
+      const sl0 = slotOf(l.slot);
+      const endSlot = pairOf.length > 1 && l.slot === pairOf[0] && mate(pairOf[1]) ? slotOf(pairOf[1]) : sl0;
+      const sl = sl0 && endSlot ? { von: sl0.von, bis: endSlot.bis } : null;
+      if (!sl?.von || !sl?.bis) continue;
+      const d = new Date(monday); d.setDate(monday.getDate() + (l.day - 1));
+      if (tt().ab && l.week && abWeek(d) !== l.week) d.setDate(d.getDate() + 7);
+      const day = isoDate(d);
+      ev(`lesson-${l.id}`, [`DTSTART:${ymd(day)}T${sl.von.replace(':', '')}00`, `DTEND:${ymd(day)}T${sl.bis.replace(':', '')}00`,
+        `RRULE:FREQ=WEEKLY;INTERVAL=${tt().ab && l.week ? 2 : 1};UNTIL=${until}`,
+        `SUMMARY:${esc(lessonName(l))}`, ...(l.room ? [`LOCATION:${esc(l.room)}`] : []), ...(l.teacher ? [`DESCRIPTION:${esc(l.teacher)}`] : [])]);
+      n++;
+    }
+    if (!n) return toast('Im Stundenplan fehlen noch Uhrzeiten oder Stunden.');
+  }
+  if (!n) return toast('Keine anstehenden Termine.');
+  lines.push('END:VCALENDAR');
+  const blob = new Blob([lines.join('\r\n')], { type: 'text/calendar' });
+  const url = URL.createObjectURL(blob);
+  const a = h('a', { href: url, download: lessonsToo ? 'Jelly-Stundenplan.ics' : 'Jelly-Termine.ics' });
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+  toast(`${n} Termine vorbereitet – im Kalender „Alle hinzufügen“ tippen.`, 'ok');
 }
 
 // ================================================================ TUTOR-CHAT

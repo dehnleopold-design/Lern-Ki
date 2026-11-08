@@ -502,16 +502,17 @@ REGELN
 - Unleserliches leer lassen, nichts erfinden.`;
 }
 
-export function examPlanPrompt(todayIso) {
+export function examPlanPrompt(todayIso, klasse = '') {
   return `Das ist ein KLASSENARBEITSPLAN / KLAUSURPLAN / TESTPLAN (Foto, Screenshot oder PDF, evtl. mehrere Seiten). Lies alle Termine genau ab.
 Heute ist ${todayIso}.
 Gib NUR JSON zurück:
-{ "eintraege": [ { "datum": "YYYY-MM-DD", "fach": "Mathe", "art": "Klassenarbeit", "thema": "", "stunde": "", "raum": "" } ] }
+{ "eintraege": [ { "datum": "YYYY-MM-DD", "fach": "Mathe", "art": "Klassenarbeit", "thema": "", "stunde": "", "raum": "", "anmerkung": "", "fuerMich": true } ] }
 REGELN
 - art: eines von "Klassenarbeit", "Klausur", "Test", "Vokabeltest", "Referat", "Sonstiges" – so, wie es im Plan steht.
 - Fehlt die Jahreszahl, nimm das Jahr, das zum laufenden Schuljahr passt (Schuljahr = August bis Juli, bezogen auf heute).
 - fach: Die Fächer des Schülers sind: ${subjectList()}. Ordne jedes Fach einem dieser Namen zu (exakt so geschrieben), wenn es eindeutig passt. Sonst den Namen aus dem Plan ausgeschrieben.
 - thema, stunde (z. B. "3.–4.") und raum nur, wenn sie im Plan stehen, sonst leer.
-- Steht der Plan für mehrere Klassen/Kurse, nimm nur Einträge, die eindeutig für alle oder für die Klasse des Schülers (Klasse ${state.profile?.grade || '?'}) gelten; im Zweifel alle.
+- anmerkung: Für welche Klasse/Kurs/Gruppe der Termin gilt (z. B. "10a, 10c" oder "Kurs Spa-2") und sonstige Hinweise aus dem Plan (z. B. Hilfsmittel). Sonst leer.
+- Steht der Plan für mehrere Klassen/Kurse: ${klasse ? `Der Schüler ist in "${klasse}". fuerMich = false nur, wenn der Termin eindeutig NICHT für "${klasse}" gilt; im Zweifel true und in anmerkung erklären.` : `Klasse des Schülers unbekannt (Jahrgang ${state.profile?.grade || '?'}). fuerMich immer true, aber in anmerkung angeben, für wen der Termin gilt.`}
 - Nichts erfinden.`;
 }

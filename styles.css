@@ -590,3 +590,28 @@ button.menu-text.file-open { display: flex; flex-direction: column; }
 .tt-cell { padding: 7px 6px; border-radius: 14px; }
 .tt-cell .tt-sub.long { display: none; }
 @media (min-width: 700px) { .tt-grid { grid-template-columns: 64px repeat(5, minmax(0, 1fr)); gap: 8px; } .tt-cell { padding: 9px 10px; border-radius: 16px; } .tt-cell .tt-sub.short { display: none; } .tt-cell .tt-sub.long { display: block; } }
+
+/* Datum/Uhrzeit auf iPad/iPhone: gleiche Höhe wie andere Felder, nicht über den Rand hinaus */
+input.input[type=date], input.input[type=time] { -webkit-appearance: none; appearance: none; display: block; box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; min-height: 52px; line-height: 1.3; text-align: left; }
+input.input[type=date]::-webkit-date-and-time-value, input.input[type=time]::-webkit-date-and-time-value { text-align: left; margin: 0; }
+.row.gap > .grow { display: flex; flex-direction: column; }
+.row.gap > .grow > .label { min-height: 1.4em; }
+.input { box-sizing: border-box; }
+.sheet .row.gap { align-items: flex-start; }
+
+/* Kalender */
+.flip svg { transform: scaleX(-1); }
+.cal-head-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; font-size: 1.1rem; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.cal-wd { text-align: center; font-size: .75rem; font-weight: 700; color: var(--muted); padding: 4px 0; }
+.cal-cell { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 4px; min-height: 52px; padding: 7px 2px 6px; border-radius: 14px; background: var(--surface); border: 1px solid transparent; color: var(--text); }
+.cal-cell.other { opacity: .35; }
+.cal-cell.today .cal-num { color: var(--accent-2); }
+.cal-cell.today { border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
+.cal-cell.sel { background: color-mix(in srgb, var(--accent) 30%, var(--surface)); border-color: var(--accent); }
+.cal-cell.has-exam .cal-num { font-weight: 800; }
+.cal-num { font-size: .9rem; }
+.cal-dots { display: flex; gap: 3px; min-height: 6px; }
+.cal-dots i { width: 6px; height: 6px; border-radius: 50%; display: block; }
+.cal-day-head { margin: 16px 0 8px; align-items: center; }
+.note-sub { color: var(--accent-2); white-space: normal; }
