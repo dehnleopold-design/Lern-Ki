@@ -69,6 +69,7 @@ function taskLang(subject) {
 }
 
 // Arbeitsblätter der Lehrkraft zeigen, was ihr wichtig ist. Das Buch liefert zusätzliche Fakten.
+const NOTES_FOCUS = 'NOTIZEN DES SCHÜLERS: Was er unter „Themen & Notizen“ eingetragen hat (siehe Kontext), hat Vorrang – Schwerpunkte, Kapitel, Hinweise der Lehrkraft. Daran richtest du Auswahl und Gewichtung aus.';
 const AB_FOCUS = `ORIENTIERUNG AN DER LEHRKRAFT: Die Arbeitsblätter und Hefteinträge zeigen, was die Lehrkraft für wichtig hält. Gewichte die Inhalte danach (Schwerpunkte der Lehrkraft, Aufgaben auf den Blättern) und übernimm ihre Begriffe und Formulierungen. Fakten aus dem Buch gehören trotzdem dazu, wo sie diese Schwerpunkte stützen, ergänzen oder genauer machen. Beziehe dich immer wieder ausdrücklich auf ein bestimmtes Arbeitsblatt (z. B. „wie auf dem AB ‚Zellatmung‘“), aber nicht bei jedem Punkt.`;
 
 export function baseSystem(subject) {
@@ -109,6 +110,19 @@ function fileDigestText(id) {
   ].filter(Boolean).join('\n');
 }
 
+// Themen, die der Schüler aufgezählt hat (eine pro Zeile, mit Spiegelstrich/Nummer oder durch ; getrennt).
+// Kommas nur, wenn alles in einer Zeile steht und die Teile kurz sind. Längere Sätze gelten als Notiz, nicht als Thema.
+export function topicList(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return [];
+  let parts = raw.split(/\n+/).map((x) => x.trim()).filter(Boolean);
+  if (parts.length === 1) parts = raw.split(/;|(?:^|\s)\d+[.)]\s+/).map((x) => x.trim()).filter(Boolean);
+  if (parts.length === 1 && raw.includes(',')) parts = raw.split(',').map((x) => x.trim()).filter(Boolean);
+  const clean = parts.map((x) => x.replace(/^([-*•–]|\d+[.)])\s*/, '').trim()).filter(Boolean);
+  const topics = clean.filter((x) => x.length <= 90 && !/[.!?]$/.test(x));
+  return topics.length >= 2 ? topics.slice(0, 15) : [];
+}
+
 export function examContext(exam) {
   const subject = subjectOf(exam);
   const parts = [];
@@ -116,7 +130,7 @@ export function examContext(exam) {
   const vp = vocabProfileFor(subject);
   if (vp) parts.push(`## VOKABELTESTS DIESER LEHRKRAFT (Profil aus alten Tests)\n${vp}`);
   if (subject?.teacherNotes) parts.push(`## EIGENE NOTIZEN DES SCHÜLERS ZUR LEHRKRAFT\n${subject.teacherNotes}`);
-  if (exam.topicsText) parts.push(`## THEMEN LAUT SCHÜLER\n${exam.topicsText}`);
+  if (exam.topicsText) parts.push(`## THEMEN & NOTIZEN DES SCHÜLERS (VERBINDLICH – danach richtest du Auswahl, Gewichtung und Schwerpunkte aus)\n${exam.topicsText}`);
   if (exam.weaknesses?.length) parts.push(`## BISHER ERKANNTE SCHWÄCHEN (gezielt trainieren!)\n${exam.weaknesses.slice(-15).map((w) => `- ${w}`).join('\n')}`);
   const isBook = (id) => /buch/i.test(state.files[id]?.digest?.art || '');
   const ids = exam.materialIds || [];
@@ -187,7 +201,9 @@ ${days.length ? `Verfügbare Lerntage (jeweils ca. ${state.profile?.minutesPerDa
 Jedes Thema wird später nach demselben Prinzip gelernt: 1. Lernzettel, 2. kurzes Fakten-Quiz, 3. Anwendungsaufgaben. Am Ende folgt ein Abschluss (Gesamt-Lernzettel + Probeklassenarbeit) – den musst du NICHT planen.
 
 VORGEHEN
-- Bestimme die klausurrelevanten Themen aus Material, Themenangabe und Lehrerprofil. 2–6 Themen, so zugeschnitten, dass jedes in eine Lernsitzung passt. Gewichte nach Prüfungsrelevanz.
+${topicList(exam.topicsText).length ? `- DER SCHÜLER HAT DIE THEMEN FESTGELEGT. Übernimm GENAU diese ${topicList(exam.topicsText).length} Themen – gleiche Anzahl, gleiche Reihenfolge, Titel in seinen Worten (nur Tippfehler korrigieren). Nichts zusammenlegen, nichts weglassen, nichts hinzufügen; Zusätzliches aus dem Material gehört als Schwerpunkt zum passenden Thema.
+${topicList(exam.topicsText).map((t, i) => `  ${i + 1}. ${t}`).join('\n')}
+- Weitere Notizen des Schülers sind verbindlich für Beschreibung und Schwerpunkte.` : `- Bestimme die klausurrelevanten Themen aus Material, Themenangabe und Lehrerprofil. 2–6 Themen, so zugeschnitten, dass jedes in eine Lernsitzung passt. Gewichte nach Prüfungsrelevanz.${exam.topicsText ? ' Die Notizen des Schülers sind dabei verbindlich.' : ''}`}
 - Reihenfolge so, dass Grundlagen zuerst kommen.
 - Ordne jedem Thema einen Lerntag zu (bei wenig Tagen mehrere Themen pro Tag). Der letzte Lerntag bleibt möglichst für den Abschluss frei.
 
@@ -244,6 +260,7 @@ INHALT:
 - Typische Klausurfallen in [!WARN], Klausurtipps der Lehrkraft in [!TIP].
 - Nur was im Material steht oder sicheres Standardwissen dieser Klassenstufe ist. Nichts erfinden; Unklares weglassen.
 - ${AB_FOCUS} Gliedere, wo es passt, nach dem Aufbau der Arbeitsblätter.
+${exam.topicsText ? `- ${NOTES_FOCUS}` : ''}
 - ${lang}
 - Kein Vorwort, kein Schlusswort, keine Überschrift für das ganze Dokument (die setzt die App).
 
@@ -260,7 +277,7 @@ Es prüft, ob die SCHWERPUNKTE DER LEHRKRAFT sitzen: zentrale Begriffe und was s
 - Höchstens 2 Fragen zu einer einzelnen Zahl, einem Datum oder Detail, und nur wenn die Lehrkraft genau das erkennbar betont.
 - Richte die Auswahl nach den Schwerpunkten und Aufgaben auf den Arbeitsblättern. Nutze die Begriffe so, wie sie auf den Blättern stehen. Etwa 2 Fragen beziehen sich ausdrücklich auf ein Arbeitsblatt. Fakten aus dem Buch sind erlaubt, wenn sie zu diesen Schwerpunkten gehören.
 - ${taskLang(subjectOf(exam))}
-Mische die Fragetypen: ca. 4× "mc" (4 Optionen, plausible Falschantworten), 2× "wahrfalsch" (eine wahre, eine falsche Aussage), 2× "eingabe" (Antwort ist ein Begriff oder kurzer Ausdruck).
+${exam.topicsText ? `- ${NOTES_FOCUS}\n` : ''}Mische die Fragetypen: ca. 4× "mc" (4 Optionen, plausible Falschantworten), 2× "wahrfalsch" (eine wahre, eine falsche Aussage), 2× "eingabe" (Antwort ist ein Begriff oder kurzer Ausdruck).
 In Erklärungen nie auf Buchstaben oder Positionen verweisen ("Antwort B"), sondern die Antwort selbst nennen – die App mischt die Reihenfolge.
 ${previous?.length ? `Diese Fragen gab es schon – stelle andere:\n${previous.slice(-20).map((q) => `- ${q}`).join('\n')}` : ''}
 
@@ -297,7 +314,7 @@ Die Formate müssen zu dem passen, was die Lehrkraft in Klausuren tatsächlich v
 WICHTIG:
 - KEINE Lösung, kein Erklärtext und keine Hinweise auf die Lösung in Aufgabenstellung oder Material. Das Wissen steht im Lernzettel.
 - ${TEACHER_STYLE}
-- ${AB_FOCUS} Mindestens eine Aufgabe knüpft direkt an ein Arbeitsblatt an (greift dessen Material, Beispiel oder Aufgabentyp auf, ohne es zu kopieren).
+${exam.topicsText ? `- ${NOTES_FOCUS}\n` : ''}- ${AB_FOCUS} Mindestens eine Aufgabe knüpft direkt an ein Arbeitsblatt an (greift dessen Material, Beispiel oder Aufgabentyp auf, ohne es zu kopieren).
 - ${taskLang(subjectOf(exam))}
 - Jede Aufgabe beginnt mit einem Operator, hat einen Erwartungshorizont (wird erst nach der Abgabe gezeigt), eine realistische Punktzahl und Bearbeitungszeit.
 ${previousTitles.length ? `- Bereits gestellte Aufgaben (NICHT wiederholen, aber Schwächen erneut prüfen):\n${previousTitles.slice(-25).map((t) => `  - ${t}`).join('\n')}` : ''}

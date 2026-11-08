@@ -14,7 +14,7 @@ setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.30 (8.11.)';
+const APP_VERSION = '2.31 (8.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -875,8 +875,9 @@ function viewNewExam() {
         h('div', { class: 'label' }, 'Lernmaterial hinzufügen (Arbeitsblätter, Lernzettel, Heft, Buchseiten)'),
         grid,
         h('p', { class: 'muted small' }, 'Mehrseitiges Blatt einzeln fotografiert? Tippe auf das + an der Kachel, um weitere Seiten anzuhängen.'),
-        h('div', { class: 'label' }, 'Themen laut Lehrkraft (optional, aber hilfreich)'),
-        h('textarea', { class: 'input', rows: 3, placeholder: 'z. B. „Klimazonen, Monsun, Klimadiagramme auswerten – Kapitel 3 im Buch“', value: nx.topicsText, oninput: (e) => { nx.topicsText = e.target.value; } }),
+        h('div', { class: 'label' }, 'Themen & Notizen (optional, aber hilfreich)'),
+        h('textarea', { class: 'input', rows: 5, placeholder: 'Ein Thema pro Zeile – dann gibt es genau diese Themen:\nKlimazonen\nMonsun\nKlimadiagramme auswerten\n\nNotizen in ganzen Sätzen, z. B.: Die Lehrerin legt Wert auf Fachbegriffe.', value: nx.topicsText, oninput: (e) => { nx.topicsText = e.target.value; } }),
+        h('p', { class: 'muted small' }, 'Pro Thema gibt es einen Lernzettel, ein Quiz und Aufgaben. Deine Notizen haben bei allem Vorrang.'),
         h('label', { class: 'check-row' },
           h('input', { type: 'checkbox', checked: nx.useArchive, onchange: (e) => { nx.useArchive = e.target.checked; } }),
           h('span', {}, `Alte Klausuren aus dem ${subject?.name}-Archiv nutzen (${archiveCount} vorhanden)`)),

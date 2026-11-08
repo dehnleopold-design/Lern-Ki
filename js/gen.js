@@ -152,7 +152,16 @@ export async function createPlan(exam) {
   const days = learningDays(exam);
   const plan = await generate({ system: P.baseSystem(subjectById(exam.subjectId)), parts: [{ text: P.planPrompt(exam, days) }], json: true, temperature: 0.3 });
   const isDay = (d) => /^\d{4}-\d{2}-\d{2}$/.test(d || '');
-  const themen = (plan.themen || []).filter((t) => t?.titel).slice(0, 8).map((t) => ({ titel: String(t.titel), beschreibung: t.beschreibung || '', schwerpunkte: t.schwerpunkte || [], tag: isDay(t.tag) ? t.tag : null }));
+  let themen = (plan.themen || []).filter((t) => t?.titel).slice(0, 15).map((t) => ({ titel: String(t.titel), beschreibung: t.beschreibung || '', schwerpunkte: t.schwerpunkte || [], tag: isDay(t.tag) ? t.tag : null }));
+  // Hat der Schüler Themen aufgezählt, gilt genau seine Liste – auch wenn die KI etwas zusammengelegt hat
+  const wanted = P.topicList(exam.topicsText);
+  if (wanted.length && themen.length !== wanted.length) {
+    const near = (a, b) => a.toLowerCase().includes(b.toLowerCase().slice(0, 12)) || b.toLowerCase().includes(a.toLowerCase().slice(0, 12));
+    themen = wanted.map((w, i) => {
+      const t = themen.find((x) => near(x.titel, w)) || {};
+      return { titel: w, beschreibung: t.beschreibung || '', schwerpunkte: t.schwerpunkte || [], tag: t.tag || days[Math.min(days.length - 1, Math.floor((i * days.length) / wanted.length))]?.iso || null };
+    });
+  }
   if (!themen.length) throw new AIError('Die KI hat keinen brauchbaren Plan geliefert. Bitte nochmal versuchen.');
   const lastDay = days.length ? days[days.length - 1].iso : null;
   const unit = (typ, titel, ziel, tag, themaIndex) => ({ id: uid(), typ, titel, ziel, tag, themaIndex, status: 'open' });
