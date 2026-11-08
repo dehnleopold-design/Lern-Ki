@@ -14,7 +14,7 @@ setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.26 (8.11.)';
+const APP_VERSION = '2.27 (8.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -2228,144 +2228,156 @@ function allExamDates() {
   return items.sort((a, b) => a.date.localeCompare(b.date));
 }
 
+const TILE_COLORS = ['#8b5cf6', '#a78bfa', '#f0abfc', '#f472b6', '#f87171', '#fdba74', '#fcd34d', '#86efac', '#5eead4', '#7dd3fc', '#93c5fd', '#94a3b8'];
+const lessonColor = (l) => l.color || subjectById(l.subjectId)?.color || '#8b5cf6';
+const lessonShort = (l) => l.label || subjectById(l.subjectId)?.short || (l.fach || 'Fach').slice(0, 5);
+
 function viewWeek() {
   const t = tt();
-  const screen = h('div', { class: 'screen with-tabs' },
-    h('header', { class: 'topbar' }, h('span', { class: 'iconbtn-spacer' }), h('div', { class: 'topbar-title' }, 'Stundenplan'),
-      h('button', { class: 'iconbtn', 'aria-label': 'Menü', onclick: () => timetableMenu() }, icon('more'))));
-  const main = h('main', { class: 'content narrow' });
-  add(screen, main, tabbar('week'));
-
-  if (!t.lessons.length) {
-    add(main, h('div', { class: 'center stack' }, mascot(110),
-      h('p', { class: 'muted' }, 'Lade ein Foto oder PDF deines Stundenplans hoch – ich lese Fächer, Lehrkräfte, Räume und Zeiten aus. Oder trag ihn selbst ein.'),
-      h('button', { class: 'btn primary block', onclick: () => uploadPlan('tt') }, icon('upload', 18), 'Stundenplan hochladen'),
-      h('button', { class: 'btn block', onclick: () => editLesson(null) }, icon('plus', 18), 'Selbst eintragen')));
-    return screen;
-  }
   const today = new Date();
   const todayIdx = (today.getDay() + 6) % 7;
-  ui.weekDay ??= todayIdx < 5 ? todayIdx : 0;
-  const week = abWeek(today);
-  ui.weekAB ??= null;
-  const showWeek = t.ab ? (ui.weekAB || week || 'A') : null;
-  add(main,
-    h('div', { class: 'day-chips' }, DAYS.map((d, i) => h('button', { class: `chip ${ui.weekDay === i ? 'active' : ''} ${i === todayIdx ? 'today' : ''}`, onclick: () => { ui.weekDay = i; render(); } }, d))),
-    t.ab ? h('div', { class: 'row gap center' }, ['A', 'B'].map((w) => h('button', { class: `pill ${showWeek === w ? 'active' : ''}`, onclick: () => { ui.weekAB = w; render(); } }, `${w}-Woche${week === w ? ' (jetzt)' : ''}`))) : null);
-  const day = ui.weekDay + 1;
-  const list = lessonsOn(day, showWeek);
+  const nowWeek = abWeek(today);
+  const showWeek = t.ab ? (ui.weekAB || nowWeek || 'A') : null;
   const now = `${String(today.getHours()).padStart(2, '0')}:${String(today.getMinutes()).padStart(2, '0')}`;
-  const isToday = ui.weekDay === todayIdx && (!t.ab || showWeek === week);
-  add(main, h('div', { class: 'label' }, DAY_NAMES[ui.weekDay]),
-    list.length ? h('div', { class: 'lessons' }, list.map((l) => {
-      const sl = slotOf(l.slot);
-      const sub = subjectById(l.subjectId);
-      const live = isToday && sl && sl.von <= now && now <= sl.bis;
-      return h('button', { class: `lesson ${live ? 'live' : ''}`, onclick: () => editLesson(l) },
-        h('span', { class: 'lesson-time' }, h('strong', {}, `${l.slot}.`), sl ? h('span', {}, `${sl.von}–${sl.bis}`) : null),
-        sub ? subjectBadge(sub, 34) : h('span', { class: 'badge-empty' }, icon('book', 18)),
-        h('span', { class: 'lesson-text' }, h('span', { class: 'lesson-name' }, lessonName(l), l.week && t.ab ? h('span', { class: 'muted small' }, ` · ${l.week}`) : null),
-          h('span', { class: 'muted small' }, [l.teacher, l.room ? `Raum ${l.room}` : ''].filter(Boolean).join(' · ') || 'Lehrkraft/Raum antippen zum Eintragen')),
-        live ? h('span', { class: 'live-dot' }, 'jetzt') : null);
-    })) : h('p', { class: 'muted center' }, 'An diesem Tag ist nichts eingetragen.'),
-    h('button', { class: 'btn block', onclick: () => editLesson(null, day) }, icon('plus', 18), 'Stunde eintragen'));
-  // Nächste Arbeiten als Hinweis
+  const isThisWeek = !t.ab || showWeek === nowWeek;
+
+  const grid = h('div', { class: 'tt-grid' },
+    h('div', { class: 'tt-corner' }),
+    DAYS.map((d, i) => h('div', { class: `tt-day ${i === todayIdx && isThisWeek ? 'today' : ''}` }, d)));
+  for (const sl of t.slots) {
+    add(grid, h('button', { class: 'tt-time', 'aria-label': `Zeiten der ${sl.n}. Stunde`, onclick: () => editSlot(sl) },
+      h('strong', {}, sl.n), h('span', {}, sl.von || '–'), h('span', { class: 'tt-bis' }, sl.bis || '')));
+    for (let d = 1; d <= 5; d++) {
+      const here = lessonsOn(d, showWeek).filter((l) => l.slot === sl.n);
+      if (!here.length) { add(grid, h('button', { class: 'tt-cell empty', 'aria-label': `${DAY_NAMES[d - 1]}, ${sl.n}. Stunde eintragen`, onclick: () => editLesson(null, d, sl.n) }, icon('plus', 16))); continue; }
+      if (here.length > 1) { // mehrere Kurse zur Wahl (aus einem hochgeladenen Plan)
+        add(grid, h('button', { class: 'tt-cell choice', onclick: () => chooseCourse(here) }, h('span', { class: 'tt-sub' }, 'Wählen'), h('span', { class: 'tt-meta' }, `${here.length} Kurse`)));
+        continue;
+      }
+      const l = here[0];
+      const live = d - 1 === todayIdx && isThisWeek && sl.von && sl.bis && sl.von <= now && now <= sl.bis;
+      add(grid, h('button', { class: `tt-cell ${live ? 'live' : ''}`, style: { '--c': lessonColor(l) }, onclick: () => editLesson(l) },
+        h('span', { class: 'tt-sub short' }, lessonShort(l)), h('span', { class: 'tt-sub long' }, l.label || lessonName(l)),
+        l.teacher ? h('span', { class: 'tt-meta' }, l.teacher) : null,
+        l.room ? h('span', { class: 'tt-room' }, l.room) : null));
+    }
+  }
+  const choices = new Set(t.lessons.map((l) => `${l.day}-${l.slot}-${l.week || ''}`).filter((k, i, a) => a.indexOf(k) !== i)).size;
+  const main = h('main', { class: 'content wide-tt' },
+    t.ab ? h('div', { class: 'row gap center' }, ['A', 'B'].map((w) => h('button', { class: `pill ${showWeek === w ? 'active' : ''}`, onclick: () => { ui.weekAB = w; render(); } }, `${w}-Woche${nowWeek === w ? ' (jetzt)' : ''}`))) : null,
+    choices ? h('p', { class: 'muted small center' }, `In ${choices} Stunden stehen mehrere Kurse – tippe auf „Wählen“ und such deinen aus.`) : null,
+    h('div', { class: 'tt-wrap' }, grid),
+    h('div', { class: 'row gap center tt-rows' },
+      h('button', { class: 'btn small ghost', onclick: () => { const last = t.slots.at(-1); t.slots.push({ n: (last?.n || 0) + 1, von: last?.bis || '', bis: '' }); save(); render(); } }, icon('plus', 16), 'Stunde'),
+      t.slots.length > 1 ? h('button', { class: 'btn small ghost', onclick: async () => {
+        const n = t.slots.at(-1).n;
+        if (t.lessons.some((l) => l.slot === n) && !(await confirmDialog(`In der ${n}. Stunde ist etwas eingetragen. Trotzdem entfernen?`, 'Entfernen'))) return;
+        t.lessons = t.lessons.filter((l) => l.slot !== n); t.slots.pop(); save(); render();
+      } }, icon('minus', 16), 'Stunde') : null),
+    t.lessons.length ? null : h('button', { class: 'btn block', onclick: () => uploadPlan('tt') }, icon('upload', 18), 'Oder Foto/PDF deines Plans hochladen'));
   const next = allExamDates().filter((x) => daysUntil(x.date) >= 0).slice(0, 2);
   if (next.length) add(main, h('div', { class: 'label' }, 'Nächste Prüfungen'), h('div', { class: 'menu' }, next.map((x) => examRow(x))));
-  return screen;
+  return h('div', { class: 'screen with-tabs' },
+    h('header', { class: 'topbar' }, h('span', { class: 'iconbtn-spacer' }), h('div', { class: 'topbar-title' }, 'Stundenplan'),
+      h('button', { class: 'iconbtn', 'aria-label': 'Menü', onclick: () => timetableMenu() }, icon('more'))),
+    main, tabbar('week'));
 }
 
 function timetableMenu() {
   const t = tt();
+  const file = t.fileIds.find((id) => state.files[id]);
   const o = sheet('Stundenplan', [h('div', { class: 'menu' },
-    menuRow('layers', 'Ganze Woche ansehen', 'Alle Tage als Tabelle', () => { o.remove(); weekTable(); }),
-    menuRow('upload', t.fileIds.length ? 'Neuen Stundenplan hochladen' : 'Stundenplan hochladen', t.lessons.length ? 'Ersetzt den eingetragenen Plan' : 'Foto oder PDF', () => { o.remove(); uploadPlan('tt'); }),
-    t.fileIds.some((id) => state.files[id]) ? menuRow('image', 'Hochgeladenen Plan ansehen', null, () => { o.remove(); openFile(t.fileIds.find((id) => state.files[id])); }) : null,
-    t.fileIds.some((id) => state.files[id]) ? menuRow('refresh', 'Nochmal auslesen', 'Falls etwas falsch erkannt wurde', () => { o.remove(); go('wimport', { kind: 'tt', ids: t.fileIds.filter((id) => state.files[id]) }); }) : null,
-    menuRow('clock', 'Zeiten der Stunden', `${t.slots.length} Stunden · ${t.slots[0]?.von || '?'}–${t.slots.at(-1)?.bis || '?'}`, () => { o.remove(); editSlots(); }),
+    menuRow('upload', file ? 'Neuen Plan hochladen' : 'Plan hochladen (Foto/PDF)', t.lessons.length ? 'Ersetzt die eingetragenen Stunden' : 'Jelly trägt alles ein', () => { o.remove(); uploadPlan('tt'); }),
+    file ? menuRow('image', 'Hochgeladenen Plan ansehen', null, () => { o.remove(); openFile(file); }) : null,
+    file ? menuRow('refresh', 'Nochmal auslesen', 'Falls etwas falsch erkannt wurde', () => { o.remove(); go('wimport', { kind: 'tt', ids: t.fileIds.filter((id) => state.files[id]) }); }) : null,
     menuRow('shuffle', 'A-/B-Wochen', t.ab ? `An · jetzt ${abWeek() || '?'}-Woche` : 'Aus', () => { o.remove(); editAB(); }),
-    t.lessons.length ? menuRow('trash', 'Stundenplan löschen', null, async () => {
+    t.lessons.length ? menuRow('trash', 'Alle Stunden löschen', null, async () => {
       o.remove();
-      if (!(await confirmDialog('Den ganzen Stundenplan löschen?', 'Löschen'))) return;
+      if (!(await confirmDialog('Alle eingetragenen Stunden löschen?', 'Löschen'))) return;
       for (const id of t.fileIds) await removeFile(id);
       Object.assign(t, { lessons: [], fileIds: [] }); save(); render();
     }, 'danger') : null)]);
 }
 
-function weekTable() {
-  const t = tt();
-  const week = t.ab ? (ui.weekAB || abWeek() || 'A') : null;
-  const used = [...new Set(t.lessons.map((l) => l.slot))].sort((a, b) => a - b);
-  const table = h('div', { class: 'tbl-wrap' }, h('table', { class: 'week-table' },
-    h('thead', {}, h('tr', {}, h('th', {}, ''), DAYS.map((d) => h('th', {}, d)))),
-    h('tbody', {}, used.map((n) => h('tr', {}, h('th', {}, `${n}.`, h('div', { class: 'muted small' }, slotOf(n)?.von || '')),
-      DAYS.map((_, i) => {
-        const l = lessonsOn(i + 1, week).find((x) => x.slot === n);
-        const sub = l && subjectById(l.subjectId);
-        return h('td', { style: sub ? { '--c': sub.color } : {}, class: l ? 'filled' : '' }, l ? [h('div', { class: 'wt-name' }, sub?.short || lessonName(l)), h('div', { class: 'muted small' }, l.room || '')] : '');
-      }))))));
-  sheet(`Woche${week ? ` (${week}-Woche)` : ''}`, [table]);
+// Beginn und Ende einer Stunde
+function editSlot(sl) {
+  const von = h('input', { class: 'input', type: 'time', value: sl.von || '' });
+  const bis = h('input', { class: 'input', type: 'time', value: sl.bis || '' });
+  const o = sheet(`${sl.n}. Stunde`, [
+    h('div', { class: 'row gap' }, h('div', { class: 'grow' }, h('div', { class: 'label' }, 'Beginn'), von), h('div', { class: 'grow' }, h('div', { class: 'label' }, 'Ende'), bis)),
+    h('button', { class: 'btn primary block', onclick: () => { sl.von = von.value; sl.bis = bis.value; save(); o.remove(); render(); } }, 'Speichern'),
+  ]);
 }
 
-function editLesson(l, day = null) {
+// Mehrere Kurse in einer Stunde (z. B. Wahlpflicht) – den eigenen auswählen
+function chooseCourse(list) {
+  const t = tt();
+  const o = sheet('Welchen Kurs hast du?', [h('div', { class: 'menu' }, list.map((l) => h('button', { class: 'menu-row', onclick: () => {
+    t.lessons = t.lessons.filter((x) => !(list.includes(x) && x !== l));
+    // gleiche Wahl automatisch auch für die anderen Stunden dieses Kurses übernehmen
+    for (const other of t.lessons.filter((x) => x !== l && x.teacher === l.teacher && lessonName(x) === lessonName(l))) {
+      const rivals = t.lessons.filter((x) => x !== other && x.day === other.day && x.slot === other.slot && (x.week || '') === (other.week || ''));
+      t.lessons = t.lessons.filter((x) => !rivals.includes(x));
+    }
+    save(); o.remove(); render();
+  } }, h('span', { class: 'swatch', style: { background: lessonColor(l) } }), h('span', { class: 'menu-text' }, h('span', { class: 'menu-label' }, lessonName(l)), h('span', { class: 'menu-sub' }, [l.teacher, l.room ? `Raum ${l.room}` : ''].filter(Boolean).join(' · ')))))),
+  h('button', { class: 'btn ghost block danger-text', onclick: () => { t.lessons = t.lessons.filter((x) => !list.includes(x)); save(); o.remove(); render(); } }, 'Keinen – Stunde frei lassen')]);
+}
+
+function editLesson(l, day = null, slot = null) {
   const t = tt();
   const isNew = !l;
-  const cur = l ? { ...l } : { id: uid(), day: day || (ui.weekDay ?? 0) + 1, slot: Math.max(0, ...lessonsOn(day || (ui.weekDay ?? 0) + 1).map((x) => x.slot)) + 1, subjectId: state.subjects[0]?.id || null, fach: '', teacher: '', room: '', week: null };
-  const subSel = h('select', { class: 'input' },
-    state.subjects.map((s) => h('option', { value: s.id, selected: s.id === cur.subjectId }, s.name)),
-    h('option', { value: '', selected: !cur.subjectId }, 'Anderes Fach …'));
-  const other = h('input', { class: 'input', placeholder: 'Name des Fachs, z. B. Religion', value: cur.fach || '' });
-  const syncOther = () => { other.style.display = subSel.value ? 'none' : ''; };
-  subSel.onchange = () => {
-    syncOther();
-    const s = subjectById(subSel.value);
-    if (s?.teacher && !teacher.value) teacher.value = s.teacher;
+  const cur = l ? { ...l } : { id: uid(), day: day || 1, slot: slot || 1, subjectId: null, fach: '', label: '', teacher: '', room: '', color: null, week: t.ab ? (ui.weekAB || null) : null };
+  const fach = h('input', { class: 'input', placeholder: 'z. B. Mathe', value: isNew ? '' : lessonName(cur), list: 'dl-subjects' });
+  const label = h('input', { class: 'input', placeholder: 'z. B. M', value: cur.label || '', maxlength: 6 });
+  const teacher = h('input', { class: 'input', placeholder: 'z. B. Frau Müller oder Wm', value: cur.teacher || '', list: 'dl-teachers' });
+  const room = h('input', { class: 'input', placeholder: 'z. B. H7', value: cur.room || '', list: 'dl-rooms' });
+  let color = cur.color || subjectById(cur.subjectId)?.color || null;
+  const swatches = h('div', { class: 'swatches' });
+  const drawSwatches = () => swatches.replaceChildren(...TILE_COLORS.map((c) => h('button', { class: `swatch big ${color === c ? 'on' : ''}`, style: { background: c }, 'aria-label': `Farbe ${c}`, onclick: () => { color = c; drawSwatches(); preview(); } })));
+  const prev = h('div', { class: 'tt-cell tt-preview' });
+  const preview = () => {
+    const s = matchSubject(fach.value);
+    const c = color || s?.color || '#8b5cf6';
+    prev.style.setProperty('--c', c);
+    prev.replaceChildren(h('span', { class: 'tt-sub' }, label.value || s?.short || (fach.value || 'Fach').slice(0, 5)), teacher.value ? h('span', { class: 'tt-meta' }, teacher.value) : null, room.value ? h('span', { class: 'tt-room' }, room.value) : null);
   };
-  const teacher = h('input', { class: 'input', placeholder: 'z. B. Frau Müller oder MÜL', value: cur.teacher || '', list: 'dl-teachers' });
-  const room = h('input', { class: 'input', placeholder: 'z. B. A104', value: cur.room || '', list: 'dl-rooms' });
-  const daySel = h('select', { class: 'input' }, DAY_NAMES.map((d, i) => h('option', { value: i + 1, selected: cur.day === i + 1 }, d)));
-  const slotSel = h('select', { class: 'input' }, Array.from({ length: Math.max(t.slots.length, 12) }, (_, i) => i + 1).map((n) => h('option', { value: n, selected: cur.slot === n }, `${n}. Stunde${slotOf(n) ? ` (${slotOf(n).von})` : ''}`)));
+  for (const el of [fach, label, teacher, room]) el.addEventListener('input', preview);
+  fach.addEventListener('change', () => { const s = matchSubject(fach.value); if (s?.teacher && !teacher.value) { teacher.value = s.teacher; preview(); } });
+  const sameAll = h('label', { class: 'check-row' }, h('input', { type: 'checkbox', checked: true }), h('span', {}, 'Farbe für alle Stunden dieses Fachs'));
   const weekSel = t.ab ? h('select', { class: 'input' }, [['', 'Jede Woche'], ['A', 'Nur A-Woche'], ['B', 'Nur B-Woche']].map(([v, lab]) => h('option', { value: v, selected: (cur.week || '') === v }, lab))) : null;
   const double = isNew ? h('label', { class: 'check-row' }, h('input', { type: 'checkbox' }), h('span', {}, 'Doppelstunde (auch die nächste Stunde)')) : null;
-  syncOther();
-  const o = sheet(isNew ? 'Stunde eintragen' : 'Stunde bearbeiten', [
-    h('div', { class: 'label' }, 'Fach'), subSel, other,
-    h('div', { class: 'label' }, 'Lehrkraft'), teacher, datalist('dl-teachers', knownTeachers()),
-    h('div', { class: 'label' }, 'Raum'), room, datalist('dl-rooms', knownRooms()),
-    h('div', { class: 'row gap' }, h('div', { class: 'grow' }, h('div', { class: 'label' }, 'Tag'), daySel), h('div', { class: 'grow' }, h('div', { class: 'label' }, 'Stunde'), slotSel)),
+  drawSwatches(); preview();
+  const o = sheet(`${DAY_NAMES[cur.day - 1]}, ${cur.slot}. Stunde`, [
+    prev,
+    h('div', { class: 'label' }, 'Fach'), fach, datalist('dl-subjects', state.subjects.map((s) => s.name)),
+    h('div', { class: 'row gap' },
+      h('div', { class: 'grow' }, h('div', { class: 'label' }, 'Lehrkraft'), teacher),
+      h('div', { class: 'grow' }, h('div', { class: 'label' }, 'Raum'), room)),
+    datalist('dl-teachers', knownTeachers()), datalist('dl-rooms', knownRooms()),
+    h('div', { class: 'label' }, 'Kürzel auf der Kachel (optional)'), label,
+    h('div', { class: 'label' }, 'Farbe'), swatches, sameAll,
     weekSel ? [h('div', { class: 'label' }, 'Woche'), weekSel] : null,
     double,
     h('button', { class: 'btn primary block', onclick: () => {
-      const vals = { day: Number(daySel.value), slot: Number(slotSel.value), subjectId: subSel.value || null, fach: subSel.value ? '' : other.value.trim(), teacher: teacher.value.trim(), room: room.value.trim(), week: weekSel?.value || null };
-      if (!vals.subjectId && !vals.fach) return toast('Bitte ein Fach wählen oder eintragen.');
-      const put = (slot) => {
-        const clash = t.lessons.find((x) => x.id !== cur.id && x.day === vals.day && x.slot === slot && (!t.ab || !x.week || !vals.week || x.week === vals.week));
-        if (clash) t.lessons = t.lessons.filter((x) => x !== clash);
-      };
-      put(vals.slot);
+      const name = fach.value.trim();
+      if (!name) return toast('Bitte ein Fach eintragen.');
+      const s = matchSubject(name);
+      const vals = { subjectId: s?.id || null, fach: s ? '' : name, label: label.value.trim(), teacher: teacher.value.trim(), room: room.value.trim(), color, week: weekSel?.value || null };
+      const clear = (slotN) => { t.lessons = t.lessons.filter((x) => x.id === cur.id || !(x.day === cur.day && x.slot === slotN && (!t.ab || !x.week || !vals.week || x.week === vals.week))); };
+      clear(cur.slot);
       if (isNew) t.lessons.push({ ...cur, ...vals });
       else Object.assign(t.lessons.find((x) => x.id === cur.id), vals);
-      if (double?.querySelector('input').checked) { put(vals.slot + 1); t.lessons.push({ ...cur, ...vals, id: uid(), slot: vals.slot + 1 }); }
-      const s = subjectById(vals.subjectId);
+      if (double?.querySelector('input').checked) {
+        if (!t.slots.some((x) => x.n === cur.slot + 1)) t.slots.push({ n: cur.slot + 1, von: slotOf(cur.slot)?.bis || '', bis: '' });
+        clear(cur.slot + 1); t.lessons.push({ ...cur, ...vals, id: uid(), slot: cur.slot + 1 });
+      }
+      if (color && sameAll.querySelector('input').checked) for (const x of t.lessons) if (lessonName(x) === (s?.name || name)) x.color = color;
       if (s && vals.teacher && !s.teacher) s.teacher = vals.teacher; // Lehrkraft fürs Fach merken
       save(); o.remove(); render();
     } }, 'Speichern'),
     isNew ? null : h('button', { class: 'btn ghost block danger-text', onclick: () => { t.lessons = t.lessons.filter((x) => x.id !== cur.id); save(); o.remove(); render(); } }, 'Stunde löschen'),
   ]);
-}
-
-function editSlots() {
-  const t = tt();
-  const rows = h('div', { class: 'stack' });
-  const draw = () => rows.replaceChildren(...t.slots.map((sl) => h('div', { class: 'row gap slot-row' },
-    h('strong', {}, `${sl.n}.`),
-    h('input', { class: 'input', type: 'time', value: sl.von, onchange: (e) => { sl.von = e.target.value; save(); } }),
-    h('span', {}, '–'),
-    h('input', { class: 'input', type: 'time', value: sl.bis, onchange: (e) => { sl.bis = e.target.value; save(); } }))));
-  draw();
-  sheet('Zeiten der Stunden', [rows, h('div', { class: 'row gap' },
-    h('button', { class: 'btn small', onclick: () => { const last = t.slots.at(-1); t.slots.push({ n: (last?.n || 0) + 1, von: last?.bis || '08:00', bis: last?.bis || '08:45' }); save(); draw(); } }, icon('plus', 16), 'Stunde'),
-    h('button', { class: 'btn small ghost', onclick: () => { if (t.slots.length > 1) { t.slots.pop(); save(); draw(); } } }, icon('minus', 16), 'Letzte entfernen'))]);
 }
 
 function editAB() {

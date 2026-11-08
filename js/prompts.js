@@ -494,6 +494,7 @@ Gib NUR JSON zurück:
 }
 REGELN
 - tag: 1 = Montag … 5 = Freitag (6 = Samstag, falls vorhanden). Doppelstunden als zwei Einträge (stunde 1 und 2).
+- Stehen in einer Zelle MEHRERE Kurse zur Wahl (z. B. mit * markiert: Wahlpflicht, Religion/Philosophie, Sprachen, Sport-Gruppen), gib JEDEN als eigenen Eintrag mit gleichem tag und gleicher stunde an. Der Schüler wählt später seinen aus.
 - woche: "A" oder "B", wenn der Plan A-/B-Wochen (bzw. gerade/ungerade Wochen) unterscheidet, sonst null. abWochen dann true.
 - fach: Die Fächer des Schülers sind: ${subjectList()}. Ordne jedes Fach im Plan einem dieser Namen zu (exakt so geschrieben), wenn es eindeutig passt (z. B. "M" → Mathe, "Ph" → Physik). Sonst den Namen aus dem Plan ausgeschrieben übernehmen.
 - lehrer und raum genau so, wie sie im Plan stehen (Kürzel bleiben Kürzel). Fehlt etwas, leerer Text.
