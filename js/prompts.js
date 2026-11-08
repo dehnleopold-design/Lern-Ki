@@ -97,6 +97,7 @@ function fileDigestText(id) {
   const f = state.files[id];
   if (!f?.digest) return '';
   const d = f.digest;
+  if (d.teil) return ''; // weitere Seite eines Dokuments – steht schon bei der ersten Seite
   const list = (x) => (Array.isArray(x) && x.length ? x.map((v) => `- ${typeof v === 'string' ? v : JSON.stringify(v)}`).join('\n') : '');
   return [
     `### ${f.kind === 'archive' ? 'ALTE KLAUSUR' : 'MATERIAL'}: ${d.titel || f.name}${d.art ? ` (${d.art})` : ''}`,
@@ -133,9 +134,10 @@ export function examContext(exam) {
 }
 
 // ---------- 1. Material genau lesen ----------
-export function digestPrompt(kind) {
+export function digestPrompt(kind, pages = 1) {
+  const multi = pages > 1 ? `\nDie ${pages} Bilder sind die SEITEN EINES EINZIGEN DOKUMENTS, in dieser Reihenfolge. Fasse sie als ein Dokument zusammen (Aufgaben und Materialien können über mehrere Seiten gehen).` : '';
   if (kind === 'archive') {
-    return `Das ist eine ALTE KLAUSUR / KLASSENARBEIT (evtl. mit Korrektur der Lehrkraft). Lies sie vollständig und sehr genau – auch handschriftliche Randbemerkungen, Punkte und Rotstift.
+    return `Das ist eine ALTE KLAUSUR / KLASSENARBEIT (evtl. mit Korrektur der Lehrkraft). Lies sie vollständig und sehr genau – auch handschriftliche Randbemerkungen, Punkte und Rotstift.${multi}
 Gib NUR JSON zurück:
 {
  "titel": "kurzer Titel",
@@ -150,7 +152,7 @@ Gib NUR JSON zurück:
 }
 Unleserliches als [unleserlich] kennzeichnen. Nichts erfinden.`;
   }
-  return `Das ist UNTERRICHTSMATERIAL (Arbeitsblatt, Lernzettel, Hefteintrag, Buchseite …). Lies es vollständig und sehr genau, inklusive Handschrift, Markierungen, Tabellen, Grafiken.
+  return `Das ist UNTERRICHTSMATERIAL (Arbeitsblatt, Lernzettel, Hefteintrag, Buchseite …). Lies es vollständig und sehr genau, inklusive Handschrift, Markierungen, Tabellen, Grafiken.${multi}
 Gib NUR JSON zurück:
 {
  "titel": "kurzer Titel",
@@ -391,7 +393,7 @@ Reihenfolge wie auf der Seite. Nichts weglassen, nichts hinzuerfinden. Unleserli
 }
 
 export function vocabTestProfilePrompt(sprache) {
-  return `Das sind ALTE VOKABELTESTS (${sprache}), evtl. mit Korrektur der Lehrkraft. Analysiere sie genau und beschreibe das TESTPROFIL der Lehrkraft, damit Übungstests exakt so aussehen und so streng bewertet werden.
+  return `Das sind ALTE VOKABELTESTS (${sprache}), evtl. mit Korrektur der Lehrkraft. Vor den Bildern steht jeweils, zu welchem Test und welcher Seite sie gehören. Analysiere sie genau und beschreibe das TESTPROFIL der Lehrkraft, damit Übungstests exakt so aussehen und so streng bewertet werden.
 Markdown, knapp und konkret, mit Beispielen aus den Tests:
 **Aufbau & Umfang** (Anzahl Wörter, Zeit, Punkte) – **Aufgabentypen** (z. B. Deutsch→${sprache}, ${sprache}→Deutsch, Lückensätze, Sätze bilden, Synonyme/Gegenteile, Definitionen, Verbformen, Zuordnen) mit Anteil – **Bewertung** (zählen Rechtschreibung, Akzente, Artikel, Großschreibung? halbe Punkte?) – **Typische Fehler, die angestrichen wurden** – **Tipps**.`;
 }

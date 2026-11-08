@@ -93,8 +93,9 @@ export function makeWorker(db, { deadline, log = console.log }) {
       for (const fid of G.examFileIds(exam)) {
         if (state.files[fid]?.digest) continue;
         await ctx.check();
-        await G.digestFile(fid);
-        await writeResult(ctx.uid, `d_${fid}`, [{ path: ['files', fid, 'digest'], value: state.files[fid].digest, onlyIfEmpty: true }], 'Blatt gelesen');
+        const ids = await G.digestFile(fid);
+        if (!ids.length) continue;
+        await writeResult(ctx.uid, `d_${ids[0]}`, ids.map((x) => ({ path: ['files', x, 'digest'], value: state.files[x].digest, onlyIfEmpty: true })), 'Blatt gelesen');
         made++;
       }
       const subject = state.subjects.find((s) => s.id === exam.subjectId);
@@ -144,8 +145,9 @@ export function makeWorker(db, { deadline, log = console.log }) {
     for (const fid of s.archive || []) {
       if (!state.files[fid] || state.files[fid].digest) continue;
       await ctx.check();
-      await G.digestFile(fid);
-      await writeResult(ctx.uid, `d_${fid}`, [{ path: ['files', fid, 'digest'], value: state.files[fid].digest, onlyIfEmpty: true }], 'Alte Klausur gelesen');
+      const ids = await G.digestFile(fid);
+      if (!ids.length) continue;
+      await writeResult(ctx.uid, `d_${ids[0]}`, ids.map((x) => ({ path: ['files', x, 'digest'], value: state.files[x].digest, onlyIfEmpty: true })), 'Alte Klausur gelesen');
       made++;
     }
     await ctx.check();

@@ -42,12 +42,13 @@ export async function fileToStored(file) {
   return { mime: mime.startsWith('text/') ? 'text/plain' : mime, data, size: blob.size };
 }
 
-export async function addFile(file, { kind, subjectId }) {
+// group: id der ersten Seite, wenn mehrere Bilder zusammen EIN Dokument sind (z. B. eine Klausur mit 3 Seiten)
+export async function addFile(file, { kind, subjectId, group = null }) {
   const stored = await fileToStored(file);
   if (stored.size > 18 * 1024 * 1024) throw new Error(`${file.name} ist größer als 18 MB. Bitte aufteilen.`);
   const id = uid();
   await putBlob(id, { mime: stored.mime, data: stored.data });
-  state.files[id] = { id, name: file.name || 'Foto', mime: stored.mime, size: stored.size, kind, subjectId, digest: null, addedAt: Date.now() };
+  state.files[id] = { id, name: file.name || 'Foto', mime: stored.mime, size: stored.size, kind, subjectId, digest: null, addedAt: Date.now(), ...(group ? { group } : {}) };
   save();
   return id;
 }

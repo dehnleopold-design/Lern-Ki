@@ -277,15 +277,15 @@ export function toast(msg, kind = 'info') {
   setTimeout(() => { t.classList.remove('show'); setTimeout(() => t.remove(), 300); }, kind === 'error' ? 6000 : 3000);
 }
 
-export function confirmDialog(text, okLabel = 'OK') {
+export function confirmDialog(text, okLabel = 'OK', cancelLabel = 'Abbrechen', okClass = 'danger') {
   return new Promise((resolve) => {
     const close = (v) => { overlay.remove(); resolve(v); };
     const overlay = h('div', { class: 'overlay', onclick: (e) => { if (e.target === overlay) close(false); } },
       h('div', { class: 'dialog' },
         h('p', {}, text),
         h('div', { class: 'row gap' },
-          h('button', { class: 'btn ghost', onclick: () => close(false) }, 'Abbrechen'),
-          h('button', { class: 'btn danger', onclick: () => close(true) }, okLabel))));
+          h('button', { class: 'btn ghost', onclick: () => close(false) }, cancelLabel),
+          h('button', { class: `btn ${okClass}`, onclick: () => close(true) }, okLabel))));
     document.body.append(overlay);
   });
 }

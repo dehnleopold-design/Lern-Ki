@@ -5,7 +5,7 @@ import { authEnabled, initAuth, signInGoogle, signInEmail, registerEmail, resetP
 import { generate, aiReady, listGeminiModels, pickDefaultModel, AIError, onAIStatus, FALLBACK_PRESETS, listOpenAIModels, pickFallbackModel, fallbackReady } from './ai.js';
 import { addFile, removeFile, filePart, thumbURL, pickFiles } from './files.js';
 import * as P from './prompts.js';
-import { allUnits, hasContent, lernzettelText, missingPhases, genLernzettel, genQuiz, genAufgaben, generateUnit, setPartLoader, digestFile, buildTeacherProfile, examFileIds, examNeedsProfile, createPlan, buildVocabPlan, buildVocabSet, buildVocabTestProfile, solveSheet, pendingJobs } from './gen.js';
+import { allUnits, hasContent, lernzettelText, missingPhases, genLernzettel, genQuiz, genAufgaben, generateUnit, setPartLoader, digestFile, groupOf, isGroupLead, resetGroup, buildTeacherProfile, examFileIds, examNeedsProfile, createPlan, buildVocabPlan, buildVocabSet, buildVocabTestProfile, solveSheet, pendingJobs } from './gen.js';
 import { gradeLabel, gradeOptions, percentToGrade, reachesTarget, scale } from './grades.js';
 import { downloadLernzettel, sheetHTML, SHEET_CSS } from './pdf.js';
 import { openFile, fileKindLabel } from './viewer.js';
@@ -14,7 +14,7 @@ setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.20 (7.11.)';
+const APP_VERSION = '2.21 (8.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -98,6 +98,34 @@ function fallbackTip(msg) {
     h('p', { class: 'small' }, 'Jelly kann im Moment nur Google fragen. Mit einem kostenlosen Ersatz-Anbieter (z. B. Groq) geht es weiter, wenn Google überlastet ist.'),
     h('button', { class: 'btn block', onclick: () => sheet('KI-Verbindung', [aiSetupBlock(false)]) }, icon('zap', 18), 'Ersatz-Anbieter einrichten'));
 }
+
+// Mehrere Dateien auf einmal? Fragen, ob sie Seiten EINES Dokuments sind (z. B. eine Klausur mit 3 Seiten).
+async function askTogether(n, one, many) {
+  if (n < 2) return false;
+  return confirmDialog(`Gehören diese ${n} Dateien zu ${one} (mehrere Seiten)?`, `Ja, ${one}`, many, 'primary');
+}
+
+// Lädt Dateien hoch. together: alle als Seiten eines Dokuments. into: an ein bestehendes Dokument anhängen.
+async function uploadPages(files, { kind, subjectId = null, together = false, into = null }) {
+  let lead = into ? groupOf(into)[0] : null;
+  const ids = [];
+  for (const f of files) {
+    try {
+      const id = await addFile(f, { kind, subjectId, group: lead });
+      if ((together || into) && !lead) lead = id;
+      ids.push(id);
+    } catch (e) { toast(errorMsg(e), 'error'); }
+  }
+  if (into && ids.length) resetGroup(lead);
+  return ids;
+}
+
+async function removeGroup(id) {
+  for (const x of groupOf(id)) await removeFile(x);
+}
+
+const archiveCountOf = (s) => (s.archive || []).filter((fid) => state.files[fid] && isGroupLead(fid)).length;
+const pagesLabel = (id) => { const n = groupOf(id).length; return n > 1 ? `${n} Seiten` : '1 Seite'; };
 
 function errorMsg(e) {
   return e instanceof AIError || e instanceof Error ? e.message : String(e);
@@ -792,30 +820,39 @@ function viewNewExam() {
       const tiles = [];
       for (const id of nx.materialIds) {
         const f = state.files[id];
-        if (!f) continue;
+        if (!f || !isGroupLead(id)) continue;
         const url = await thumbURL(id);
+        const n = groupOf(id).length;
         tiles.push(h('div', { class: 'tile filled' },
           url ? h('img', { src: url, alt: f.name, onclick: () => openFile(id) }) : h('div', { class: 'tile-file', onclick: () => openFile(id) }, icon('file', 34), h('span', {}, f.name)),
           f.digest ? h('span', { class: 'tile-ok' }, icon('check', 14)) : null,
-          h('button', { class: 'tile-del', 'aria-label': 'Entfernen', onclick: async () => { nx.materialIds = nx.materialIds.filter((x) => x !== id); await removeFile(id); drawGrid(); } }, icon('close', 16))));
+          n > 1 ? h('span', { class: 'tile-pages' }, `${n} S.`) : null,
+          h('button', { class: 'tile-addpage', 'aria-label': 'Seite hinzufügen', title: 'Weitere Seite zu diesem Blatt', onclick: async () => {
+            const files = await pickFiles({ accept: 'image/*,application/pdf,.pdf' });
+            if (!files.length) return;
+            nx.materialIds.push(...(await uploadPages(files, { kind: 'material', subjectId: nx.subjectId, into: id })));
+            drawGrid();
+          } }, icon('plus', 14)),
+          h('button', { class: 'tile-del', 'aria-label': 'Entfernen', onclick: async () => { const ids = groupOf(id); nx.materialIds = nx.materialIds.filter((x) => !ids.includes(x)); await removeGroup(id); drawGrid(); } }, icon('close', 16))));
       }
       const addTile = (label, opts) => h('button', { class: 'tile', onclick: async () => {
         const files = await pickFiles(opts);
-        for (const file of files) {
-          try { nx.materialIds.push(await addFile(file, { kind: 'material', subjectId: nx.subjectId })); } catch (e) { toast(errorMsg(e), 'error'); }
-        }
+        if (!files.length) return;
+        const together = await askTogether(files.length, 'einem Blatt', 'Verschiedene Blätter');
+        nx.materialIds.push(...(await uploadPages(files, { kind: 'material', subjectId: nx.subjectId, together })));
         drawGrid();
       } }, icon(opts.capture ? 'camera' : 'plus', 30), h('span', { class: 'small muted' }, label));
       tiles.push(addTile('Foto aufnehmen', { accept: 'image/*', capture: 'environment', multiple: false }), addTile('Dateien / PDF', {}));
       grid.replaceChildren(...tiles);
     };
     drawGrid();
-    const archiveCount = subject?.archive?.length || 0;
+    const archiveCount = subject ? archiveCountOf(subject) : 0;
     return h('div', { class: 'screen' }, bar(3),
       h('main', { class: 'content narrow' },
         speech(`Welche Themen kommen in deiner ${subject?.name}-Klausur dran?`),
         h('div', { class: 'label' }, 'Lernmaterial hinzufügen (Arbeitsblätter, Lernzettel, Heft, Buchseiten)'),
         grid,
+        h('p', { class: 'muted small' }, 'Mehrseitiges Blatt einzeln fotografiert? Tippe auf das + an der Kachel, um weitere Seiten anzuhängen.'),
         h('div', { class: 'label' }, 'Themen laut Lehrkraft (optional, aber hilfreich)'),
         h('textarea', { class: 'input', rows: 3, placeholder: 'z. B. „Klimazonen, Monsun, Klimadiagramme auswerten – Kapitel 3 im Buch“', value: nx.topicsText, oninput: (e) => { nx.topicsText = e.target.value; } }),
         h('label', { class: 'check-row' },
@@ -934,7 +971,7 @@ function viewPrepare({ examId }) {
       try {
         if (exam.building) {
           const subject = subjectById(exam.subjectId);
-          const ids = examFileIds(exam).filter((id) => !state.files[id]?.digest);
+          const ids = examFileIds(exam).filter((id) => !state.files[id]?.digest && isGroupLead(id));
           const needProfile = examNeedsProfile(exam);
           const k = panel.addSteps([
             ...ids.map((id) => `${state.files[id]?.kind === 'archive' ? 'Alte Klausur' : 'Lese'}: ${state.files[id]?.name || 'Datei'}`),
@@ -1380,7 +1417,7 @@ function viewSubjects() {
       h('div', { class: 'label' }, 'Deine Fächer'),
       h('div', { class: 'menu' }, state.subjects.map((s) => h('button', { class: 'menu-row', onclick: () => go('subject', { id: s.id }) },
         subjectBadge(s, 38),
-        h('span', { class: 'menu-text' }, h('span', { class: 'menu-label' }, s.name), h('span', { class: 'menu-sub' }, `${(s.archive || []).length ? `${s.archive.length} alte Klausuren` : 'Noch keine alten Klausuren'}${P.langInfo(s).teach !== 'de' ? ` · ${P.LANG_NAMES[P.langInfo(s).teach]}` : ''}`)),
+        h('span', { class: 'menu-text' }, h('span', { class: 'menu-label' }, s.name), h('span', { class: 'menu-sub' }, `${archiveCountOf(s) ? `${archiveCountOf(s)} alte Klausuren` : 'Noch keine alten Klausuren'}${P.langInfo(s).teach !== 'de' ? ` · ${P.LANG_NAMES[P.langInfo(s).teach]}` : ''}`)),
         icon('chev', 18)))),
       h('button', { class: 'link-small', onclick: () => addSubjectDialog() }, icon('plus', 16), 'Fach hinzufügen')),
     tabbar('subjects'));
@@ -1391,17 +1428,24 @@ function viewSubject({ id }) {
   if (!s) { go('subjects'); return h('div'); }
   const archiveList = h('div', { class: 'list' });
   const drawArchive = () => {
-    archiveList.replaceChildren(...(s.archive || []).map((fid) => {
+    archiveList.replaceChildren(...(s.archive || []).filter((fid) => state.files[fid] && isGroupLead(fid)).map((fid) => {
       const f = state.files[fid];
-      if (!f) return null;
       const st = ui.busy[fid] ? 'liest …' : f.digest ? '✓ gelesen' : 'noch nicht gelesen';
       return h('div', { class: 'list-item' },
-        h('button', { class: 'row gap file-open', onclick: () => openFile(fid) }, icon('file', 20), h('span', {}, f.digest?.titel || f.name)),
-        h('span', { class: 'row gap' }, h('span', { class: 'muted small' }, st),
+        h('button', { class: 'row gap file-open', onclick: () => openFile(fid) }, icon('file', 20), h('span', { class: 'stack-tight' }, h('span', {}, f.digest?.titel || f.name), h('span', { class: 'muted small' }, `${pagesLabel(fid)} · ${st}`))),
+        h('span', { class: 'row gap' },
           !f.digest && !ui.busy[fid] ? h('button', { class: 'btn small', onclick: () => readArchive() }, 'Lesen') : null,
+          h('button', { class: 'iconbtn', 'aria-label': 'Seite hinzufügen', title: 'Seite hinzufügen', onclick: async () => {
+            const files = await pickFiles({ accept: 'image/*,application/pdf,.pdf' });
+            if (!files.length) return;
+            const added = await uploadPages(files, { kind: 'archive', subjectId: s.id, into: fid });
+            s.archive.push(...added); save(); drawArchive();
+            if (added.length) { toast(`Seite${added.length > 1 ? 'n' : ''} hinzugefügt – ich lese die Klausur neu.`, 'ok'); readArchive(); }
+          } }, icon('plus', 18)),
           h('button', { class: 'iconbtn', 'aria-label': 'Löschen', onclick: async () => {
-            if (!(await confirmDialog('Diese Klausur aus dem Archiv löschen?', 'Löschen'))) return;
-            s.archive = s.archive.filter((x) => x !== fid); await removeFile(fid); save(); render();
+            if (!(await confirmDialog(`Diese Klausur (${pagesLabel(fid)}) aus dem Archiv löschen?`, 'Löschen'))) return;
+            const ids = groupOf(fid);
+            s.archive = s.archive.filter((x) => !ids.includes(x)); await removeGroup(fid); save(); render();
           } }, icon('trash', 18))));
     }));
     if (!(s.archive || []).length) add(archiveList, h('p', { class: 'muted small' }, 'Noch keine alten Klausuren.'));
@@ -1448,10 +1492,10 @@ function viewSubject({ id }) {
 
   const upload = async () => {
     const files = await pickFiles();
-    const added = [];
-    for (const f of files) {
-      try { const fid = await addFile(f, { kind: 'archive', subjectId: s.id }); (s.archive ||= []).push(fid); added.push(fid); } catch (e) { toast(errorMsg(e), 'error'); }
-    }
+    if (!files.length) return;
+    const together = await askTogether(files.length, 'einer Klausur', 'Einzelne Klausuren');
+    const added = await uploadPages(files, { kind: 'archive', subjectId: s.id, together });
+    (s.archive ||= []).push(...added);
     save(); drawArchive();
     if (added.length) readArchive();
   };
@@ -1465,7 +1509,7 @@ function viewSubject({ id }) {
       h('div', { class: 'subject-hero' }, subjectBadge(s, 56), h('h1', { class: 'display' }, s.name), P.langInfo(s).teach !== 'de' ? h('span', { class: 'chip-static' }, `Unterricht auf ${P.LANG_NAMES[P.langInfo(s).teach]}`) : null),
       h('button', { class: 'btn primary block', onclick: () => startNewExam(s.id) }, icon('plus', 18), 'Klausur anlegen'),
       h('div', { class: 'folds' },
-        fold('layers', 'Alte Klausuren', `${(s.archive || []).length} hochgeladen`, [
+        fold('layers', 'Alte Klausuren', `${archiveCountOf(s)} hochgeladen`, [
           h('p', { class: 'muted small' }, 'Am besten korrigierte Klausuren (mit Rotstift & Punkten). Daraus lerne ich den Stil deiner Lehrkraft.'),
           archiveList,
           h('button', { class: 'btn block', onclick: upload }, icon('upload', 18), 'Klausuren hochladen')]),
@@ -2041,9 +2085,19 @@ function viewVocabTests({ sprache }) {
   const list = h('div', { class: 'menu' });
   const profileBox = h('div', { class: 'stack' });
   const drawList = () => {
-    list.replaceChildren(...t.fileIds.map((fid) => h('div', { class: 'menu-row' },
-      h('span', { class: 'menu-ico' }, icon('file', 20)), h('button', { class: 'menu-text file-open', onclick: () => openFile(fid) }, h('span', { class: 'menu-label' }, state.files[fid]?.name || 'Test'), h('span', { class: 'menu-sub' }, 'Antippen zum Öffnen')),
-      h('button', { class: 'iconbtn small', 'aria-label': 'Löschen', onclick: async () => { t.fileIds = t.fileIds.filter((x) => x !== fid); await removeFile(fid); save(); drawList(); } }, icon('trash', 18)))));
+    const leads = t.fileIds.filter((fid) => state.files[fid] && isGroupLead(fid));
+    list.replaceChildren(...leads.map((fid, i) => h('div', { class: 'menu-row' },
+      h('span', { class: 'menu-ico' }, icon('file', 20)), h('button', { class: 'menu-text file-open', onclick: () => openFile(fid) }, h('span', { class: 'menu-label' }, `Test ${i + 1}`), h('span', { class: 'menu-sub' }, `${pagesLabel(fid)} · antippen zum Öffnen`)),
+      h('button', { class: 'iconbtn small', 'aria-label': 'Seite hinzufügen', title: 'Seite hinzufügen', onclick: async () => {
+        const files = await pickFiles({ accept: 'image/*,application/pdf,.pdf' });
+        if (!files.length) return;
+        const added = await uploadPages(files, { kind: 'vtest', into: fid });
+        t.fileIds.push(...added); save(); drawList(); if (added.length) build();
+      } }, icon('plus', 18)),
+      h('button', { class: 'iconbtn small', 'aria-label': 'Löschen', onclick: async () => {
+        if (!(await confirmDialog(`Test ${i + 1} (${pagesLabel(fid)}) löschen?`, 'Löschen'))) return;
+        const ids = groupOf(fid); t.fileIds = t.fileIds.filter((x) => !ids.includes(x)); await removeGroup(fid); save(); drawList();
+      } }, icon('trash', 18)))));
     if (!t.fileIds.length) add(list, h('div', { class: 'menu-row' }, h('span', { class: 'muted small' }, 'Noch keine alten Tests.')));
   };
   const drawProfile = () => profileBox.replaceChildren(
@@ -2073,9 +2127,11 @@ function viewVocabTests({ sprache }) {
       h('p', { class: 'muted small center' }, 'Am besten korrigierte Tests. Ich schaue mir Aufgabentypen, Richtung und Strenge (Rechtschreibung, Artikel, Akzente) an.'),
       list,
       h('button', { class: 'btn primary block', onclick: async () => {
-        const added = [];
-        for (const f of await pickFiles()) { try { const fid = await addFile(f, { kind: 'vtest', subjectId: null }); t.fileIds.push(fid); added.push(fid); } catch (e) { toast(errorMsg(e), 'error'); } }
-        save(); drawList(); if (added.length) build();
+        const files = await pickFiles();
+        if (!files.length) return;
+        const together = await askTogether(files.length, 'einem Test', 'Einzelne Tests');
+        const added = await uploadPages(files, { kind: 'vtest', together });
+        t.fileIds.push(...added); save(); drawList(); if (added.length) build();
       } }, icon('upload', 18), 'Tests hochladen'),
       h('section', { class: 'card stack' }, h('h3', {}, 'Testprofil'), profileBox,
         t.fileIds.length ? h('button', { class: 'btn small ghost', onclick: build }, icon('refresh', 16), 'Neu analysieren') : null)));
@@ -2201,8 +2257,8 @@ function viewFiles() {
     h('main', { class: 'content narrow' },
       files.length ? null : h('p', { class: 'muted center' }, 'Noch keine Dateien hochgeladen.'),
       groups.map(([k, list]) => h('section', { class: 'files-group' },
-        h('div', { class: 'label' }, `${k === 'other' ? 'Sonstiges' : fileKindLabel(k)} (${list.length})`),
-        h('div', { class: 'menu' }, list.map((f) => menuRow(f.mime?.startsWith('image/') ? 'image' : 'file', f.digest?.titel || f.name, sub(f), () => openFile(f.id))))))));
+        h('div', { class: 'label' }, `${k === 'other' ? 'Sonstiges' : fileKindLabel(k)} (${list.filter((f) => isGroupLead(f.id)).length})`),
+        h('div', { class: 'menu' }, list.filter((f) => isGroupLead(f.id)).map((f) => menuRow(f.mime?.startsWith('image/') ? 'image' : 'file', f.digest?.titel || f.name, [sub(f), groupOf(f.id).length > 1 ? pagesLabel(f.id) : ''].filter(Boolean).join(' · '), () => openFile(f.id))))))));
 }
 
 function privacySheet() {

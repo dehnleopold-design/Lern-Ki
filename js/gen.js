@@ -75,12 +75,33 @@ export function generateUnit(exam, unit) {
 
 
 // ================================================================ Material lesen, Lehrerprofil, Lernplan
+// Mehrere Bilder können EIN Dokument sein (files[x].group = id der ersten Seite). Liefert die Seiten in Reihenfolge.
+export function groupOf(id) {
+  const g = state.files[id]?.group || id;
+  return Object.values(state.files).filter((x) => (x.group || x.id) === g)
+    .sort((a, b) => (a.id === g ? -1 : b.id === g ? 1 : (a.addedAt || 0) - (b.addedAt || 0))).map((x) => x.id);
+}
+export const isGroupLead = (id) => groupOf(id)[0] === id;
+
+// Liest ein Dokument (alle Seiten zusammen). Die Zusammenfassung steht bei der ersten Seite,
+// die anderen Seiten bekommen nur einen Verweis. Gibt die geänderten Datei-ids zurück.
 export async function digestFile(id) {
   const f = state.files[id];
-  if (!f || f.digest) return false;
+  if (!f || f.digest) return [];
+  const ids = groupOf(id);
+  const lead = ids[0];
   const subject = subjectById(f.subjectId);
-  f.digest = await generate({ system: P.baseSystem(subject), parts: [{ text: P.digestPrompt(f.kind) }, await partOf(id)], json: true, temperature: 0.1 });
-  return true;
+  const parts = [{ text: P.digestPrompt(f.kind, ids.length) }];
+  for (const x of ids) parts.push(await partOf(x));
+  const digest = await generate({ system: P.baseSystem(subject), parts, json: true, temperature: 0.1 });
+  state.files[lead].digest = digest;
+  for (const x of ids.slice(1)) state.files[x].digest = { teil: lead };
+  return ids;
+}
+
+// Seite zu einem Dokument hinzugefügt → alles neu lesen
+export function resetGroup(id) {
+  for (const x of groupOf(id)) if (state.files[x]) state.files[x].digest = null;
 }
 
 export async function buildTeacherProfile(subject) {
@@ -196,7 +217,14 @@ export async function buildVocabTestProfile(sprache) {
   const t = vocabState().tests[sprache];
   if (!t?.fileIds?.length) { if (t) delete t.building; return null; }
   const parts = [{ text: P.vocabTestProfilePrompt(sprache) }];
-  for (const fid of t.fileIds) parts.push(await partOf(fid));
+  const leads = t.fileIds.filter((fid) => state.files[fid] && isGroupLead(fid));
+  for (let i = 0; i < leads.length; i++) {
+    const pages = groupOf(leads[i]);
+    for (let k = 0; k < pages.length; k++) {
+      parts.push({ text: `Test ${i + 1}${pages.length > 1 ? `, Seite ${k + 1} von ${pages.length}` : ''}:` });
+      parts.push(await partOf(pages[k]));
+    }
+  }
   t.profil = await generate({ system: P.vocabSystem(), parts, temperature: 0.2 });
   delete t.building;
   const subject = state.subjects.find((s) => P.vocabSpracheOf(s) === sprache);
