@@ -14,7 +14,7 @@ setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.21 (8.11.)';
+const APP_VERSION = '2.22 (8.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -2271,8 +2271,8 @@ function privacySheet() {
 ## Wohin wird etwas geschickt?
 - **Google Gemini:** Material, Fotos, Fragen und Antworten, wenn Jelly etwas erstellt oder korrigiert. Laut Googles Bedingungen werden Eingaben von Nutzern in der EU **nicht zur Produktverbesserung** genutzt, auch in der kostenlosen Stufe.
 - **Ersatz-Anbieter** (Groq, Mistral oder OpenRouter) – nur wenn du ihn einrichtest und Google überlastet ist. Es gelten dessen Bedingungen; Groq und OpenRouter sitzen in den USA.
-- **Jelly im Hintergrund** (nur mit Konto): Damit Lernzettel & Co. auch bei geschlossener App fertig werden, liest eine Funktion in **Google Cloud (Firebase, Rechenzentrum Frankfurt)** deinen Stand und deine hochgeladenen Dateien aus Firestore, schickt die Anfragen mit deinem Schlüssel an Gemini und legt die Ergebnisse wieder in Firestore ab. Die Protokolle der Funktion enthalten keine Inhalte.
-- **YouTube** – nur wenn du das Warte-Video abspielst.
+${backgroundAvailable() ? `- **Jelly im Hintergrund** (nur mit Konto): Damit Lernzettel & Co. auch bei geschlossener App fertig werden, liest eine Funktion in **Google Cloud (Firebase, Rechenzentrum Frankfurt)** deinen Stand und deine hochgeladenen Dateien aus Firestore, schickt die Anfragen mit deinem Schlüssel an Gemini und legt die Ergebnisse wieder in Firestore ab. Die Protokolle der Funktion enthalten keine Inhalte.
+` : ''}- **YouTube** – nur wenn du das Warte-Video abspielst.
 - **GitHub Pages** liefert die App aus; dabei sieht GitHub (USA) wie bei jeder Website deine IP-Adresse.
 - Schriften und PDF-Bibliothek liegen in der App selbst – dafür wird kein fremder Server kontaktiert.
 

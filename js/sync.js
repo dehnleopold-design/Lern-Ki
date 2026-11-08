@@ -11,6 +11,7 @@
 import { state, save, onChange, applyRemoteState, kvGet, kvPut, getBlob, putBlob, blobKeys } from './store.js';
 import { allUnits, applyOps } from './gen.js';
 import { firebaseApp } from './auth.js';
+import { backgroundFunctions } from './firebase-config.js';
 
 const V = '10.12.2';
 const CHUNK = 900000; // Zeichen pro Dokument (unter dem 1-MB-Limit)
@@ -47,7 +48,7 @@ const presenceRef = () => fs.doc(db, 'users', uid, 'bgpresence', 'app');
 
 // Solange die App offen ist, pausiert der Hintergrund-Dienst (sonst teilen sich beide die Gratis-Limits).
 function heartbeat(open) {
-  if (!db) return;
+  if (!db || !backgroundFunctions) return;
   fs.setDoc(presenceRef(), { until: open ? Date.now() + 4 * 60000 : 0 }).catch(() => {});
 }
 
@@ -119,13 +120,13 @@ function applyBackground() {
 
 // Auftrag an den Hintergrund-Dienst. job: { key, type, id }
 export async function requestJob(job) {
-  if (!db) return false;
+  if (!db || !backgroundFunctions) return false;
   try {
     await fs.setDoc(jobRef(job.key), { type: job.type, id: job.id, requestedAt: Date.now(), device: deviceId(), attempts: 0 });
     return true;
   } catch { return false; }
 }
-export const backgroundAvailable = () => !!db;
+export const backgroundAvailable = () => !!db && backgroundFunctions;
 
 function schedulePush() {
   clearTimeout(pushTimer);
