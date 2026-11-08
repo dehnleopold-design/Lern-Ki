@@ -249,9 +249,10 @@ export async function buildVocabTestProfile(sprache) {
 export async function solveSheet(item, onStep = null) {
   const subject = subjectById(item.subjectId);
   if (!item.loesung) {
-    const parts = [{ text: P.solvePrompt(subject, item.note || '') }];
+    const links = item.links || [];
+    const parts = [{ text: P.solvePrompt(subject, item.note || '', links, item.fileIds.length > 0) }];
     for (const id of item.fileIds) parts.push(await partOf(id));
-    const text = await generate({ system: P.baseSystem(subject), parts, temperature: 0.2 });
+    const text = await generate({ system: P.baseSystem(subject), parts, temperature: 0.2, web: links.length > 0 });
     const first = text.match(/^##\s+(.*)$/m);
     item.loesung = text;
     item.ersteAufgabe = first ? first[1].slice(0, 80) : '';

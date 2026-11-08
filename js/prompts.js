@@ -417,14 +417,16 @@ ${words.map((w) => `- ${w.w} = ${w.t}${w.ex ? ` (Beispiel: ${w.ex})` : ''}`).joi
 }
 
 // ---------- 8. Arbeitsblatt lösen ----------
-export function solvePrompt(subject, note) {
+export function solvePrompt(subject, note, links = [], hasFiles = true) {
   const { fach, teach } = langInfo(subject);
   const lang = fach
     ? `Sprache: Antworten in der Sprache, die die Aufgabe verlangt (${LANG_NAMES[fach]} bzw. bei Übersetzungen Deutsch). Erklärungen zu Grammatik und Fehlern auf Deutsch.`
     : teach !== 'de'
       ? `Sprache der Lösungen: ${LANG_NAMES[teach].toUpperCase()} (bilingualer Unterricht); wichtige Fachbegriffe beim ersten Mal mit deutscher Übersetzung in Klammern. Überschriften "Aufgabe" dürfen deutsch bleiben.`
       : 'Sprache: Deutsch (bei Fremdsprachen-Aufgaben in der Zielsprache antworten).';
-  return `Das ist ein ARBEITSBLATT (eingescannt, evtl. mehrere Seiten). Lies es vollständig und genau – auch Texte, Tabellen, Diagramme, Karten und Materialien – und LÖSE ALLE AUFGABEN.
+  const web = links.length ? `\nDIE AUFGABEN STEHEN ${hasFiles ? 'AUCH ' : ''}AUF DIESEN WEBSEITEN (von der Lehrkraft verlinkt):\n${links.map((u) => `- ${u}`).join('\n')}
+Rufe jede Seite auf und löse alle Aufgaben, die dort stehen. Nenne bei jeder Aufgabe, von welcher Seite sie stammt. Lässt sich eine Seite nicht abrufen (Login, Bezahlschranke, nur interaktiv), sag das gleich zu Beginn ausdrücklich und erfinde KEINE Aufgaben.\n` : '';
+  return `${hasFiles ? 'Das ist ein ARBEITSBLATT (eingescannt, evtl. mehrere Seiten). Lies es vollständig und genau – auch Texte, Tabellen, Diagramme, Karten und Materialien – und LÖSE ALLE AUFGABEN.' : 'LÖSE ALLE AUFGABEN von den Webseiten unten.'}${web}
 Ziel: Der Schüler lernt an deinen Lösungen. Sie müssen fachlich korrekt, vollständig und auf dem Niveau einer sehr guten Klassenarbeit sein – so, wie die Lehrkraft sie im Erwartungshorizont hätte.
 ${note ? `Hinweis des Schülers: ${note}\n` : ''}
 REGELN

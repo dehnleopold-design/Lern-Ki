@@ -14,7 +14,7 @@ setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.23 (8.11.)';
+const APP_VERSION = '2.24 (8.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -1543,7 +1543,7 @@ const solvedList = () => (state.solved ||= []);
 let nsv = null;
 
 function startSolve(subjectId = null) {
-  nsv = { subjectId: subjectId || state.subjects[0]?.id || null, fileIds: [], note: '' };
+  nsv = { subjectId: subjectId || state.subjects[0]?.id || null, fileIds: [], note: '', links: '' };
   go('solve');
 }
 
@@ -1569,23 +1569,37 @@ function viewSolveNew() {
   draw();
   return h('div', { class: 'screen' }, topbar({ back: cancel, title: 'Blatt lösen' }),
     h('main', { class: 'content narrow' },
-      speech('Scanne ein Arbeitsblatt ein – ich löse alle Aufgaben und erkläre dir den Weg.'),
+      speech('Scanne ein Arbeitsblatt ein oder füge einen Link ein – ich löse alle Aufgaben und erkläre dir den Weg.'),
       h('div', { class: 'label' }, 'Fach'),
       h('div', { class: 'chips' }, state.subjects.map((sub) => h('button', { class: `chip ${nsv.subjectId === sub.id ? 'active' : ''}`, onclick: () => { nsv.subjectId = sub.id; render(); } }, sub.name))),
       h('div', { class: 'label' }, 'Seiten'),
       grid,
+      h('div', { class: 'label' }, 'Links (optional, z. B. LEIFIphysik)'),
+      (() => {
+        const ta = h('textarea', { class: 'input', rows: 2, placeholder: 'Link von der Lehrkraft hier einfügen – auch mehrere', value: nsv.links, oninput: (e) => { nsv.links = e.target.value; } });
+        const paste = navigator.clipboard?.readText ? h('button', { class: 'btn small ghost', onclick: async () => {
+          try { const t = await navigator.clipboard.readText(); if (t) { nsv.links = [nsv.links, t].filter(Boolean).join('\n'); ta.value = nsv.links; } } catch { toast('Einfügen nicht erlaubt – tippe lang ins Feld und wähle „Einfügen“.'); }
+        } }, icon('download', 16), 'Aus Zwischenablage einfügen') : null;
+        return h('div', { class: 'stack' }, ta, paste, h('p', { class: 'muted small' }, 'Jelly öffnet die Seiten selbst. Nicht möglich sind Seiten mit Login oder Bezahlschranke, Videos und rein interaktive Übungen – dann lieber einen Screenshot hochladen.'));
+      })(),
       h('div', { class: 'label' }, 'Hinweis (optional)'),
       h('input', { class: 'input', placeholder: 'z. B. „nur Aufgabe 2–4“ oder „M3 ist auf der Rückseite“', value: nsv.note, oninput: (e) => { nsv.note = e.target.value; } })),
     h('footer', { class: 'footer' }, h('button', { class: 'btn primary block', onclick: () => {
       if (!aiReady()) return toast('Bitte zuerst die KI einrichten (Mehr → KI-Verbindung).', 'error');
-      if (!nsv.fileIds.length) return toast('Bitte mindestens eine Seite hinzufügen.');
+      if (!nsv.fileIds.length && !parseLinks(nsv.links).length) return toast('Bitte eine Seite fotografieren oder einen Link einfügen.');
       nsv.processing = true; render();
     } }, 'Blatt lösen')));
 }
 
+// Links aus einem Text holen (eingefügt aus Safari, Mail, Teams …). Ohne https:// wird es ergänzt.
+function parseLinks(text) {
+  const found = String(text || '').match(/(https?:\/\/[^\s<>"']+|www\.[^\s<>"']+|\b[a-z0-9-]+(\.[a-z0-9-]+)*\.(de|com|org|net|info|eu|at|ch)\/[^\s<>"']*)/gi) || [];
+  return [...new Set(found.map((u) => u.replace(/[).,;]+$/, '')).map((u) => (/^https?:/i.test(u) ? u : `https://${u}`)))].slice(0, 20);
+}
+
 function startSolveBuild() {
   const subject = subjectById(nsv.subjectId);
-  const item = { id: uid(), subjectId: nsv.subjectId, fileIds: [...nsv.fileIds], note: nsv.note.trim(), loesung: null, titel: `${subject?.name || 'Blatt'} · ${new Date().toLocaleDateString('de-DE')}`, ersteAufgabe: '', chat: [], createdAt: Date.now(), annot: {}, building: true };
+  const item = { id: uid(), subjectId: nsv.subjectId, fileIds: [...nsv.fileIds], links: parseLinks(nsv.links), note: nsv.note.trim(), loesung: null, titel: `${subject?.name || 'Blatt'} · ${new Date().toLocaleDateString('de-DE')}`, ersteAufgabe: '', chat: [], createdAt: Date.now(), annot: {}, building: true };
   solvedList().unshift(item);
   save();
   nsv = null;
@@ -1739,6 +1753,7 @@ function viewSolved({ id }) {
         return [seg, h('p', { class: 'muted small center' }, 'Versuch jede Aufgabe erst selbst, dann aufdecken. Die KI kann sich irren – bei Zweifeln nachfragen.'),
           h('article', { class: 'lernzettel solve' }, solvedSheet(item, ui.solveOpen))];
       })(),
+      (item.links || []).length ? h('div', { class: 'menu' }, item.links.map((u) => h('a', { class: 'menu-row', href: u, target: '_blank', rel: 'noopener' }, h('span', { class: 'menu-ico' }, icon('route', 20)), h('span', { class: 'menu-text' }, h('span', { class: 'menu-label' }, 'Webseite öffnen'), h('span', { class: 'menu-sub link-sub' }, u.replace(/^https?:\/\//, '')))))) : null,
       h('div', { class: 'menu' }, item.fileIds.filter((fid) => state.files[fid]).map((fid, i) => menuRow(state.files[fid].mime?.startsWith('image/') ? 'image' : 'file', item.fileIds.length > 1 ? `Original Seite ${i + 1} ansehen` : 'Original ansehen', state.files[fid].name, () => openFile(fid)))),
       h('section', { class: 'card stack' }, h('div', { class: 'label' }, 'Nachfragen'), list, h('div', { class: 'chat-input' }, input, send))));
 }

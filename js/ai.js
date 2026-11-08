@@ -98,10 +98,12 @@ const ROUND_WAIT = [0, 10000, 25000, 45000]; // Pausen zwischen den Runden durch
  * Ist ein Modell überlastet (503) oder am Limit (429), wird sofort das nächste kostenlose
  * Modell probiert. Sind alle überlastet, wird in bis zu 4 Runden mit Pausen erneut probiert.
  */
-export async function generate({ system, parts, history = [], json = false, temperature = 0.4 }) {
+// web: true → Gemini darf die Links im Text selbst abrufen (URL context). Ersatz-Anbieter können das nicht.
+export async function generate({ system, parts, history = [], json = false, temperature = 0.4, web = false }) {
   if (!aiReady()) throw new AIError('Die KI ist noch nicht eingerichtet. Gehe zu Einstellungen → KI.');
   const s = state.settings;
-  const args = { system, parts, history, json, temperature };
+  const args = { system, parts, history, json, temperature, web };
+  if (web && s.provider === 'openai') throw new AIError('Links kann nur Gemini öffnen. Mach stattdessen Screenshots der Seite und lade sie hoch.');
   if (s.provider === 'openai') {
     const text = await callOpenAI(args);
     return json ? parseJSON(text) : text;
@@ -117,13 +119,14 @@ export async function generate({ system, parts, history = [], json = false, temp
   const fb = async () => {
     try { return await tryFallback(args); } catch (e) { log.set(FALLBACK_PRESETS[s.fb?.preset]?.label || 'Ersatz', why(e)); if (!e.pdf) lastErr = e; return undefined; }
   };
+  const canFallback = fallbackReady() && !web; // der Ersatz kann keine Webseiten öffnen
   // Sind gerade alle Gemini-Modelle als überlastet bekannt? Dann direkt den Ersatz fragen.
-  if (fallbackReady() && all.length && all.every(cooling)) {
+  if (canFallback && all.length && all.every(cooling)) {
     fallbackTried = true;
     const r = await fb(); if (r !== undefined) return r;
   }
   for (let round = 0; round < ROUND_WAIT.length; round++) {
-    if (round === 1 && fallbackReady()) { /* Ersatz sofort, ohne Wartezeit */ } else if (ROUND_WAIT[round]) {
+    if (round === 1 && canFallback) { /* Ersatz sofort, ohne Wartezeit */ } else if (ROUND_WAIT[round]) {
       for (let left = ROUND_WAIT[round] / 1000; left > 0; left--) {
         report(`Alle kostenlosen Google-Modelle sind gerade überlastet. Neuer Versuch in ${left} s (Runde ${round + 1}/${ROUND_WAIT.length}) …${fallbackReady() ? '' : ' Tipp: Unter Mehr → KI-Verbindung einen Ersatz-Anbieter einrichten, dann geht es ohne Warten weiter.'}`);
         await sleep(1000);
@@ -131,7 +134,7 @@ export async function generate({ system, parts, history = [], json = false, temp
     }
     // Reihenfolge: zuletzt funktionierendes Modell, dann nicht überlastete, dann der Rest
     const order = [...new Set([lastWorking, ...all.filter((m) => !cooling(m)), ...all])].filter((m) => m && all.includes(m));
-    if (round === 1 && fallbackReady() && !fallbackTried) {
+    if (round === 1 && canFallback && !fallbackTried) {
       fallbackTried = true;
       const r = await fb(); if (r !== undefined) return r;
     }
@@ -152,7 +155,7 @@ export async function generate({ system, parts, history = [], json = false, temp
       }
     }
   }
-  if (fallbackReady() && !fallbackTried) {
+  if (canFallback && !fallbackTried) {
     const r = await fb(); if (r !== undefined) return r;
   }
   report('');
@@ -164,7 +167,7 @@ export async function generate({ system, parts, history = [], json = false, temp
   throw fail(lastErr);
 }
 
-async function callGemini({ system, parts, history, json, temperature }, model) {
+async function callGemini({ system, parts, history, json, temperature, web }, model) {
   const s = state.settings;
   const toParts = (ps) => ps.map((p) => (p.file
     ? { inline_data: { mime_type: p.file.mime, data: p.file.data } }
@@ -177,6 +180,7 @@ async function callGemini({ system, parts, history, json, temperature }, model) 
     contents,
     systemInstruction: system ? { parts: [{ text: system }] } : undefined,
     generationConfig: { temperature, ...(json ? { responseMimeType: 'application/json' } : {}) },
+    ...(web ? { tools: [{ url_context: {} }] } : {}),
   };
   let res;
   try {
@@ -193,7 +197,7 @@ async function callGemini({ system, parts, history, json, temperature }, model) 
   }
   if (!res.ok) {
     const txt = await res.text();
-    const err = new AIError(friendly(res.status, txt));
+    const err = new AIError(web && res.status === 400 && /tool|url_context/i.test(txt) ? 'Google kann die Links mit diesem Schlüssel/Modell gerade nicht öffnen. Mach Screenshots der Seite und lade sie hoch.' : friendly(res.status, txt));
     err.retryable = res.status >= 500;
     err.status = res.status;
     err.daily = res.status === 429 && /PerDay/i.test(txt);
