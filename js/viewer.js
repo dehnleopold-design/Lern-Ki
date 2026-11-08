@@ -18,7 +18,7 @@ function loadPdfJs() {
 }
 
 export const fileKindLabel = (kind) => ({
-  material: 'Unterrichtsmaterial', archive: 'Alte Klausuren', sheet: 'Arbeitsblätter', vocab: 'Vokabelseiten', vtest: 'Vokabeltests', answer: 'Deine Antwort-Fotos',
+  material: 'Unterrichtsmaterial', archive: 'Alte Klausuren', sheet: 'Arbeitsblätter', vocab: 'Vokabelseiten', vtest: 'Vokabeltests', answer: 'Deine Antwort-Fotos', timetable: 'Stundenplan', examplan: 'Klassenarbeitsplan',
 }[kind] || 'Datei');
 
 const b64ToBytes = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));

@@ -529,3 +529,27 @@ button.menu-text.file-open { display: flex; flex-direction: column; }
 .tile-pages { position: absolute; bottom: 6px; left: 6px; padding: 2px 7px; border-radius: 10px; background: rgba(0,0,0,.7); color: #fff; font-size: .75rem; font-weight: 700; }
 .stack-tight { display: flex; flex-direction: column; gap: 1px; text-align: left; }
 .link-sub { word-break: break-all; }
+
+/* Woche: Stundenplan & Klassenarbeiten */
+.day-chips { display: flex; gap: 6px; justify-content: space-between; margin: 14px 0 6px; }
+.day-chips .chip { flex: 1; justify-content: center; text-align: center; }
+.day-chips .chip.today:not(.active) { border-color: var(--accent); color: var(--accent-2); }
+.lessons { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.lesson { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; padding: 10px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; color: var(--text); }
+.lesson.live { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.lesson-time { display: flex; flex-direction: column; align-items: center; min-width: 54px; font-size: .78rem; color: var(--muted); }
+.lesson-time strong { color: var(--text); font-size: 1rem; }
+.lesson-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.lesson-name { font-weight: 700; }
+.live-dot { font-size: .7rem; font-weight: 700; color: #fff; background: var(--accent); padding: 2px 8px; border-radius: 10px; }
+.badge-empty { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; background: var(--surface-2, rgba(255,255,255,.06)); color: var(--muted); }
+.pill.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.week-table { width: 100%; border-collapse: separate; border-spacing: 3px; font-size: .8rem; }
+.week-table th { color: var(--muted); font-weight: 600; text-align: center; padding: 4px; }
+.week-table td { background: var(--surface); border-radius: 8px; padding: 6px 4px; text-align: center; vertical-align: top; min-width: 52px; }
+.week-table td.filled { border-left: 3px solid var(--c, var(--accent)); }
+.wt-name { font-weight: 700; }
+.exam-row.soon .menu-label { color: var(--accent-2); }
+.exam-row.past { opacity: .6; }
+.slot-row input { flex: 1; min-width: 0; }
+.grow { flex: 1; min-width: 0; }

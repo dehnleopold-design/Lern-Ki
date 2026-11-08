@@ -14,7 +14,7 @@ setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.24 (8.11.)';
+const APP_VERSION = '2.25 (8.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -53,7 +53,7 @@ function go(name, params = {}) {
 function render() {
   app.replaceChildren();
   if (!state.profile && !['onboarding', 'login'].includes(route.name)) route = { name: 'onboarding', params: {} };
-  const views = { login: viewLogin, onboarding: viewOnboarding, prepare: viewPrepare, plan: viewPlan, pick: viewPick, vocab: viewVocab, solve: viewSolveNew, solved: viewSolved, vnew: viewVocabNew, vset: viewVocabSet, vwords: viewVocabWords, vplan: viewVocabPlan, vquiz: viewVocabQuiz, vtests: viewVocabTests, files: viewFiles, newExam: viewNewExam, session: viewSession, subjects: viewSubjects, subject: viewSubject, tutor: viewTutor, settings: viewSettings };
+  const views = { login: viewLogin, onboarding: viewOnboarding, prepare: viewPrepare, plan: viewPlan, pick: viewPick, vocab: viewVocab, solve: viewSolveNew, solved: viewSolved, vnew: viewVocabNew, vset: viewVocabSet, vwords: viewVocabWords, vplan: viewVocabPlan, vquiz: viewVocabQuiz, vtests: viewVocabTests, files: viewFiles, week: viewWeek, wimport: viewWeekImport, newExam: viewNewExam, session: viewSession, subjects: viewSubjects, subject: viewSubject, tutor: viewTutor, settings: viewSettings };
   const v = (views[route.name] || viewPlan)(route.params);
   add(app, v);
 }
@@ -68,7 +68,7 @@ function tabbar(active) {
       if (route.name === 'solve') render();
     });
   } }, icon('camera', 24));
-  return h('nav', { class: 'tabbar' }, tab('plan', 'route', 'Plan'), tab('subjects', 'library', 'Fächer'), cam, tab('vocab', 'languages', 'Vokabeln'), tab('tutor', 'sparkles', 'Tutor'), tab('settings', 'gear', 'Mehr'));
+  return h('nav', { class: 'tabbar' }, tab('plan', 'route', 'Plan'), tab('subjects', 'library', 'Fächer'), cam, tab('vocab', 'languages', 'Vokabeln'), tab('week', 'calendar', 'Woche'), tab('settings', 'gear', 'Mehr'));
 }
 
 function topbar({ back, close, title, progress }) {
@@ -417,6 +417,7 @@ function viewPlan() {
       h('main', { class: 'content narrow center' },
         mascot(140),
         h('h1', { class: 'display' }, 'Welche Klausur steht an?'),
+        (() => { const next = allExamDates().filter((x) => daysUntil(x.date) >= 0 && !x.examId).slice(0, 3); return next.length ? [h('div', { class: 'label' }, 'Aus deinem Klassenarbeitsplan'), h('div', { class: 'menu' }, next.map(examRow))] : null; })(),
         h('p', { class: 'muted' }, 'Leg eine Klausur an, lade deine Arbeitsblätter hoch – ich baue dir daraus Lernzettel, Quizze, Aufgaben und eine Probeklassenarbeit.'),
         h('button', { class: 'btn primary', onclick: () => startNewExam() }, 'Klausur anlegen')),
       tabbar('plan'));
@@ -445,7 +446,7 @@ function viewPlan() {
   const open = (u) => go('session', { examId: exam.id, unitId: u.id });
 
   const header = h('header', { class: 'topbar' },
-    h('span', { class: 'iconbtn-spacer' }),
+    h('button', { class: 'iconbtn', onclick: () => go('tutor'), 'aria-label': 'Tutor-Chat' }, icon('chat', 22)),
     h('button', { class: 'exam-switch', onclick: () => examSheet() }, h('span', {}, exam.plan?.titel || `${subject?.name} Klausur`), icon('updown', 16)),
     h('button', { class: 'iconbtn', onclick: () => examMenu(exam), 'aria-label': 'Menü' }, icon('more', 22)));
 
@@ -740,8 +741,8 @@ function waitPanel(title) {
 // ================================================================ NEUE KLAUSUR (Ablauf wie in den Screenshots)
 let nx = null;
 
-function startNewExam(subjectId = null) {
-  nx = { step: subjectId ? 1 : 0, subjectId, date: undefined, targetGrade: scale() === '0-15' ? 13 : 1, materialIds: [], topicsText: '', useArchive: true, customDate: false };
+function startNewExam(subjectId = null, date = undefined, extra = {}) {
+  nx = { step: subjectId ? (date ? 2 : 1) : 0, subjectId, date, targetGrade: scale() === '0-15' ? 13 : 1, materialIds: [], topicsText: extra.topicsText || '', useArchive: true, customDate: false, planItem: extra.planItem || null };
   go('newExam');
 }
 
@@ -887,6 +888,8 @@ function startExamBuild() {
   }
   Object.assign(exam, { date: nx.date ?? null, targetGrade: nx.targetGrade, materialIds: nx.materialIds, topicsText: nx.topicsText, useArchive: nx.useArchive, building: true });
   state.activeExamId = exam.id;
+  const item = nx.planItem && xp().items.find((it) => it.id === nx.planItem);
+  if (item) item.examId = exam.id; // Eintrag im Klassenarbeitsplan ↔ Lernplan
   save();
   nx = null;
   ui.selectedUnit = null;
@@ -1523,6 +1526,8 @@ function viewSubject({ id }) {
         fold('gear', 'Fach-Einstellungen', null, [
           h('div', { class: 'label' }, 'Name'),
           h('input', { class: 'input', value: s.name, onchange: (e) => { if (e.target.value.trim()) { s.name = e.target.value.trim(); save(); } } }),
+          h('div', { class: 'label' }, 'Lehrkraft'),
+          h('input', { class: 'input', placeholder: 'z. B. Frau Müller', value: s.teacher || '', onchange: (e) => { s.teacher = e.target.value.trim(); save(); } }),
           h('div', { class: 'label' }, 'Unterrichtssprache'),
           h('div', { class: 'seg seg-wrap' }, [['de', 'Deutsch'], ['en', 'Englisch'], ['es', 'Spanisch'], ['fr', 'Französisch']].map(([v, l]) => h('button', { class: `seg-btn ${P.langInfo(s).teach === v ? 'active' : ''}`, onclick: () => { s.language = v; s.langSet = true; save(); render(); } }, l))),
           P.langInfo(s).fach ? h('p', { class: 'muted small' }, `Sprachfach erkannt: Lernzettel kommen gemischt (Erklärungen auf Deutsch, Beispiele auf ${P.LANG_NAMES[P.langInfo(s).fach]}).`) : null,
@@ -2155,6 +2160,359 @@ function viewVocabTests({ sprache }) {
         t.fileIds.length ? h('button', { class: 'btn small ghost', onclick: build }, icon('refresh', 16), 'Neu analysieren') : null)));
 }
 
+// ================================================================ WOCHE: STUNDENPLAN & KLASSENARBEITEN
+const DEFAULT_SLOTS = [['08:00', '08:45'], ['08:50', '09:35'], ['09:55', '10:40'], ['10:45', '11:30'], ['11:50', '12:35'], ['12:40', '13:25'], ['13:35', '14:20'], ['14:25', '15:10'], ['15:15', '16:00'], ['16:05', '16:50']]
+  .map(([von, bis], i) => ({ n: i + 1, von, bis }));
+const DAYS = ['Mo', 'Di', 'Mi', 'Do', 'Fr'];
+const DAY_NAMES = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag'];
+const EXAM_KINDS = ['Klassenarbeit', 'Klausur', 'Test', 'Vokabeltest', 'Referat', 'Sonstiges'];
+
+const tt = () => (state.timetable ||= { slots: DEFAULT_SLOTS.map((x) => ({ ...x })), lessons: [], fileIds: [], ab: false, abRef: null });
+const xp = () => (state.examPlan ||= { items: [], fileIds: [] });
+
+// Fach aus Text (Plan, KI) einem angelegten Fach zuordnen
+function matchSubject(name) {
+  const n = String(name || '').trim().toLowerCase();
+  if (!n) return null;
+  return state.subjects.find((s) => s.name.toLowerCase() === n || (s.short || '').toLowerCase() === n)
+    || state.subjects.find((s) => n.length >= 3 && (s.name.toLowerCase().startsWith(n) || n.startsWith(s.name.toLowerCase())))
+    || null;
+}
+const lessonName = (l) => subjectById(l.subjectId)?.name || l.fach || 'Fach';
+const itemName = (it) => subjectById(it.subjectId)?.name || it.fach || 'Fach';
+const slotOf = (n) => tt().slots.find((x) => x.n === n);
+
+const mondayOf = (d) => { const x = parseISO(isoDate(d)); const wd = (x.getDay() + 6) % 7; x.setDate(x.getDate() - wd); return x; };
+// A- oder B-Woche für ein Datum (abRef = Montag einer A-Woche)
+function abWeek(d = new Date()) {
+  const t = tt();
+  if (!t.ab || !t.abRef) return null;
+  const weeks = Math.round((mondayOf(d) - parseISO(t.abRef)) / (7 * 86400000));
+  return ((weeks % 2) + 2) % 2 === 0 ? 'A' : 'B';
+}
+const lessonsOn = (day, week) => tt().lessons.filter((l) => l.day === day && (!tt().ab || !l.week || !week || l.week === week)).sort((a, b) => a.slot - b.slot);
+const knownTeachers = () => [...new Set([...tt().lessons.map((l) => l.teacher), ...state.subjects.map((s) => s.teacher)].filter(Boolean))].sort();
+const knownRooms = () => [...new Set(tt().lessons.map((l) => l.room).filter(Boolean))].sort();
+const datalist = (id, values) => h('datalist', { id }, values.map((v) => h('option', { value: v })));
+
+function daysUntil(iso) { return Math.round((parseISO(iso) - parseISO(isoDate(new Date()))) / 86400000); }
+const untilLabel = (iso) => { const d = daysUntil(iso); return d === 0 ? 'heute' : d === 1 ? 'morgen' : d > 1 ? `in ${d} Tagen` : d === -1 ? 'gestern' : `vor ${-d} Tagen`; };
+
+// Alle Arbeiten: Einträge aus dem Klassenarbeitsplan + Klausuren mit Datum, die (noch) keinem Eintrag zugeordnet sind
+function allExamDates() {
+  const items = xp().items.map((it) => ({ ...it, src: 'plan' }));
+  const linked = new Set(items.map((it) => it.examId).filter(Boolean));
+  for (const e of state.exams) if (e.date && !linked.has(e.id)) items.push({ id: `e:${e.id}`, date: e.date, subjectId: e.subjectId, art: 'Klausur', thema: e.plan?.titel || '', examId: e.id, src: 'exam' });
+  return items.sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function viewWeek() {
+  ui.weekTab ??= 'plan';
+  const t = tt();
+  const screen = h('div', { class: 'screen with-tabs' },
+    h('header', { class: 'topbar' }, h('span', { class: 'iconbtn-spacer' }), h('div', { class: 'topbar-title' }, 'Woche'),
+      h('button', { class: 'iconbtn', 'aria-label': 'Menü', onclick: () => (ui.weekTab === 'plan' ? timetableMenu() : examPlanMenu()) }, icon('more'))));
+  const main = h('main', { class: 'content narrow' },
+    h('div', { class: 'seg' },
+      h('button', { class: `seg-btn ${ui.weekTab === 'plan' ? 'active' : ''}`, onclick: () => { ui.weekTab = 'plan'; render(); } }, 'Stundenplan'),
+      h('button', { class: `seg-btn ${ui.weekTab === 'arbeiten' ? 'active' : ''}`, onclick: () => { ui.weekTab = 'arbeiten'; render(); } }, 'Arbeiten')));
+  add(screen, main, tabbar('week'));
+  if (ui.weekTab === 'arbeiten') { drawExamPlan(main); return screen; }
+
+  if (!t.lessons.length) {
+    add(main, h('div', { class: 'center stack' }, mascot(110),
+      h('p', { class: 'muted' }, 'Lade ein Foto oder PDF deines Stundenplans hoch – ich lese Fächer, Lehrkräfte, Räume und Zeiten aus. Oder trag ihn selbst ein.'),
+      h('button', { class: 'btn primary block', onclick: () => uploadPlan('tt') }, icon('upload', 18), 'Stundenplan hochladen'),
+      h('button', { class: 'btn block', onclick: () => editLesson(null) }, icon('plus', 18), 'Selbst eintragen')));
+    return screen;
+  }
+  const today = new Date();
+  const todayIdx = (today.getDay() + 6) % 7;
+  ui.weekDay ??= todayIdx < 5 ? todayIdx : 0;
+  const week = abWeek(today);
+  ui.weekAB ??= null;
+  const showWeek = t.ab ? (ui.weekAB || week || 'A') : null;
+  add(main,
+    h('div', { class: 'day-chips' }, DAYS.map((d, i) => h('button', { class: `chip ${ui.weekDay === i ? 'active' : ''} ${i === todayIdx ? 'today' : ''}`, onclick: () => { ui.weekDay = i; render(); } }, d))),
+    t.ab ? h('div', { class: 'row gap center' }, ['A', 'B'].map((w) => h('button', { class: `pill ${showWeek === w ? 'active' : ''}`, onclick: () => { ui.weekAB = w; render(); } }, `${w}-Woche${week === w ? ' (jetzt)' : ''}`))) : null);
+  const day = ui.weekDay + 1;
+  const list = lessonsOn(day, showWeek);
+  const now = `${String(today.getHours()).padStart(2, '0')}:${String(today.getMinutes()).padStart(2, '0')}`;
+  const isToday = ui.weekDay === todayIdx && (!t.ab || showWeek === week);
+  add(main, h('div', { class: 'label' }, DAY_NAMES[ui.weekDay]),
+    list.length ? h('div', { class: 'lessons' }, list.map((l) => {
+      const sl = slotOf(l.slot);
+      const sub = subjectById(l.subjectId);
+      const live = isToday && sl && sl.von <= now && now <= sl.bis;
+      return h('button', { class: `lesson ${live ? 'live' : ''}`, onclick: () => editLesson(l) },
+        h('span', { class: 'lesson-time' }, h('strong', {}, `${l.slot}.`), sl ? h('span', {}, `${sl.von}–${sl.bis}`) : null),
+        sub ? subjectBadge(sub, 34) : h('span', { class: 'badge-empty' }, icon('book', 18)),
+        h('span', { class: 'lesson-text' }, h('span', { class: 'lesson-name' }, lessonName(l), l.week && t.ab ? h('span', { class: 'muted small' }, ` · ${l.week}`) : null),
+          h('span', { class: 'muted small' }, [l.teacher, l.room ? `Raum ${l.room}` : ''].filter(Boolean).join(' · ') || 'Lehrkraft/Raum antippen zum Eintragen')),
+        live ? h('span', { class: 'live-dot' }, 'jetzt') : null);
+    })) : h('p', { class: 'muted center' }, 'An diesem Tag ist nichts eingetragen.'),
+    h('button', { class: 'btn block', onclick: () => editLesson(null, day) }, icon('plus', 18), 'Stunde eintragen'));
+  // Nächste Arbeiten als Hinweis
+  const next = allExamDates().filter((x) => daysUntil(x.date) >= 0).slice(0, 2);
+  if (next.length) add(main, h('div', { class: 'label' }, 'Nächste Arbeiten'), h('div', { class: 'menu' }, next.map((x) => examRow(x))));
+  return screen;
+}
+
+function timetableMenu() {
+  const t = tt();
+  const o = sheet('Stundenplan', [h('div', { class: 'menu' },
+    menuRow('layers', 'Ganze Woche ansehen', 'Alle Tage als Tabelle', () => { o.remove(); weekTable(); }),
+    menuRow('upload', t.fileIds.length ? 'Neuen Stundenplan hochladen' : 'Stundenplan hochladen', t.lessons.length ? 'Ersetzt den eingetragenen Plan' : 'Foto oder PDF', () => { o.remove(); uploadPlan('tt'); }),
+    t.fileIds.some((id) => state.files[id]) ? menuRow('image', 'Hochgeladenen Plan ansehen', null, () => { o.remove(); openFile(t.fileIds.find((id) => state.files[id])); }) : null,
+    t.fileIds.some((id) => state.files[id]) ? menuRow('refresh', 'Nochmal auslesen', 'Falls etwas falsch erkannt wurde', () => { o.remove(); go('wimport', { kind: 'tt', ids: t.fileIds.filter((id) => state.files[id]) }); }) : null,
+    menuRow('clock', 'Zeiten der Stunden', `${t.slots.length} Stunden · ${t.slots[0]?.von || '?'}–${t.slots.at(-1)?.bis || '?'}`, () => { o.remove(); editSlots(); }),
+    menuRow('shuffle', 'A-/B-Wochen', t.ab ? `An · jetzt ${abWeek() || '?'}-Woche` : 'Aus', () => { o.remove(); editAB(); }),
+    t.lessons.length ? menuRow('trash', 'Stundenplan löschen', null, async () => {
+      o.remove();
+      if (!(await confirmDialog('Den ganzen Stundenplan löschen?', 'Löschen'))) return;
+      for (const id of t.fileIds) await removeFile(id);
+      Object.assign(t, { lessons: [], fileIds: [] }); save(); render();
+    }, 'danger') : null)]);
+}
+
+function weekTable() {
+  const t = tt();
+  const week = t.ab ? (ui.weekAB || abWeek() || 'A') : null;
+  const used = [...new Set(t.lessons.map((l) => l.slot))].sort((a, b) => a - b);
+  const table = h('div', { class: 'tbl-wrap' }, h('table', { class: 'week-table' },
+    h('thead', {}, h('tr', {}, h('th', {}, ''), DAYS.map((d) => h('th', {}, d)))),
+    h('tbody', {}, used.map((n) => h('tr', {}, h('th', {}, `${n}.`, h('div', { class: 'muted small' }, slotOf(n)?.von || '')),
+      DAYS.map((_, i) => {
+        const l = lessonsOn(i + 1, week).find((x) => x.slot === n);
+        const sub = l && subjectById(l.subjectId);
+        return h('td', { style: sub ? { '--c': sub.color } : {}, class: l ? 'filled' : '' }, l ? [h('div', { class: 'wt-name' }, sub?.short || lessonName(l)), h('div', { class: 'muted small' }, l.room || '')] : '');
+      }))))));
+  sheet(`Woche${week ? ` (${week}-Woche)` : ''}`, [table]);
+}
+
+function editLesson(l, day = null) {
+  const t = tt();
+  const isNew = !l;
+  const cur = l ? { ...l } : { id: uid(), day: day || (ui.weekDay ?? 0) + 1, slot: Math.max(0, ...lessonsOn(day || (ui.weekDay ?? 0) + 1).map((x) => x.slot)) + 1, subjectId: state.subjects[0]?.id || null, fach: '', teacher: '', room: '', week: null };
+  const subSel = h('select', { class: 'input' },
+    state.subjects.map((s) => h('option', { value: s.id, selected: s.id === cur.subjectId }, s.name)),
+    h('option', { value: '', selected: !cur.subjectId }, 'Anderes Fach …'));
+  const other = h('input', { class: 'input', placeholder: 'Name des Fachs, z. B. Religion', value: cur.fach || '' });
+  const syncOther = () => { other.style.display = subSel.value ? 'none' : ''; };
+  subSel.onchange = () => {
+    syncOther();
+    const s = subjectById(subSel.value);
+    if (s?.teacher && !teacher.value) teacher.value = s.teacher;
+  };
+  const teacher = h('input', { class: 'input', placeholder: 'z. B. Frau Müller oder MÜL', value: cur.teacher || '', list: 'dl-teachers' });
+  const room = h('input', { class: 'input', placeholder: 'z. B. A104', value: cur.room || '', list: 'dl-rooms' });
+  const daySel = h('select', { class: 'input' }, DAY_NAMES.map((d, i) => h('option', { value: i + 1, selected: cur.day === i + 1 }, d)));
+  const slotSel = h('select', { class: 'input' }, Array.from({ length: Math.max(t.slots.length, 12) }, (_, i) => i + 1).map((n) => h('option', { value: n, selected: cur.slot === n }, `${n}. Stunde${slotOf(n) ? ` (${slotOf(n).von})` : ''}`)));
+  const weekSel = t.ab ? h('select', { class: 'input' }, [['', 'Jede Woche'], ['A', 'Nur A-Woche'], ['B', 'Nur B-Woche']].map(([v, lab]) => h('option', { value: v, selected: (cur.week || '') === v }, lab))) : null;
+  const double = isNew ? h('label', { class: 'check-row' }, h('input', { type: 'checkbox' }), h('span', {}, 'Doppelstunde (auch die nächste Stunde)')) : null;
+  syncOther();
+  const o = sheet(isNew ? 'Stunde eintragen' : 'Stunde bearbeiten', [
+    h('div', { class: 'label' }, 'Fach'), subSel, other,
+    h('div', { class: 'label' }, 'Lehrkraft'), teacher, datalist('dl-teachers', knownTeachers()),
+    h('div', { class: 'label' }, 'Raum'), room, datalist('dl-rooms', knownRooms()),
+    h('div', { class: 'row gap' }, h('div', { class: 'grow' }, h('div', { class: 'label' }, 'Tag'), daySel), h('div', { class: 'grow' }, h('div', { class: 'label' }, 'Stunde'), slotSel)),
+    weekSel ? [h('div', { class: 'label' }, 'Woche'), weekSel] : null,
+    double,
+    h('button', { class: 'btn primary block', onclick: () => {
+      const vals = { day: Number(daySel.value), slot: Number(slotSel.value), subjectId: subSel.value || null, fach: subSel.value ? '' : other.value.trim(), teacher: teacher.value.trim(), room: room.value.trim(), week: weekSel?.value || null };
+      if (!vals.subjectId && !vals.fach) return toast('Bitte ein Fach wählen oder eintragen.');
+      const put = (slot) => {
+        const clash = t.lessons.find((x) => x.id !== cur.id && x.day === vals.day && x.slot === slot && (!t.ab || !x.week || !vals.week || x.week === vals.week));
+        if (clash) t.lessons = t.lessons.filter((x) => x !== clash);
+      };
+      put(vals.slot);
+      if (isNew) t.lessons.push({ ...cur, ...vals });
+      else Object.assign(t.lessons.find((x) => x.id === cur.id), vals);
+      if (double?.querySelector('input').checked) { put(vals.slot + 1); t.lessons.push({ ...cur, ...vals, id: uid(), slot: vals.slot + 1 }); }
+      const s = subjectById(vals.subjectId);
+      if (s && vals.teacher && !s.teacher) s.teacher = vals.teacher; // Lehrkraft fürs Fach merken
+      save(); o.remove(); render();
+    } }, 'Speichern'),
+    isNew ? null : h('button', { class: 'btn ghost block danger-text', onclick: () => { t.lessons = t.lessons.filter((x) => x.id !== cur.id); save(); o.remove(); render(); } }, 'Stunde löschen'),
+  ]);
+}
+
+function editSlots() {
+  const t = tt();
+  const rows = h('div', { class: 'stack' });
+  const draw = () => rows.replaceChildren(...t.slots.map((sl) => h('div', { class: 'row gap slot-row' },
+    h('strong', {}, `${sl.n}.`),
+    h('input', { class: 'input', type: 'time', value: sl.von, onchange: (e) => { sl.von = e.target.value; save(); } }),
+    h('span', {}, '–'),
+    h('input', { class: 'input', type: 'time', value: sl.bis, onchange: (e) => { sl.bis = e.target.value; save(); } }))));
+  draw();
+  sheet('Zeiten der Stunden', [rows, h('div', { class: 'row gap' },
+    h('button', { class: 'btn small', onclick: () => { const last = t.slots.at(-1); t.slots.push({ n: (last?.n || 0) + 1, von: last?.bis || '08:00', bis: last?.bis || '08:45' }); save(); draw(); } }, icon('plus', 16), 'Stunde'),
+    h('button', { class: 'btn small ghost', onclick: () => { if (t.slots.length > 1) { t.slots.pop(); save(); draw(); } } }, icon('minus', 16), 'Letzte entfernen'))]);
+}
+
+function editAB() {
+  const t = tt();
+  const o = sheet('A-/B-Wochen', [
+    h('p', { class: 'muted small' }, 'Für Pläne, die sich wöchentlich abwechseln. Stunden können dann „jede Woche“, „nur A“ oder „nur B“ sein.'),
+    h('div', { class: 'seg' },
+      h('button', { class: `seg-btn ${!t.ab ? 'active' : ''}`, onclick: () => { t.ab = false; save(); o.remove(); render(); } }, 'Aus'),
+      h('button', { class: `seg-btn ${t.ab && abWeek() === 'A' ? 'active' : ''}`, onclick: () => { t.ab = true; t.abRef = isoDate(mondayOf(new Date())); save(); o.remove(); render(); } }, 'Diese Woche = A'),
+      h('button', { class: `seg-btn ${t.ab && abWeek() === 'B' ? 'active' : ''}`, onclick: () => { t.ab = true; const m = mondayOf(new Date()); m.setDate(m.getDate() - 7); t.abRef = isoDate(m); save(); o.remove(); render(); } }, 'Diese Woche = B')),
+  ]);
+}
+
+// ---------- Klassenarbeiten
+function examRow(x) {
+  const sub = subjectById(x.subjectId);
+  const d = daysUntil(x.date);
+  return h('button', { class: `menu-row exam-row ${d < 0 ? 'past' : d <= 7 ? 'soon' : ''}`, onclick: () => editExamItem(x) },
+    sub ? subjectBadge(sub, 36) : h('span', { class: 'menu-ico' }, icon('exam', 20)),
+    h('span', { class: 'menu-text' },
+      h('span', { class: 'menu-label' }, `${itemName(x)} · ${x.art || 'Arbeit'}`),
+      h('span', { class: 'menu-sub' }, [fmtDate(x.date), untilLabel(x.date), x.thema, x.stunde ? `${x.stunde} Std.` : '', x.raum ? `Raum ${x.raum}` : ''].filter(Boolean).join(' · '))),
+    x.examId && examById(x.examId) ? h('span', { class: 'chip-static' }, 'Lernplan') : null);
+}
+
+function drawExamPlan(main) {
+  const all = allExamDates();
+  const up = all.filter((x) => daysUntil(x.date) >= 0);
+  const past = all.filter((x) => daysUntil(x.date) < 0).reverse();
+  if (!all.length) {
+    add(main, h('div', { class: 'center stack' }, mascot(110),
+      h('p', { class: 'muted' }, 'Lade deinen Klassenarbeitsplan als Foto oder PDF hoch – ich trage alle Termine ein. Zu jeder Arbeit kannst du dann mit einem Tipp den Lernplan starten.'),
+      h('button', { class: 'btn primary block', onclick: () => uploadPlan('xp') }, icon('upload', 18), 'Klassenarbeitsplan hochladen'),
+      h('button', { class: 'btn block', onclick: () => editExamItem(null) }, icon('plus', 18), 'Arbeit eintragen')));
+    return;
+  }
+  add(main,
+    up.length ? h('div', { class: 'menu' }, up.map(examRow)) : h('p', { class: 'muted center' }, 'Keine anstehenden Arbeiten.'),
+    h('div', { class: 'row gap' },
+      h('button', { class: 'btn grow', onclick: () => editExamItem(null) }, icon('plus', 18), 'Eintragen'),
+      h('button', { class: 'btn grow', onclick: () => uploadPlan('xp') }, icon('upload', 18), 'Plan hochladen')),
+    past.length ? h('details', { class: 'fold' }, h('summary', {}, h('span', { class: 'menu-ico' }, icon('clock', 20)), h('span', { class: 'menu-text' }, h('span', { class: 'menu-label' }, 'Vergangen'), h('span', { class: 'menu-sub' }, `${past.length} Arbeiten`)), h('span', { class: 'fold-chev' }, icon('chev', 18))),
+      h('div', { class: 'fold-body' }, h('div', { class: 'menu' }, past.map(examRow)))) : null);
+}
+
+function examPlanMenu() {
+  const p = xp();
+  const files = p.fileIds.filter((id) => state.files[id] && isGroupLead(id));
+  const o = sheet('Klassenarbeiten', [h('div', { class: 'menu' },
+    menuRow('upload', 'Plan hochladen', 'Termine werden ergänzt, nichts wird gelöscht', () => { o.remove(); uploadPlan('xp'); }),
+    ...files.map((id, i) => menuRow('image', files.length > 1 ? `Hochgeladenen Plan ${i + 1} ansehen` : 'Hochgeladenen Plan ansehen', state.files[id].name, () => { o.remove(); openFile(id); })),
+    menuRow('plus', 'Arbeit eintragen', null, () => { o.remove(); editExamItem(null); }))]);
+}
+
+function editExamItem(x) {
+  const p = xp();
+  if (x?.src === 'exam') { // Klausur aus dem Lernplan, noch kein Eintrag im Arbeitsplan
+    const e = examById(x.examId);
+    const o = sheet(`${itemName(x)} · ${fmtDate(x.date)}`, [h('div', { class: 'menu' },
+      menuRow('route', 'Zum Lernplan', untilLabel(x.date), () => { o.remove(); state.activeExamId = e.id; save(); go('plan'); }))]);
+    return;
+  }
+  const isNew = !x;
+  const cur = x ? p.items.find((it) => it.id === x.id) : { id: uid(), date: isoDate(new Date(Date.now() + 7 * 86400000)), subjectId: state.subjects[0]?.id || null, fach: '', art: 'Klassenarbeit', thema: '', stunde: '', raum: '', examId: null };
+  const subSel = h('select', { class: 'input' }, state.subjects.map((s) => h('option', { value: s.id, selected: s.id === cur.subjectId }, s.name)), h('option', { value: '', selected: !cur.subjectId }, 'Anderes Fach …'));
+  const other = h('input', { class: 'input', placeholder: 'Name des Fachs', value: cur.fach || '' });
+  subSel.onchange = () => { other.style.display = subSel.value ? 'none' : ''; };
+  other.style.display = subSel.value ? 'none' : '';
+  const date = h('input', { class: 'input', type: 'date', value: cur.date });
+  const art = h('select', { class: 'input' }, EXAM_KINDS.map((k) => h('option', { value: k, selected: k === cur.art }, k)));
+  const thema = h('input', { class: 'input', placeholder: 'z. B. Lineare Funktionen', value: cur.thema || '' });
+  const stunde = h('input', { class: 'input', placeholder: 'z. B. 3.–4.', value: cur.stunde || '' });
+  const raum = h('input', { class: 'input', placeholder: 'z. B. A104', value: cur.raum || '', list: 'dl-rooms2' });
+  const exam = cur.examId && examById(cur.examId);
+  const read = () => ({ date: date.value, subjectId: subSel.value || null, fach: subSel.value ? '' : other.value.trim(), art: art.value, thema: thema.value.trim(), stunde: stunde.value.trim(), raum: raum.value.trim() });
+  const store = () => {
+    const v = read();
+    if (!v.date) { toast('Bitte ein Datum wählen.'); return false; }
+    if (!v.subjectId && !v.fach) { toast('Bitte ein Fach wählen oder eintragen.'); return false; }
+    Object.assign(cur, v);
+    if (isNew && !p.items.includes(cur)) p.items.push(cur);
+    if (exam && exam.date !== cur.date) exam.date = cur.date; // Datum im Lernplan mitziehen
+    save();
+    return true;
+  };
+  const o = sheet(isNew ? 'Arbeit eintragen' : 'Arbeit', [
+    h('div', { class: 'label' }, 'Fach'), subSel, other,
+    h('div', { class: 'row gap' }, h('div', { class: 'grow' }, h('div', { class: 'label' }, 'Datum'), date), h('div', { class: 'grow' }, h('div', { class: 'label' }, 'Art'), art)),
+    h('div', { class: 'label' }, 'Thema (optional)'), thema,
+    h('div', { class: 'row gap' }, h('div', { class: 'grow' }, h('div', { class: 'label' }, 'Stunde'), stunde), h('div', { class: 'grow' }, h('div', { class: 'label' }, 'Raum'), raum)), datalist('dl-rooms2', knownRooms()),
+    exam
+      ? h('button', { class: 'btn primary block', onclick: () => { if (!store()) return; o.remove(); state.activeExamId = exam.id; save(); go('plan'); } }, icon('route', 18), 'Zum Lernplan')
+      : h('button', { class: 'btn primary block', onclick: () => {
+        if (!store()) return;
+        if (!cur.subjectId) return toast('Für einen Lernplan muss das Fach angelegt sein (Fächer → +).');
+        o.remove();
+        startNewExam(cur.subjectId, cur.date, { topicsText: cur.thema, planItem: cur.id });
+      } }, icon('sparkles', 18), 'Lernplan erstellen'),
+    h('button', { class: 'btn block', onclick: () => { if (store()) { o.remove(); render(); } } }, 'Speichern'),
+    isNew ? null : h('button', { class: 'btn ghost block danger-text', onclick: () => { p.items = p.items.filter((it) => it.id !== cur.id); save(); o.remove(); render(); } }, 'Eintrag löschen'),
+  ]);
+}
+
+// ---------- Hochladen & Auslesen (Stundenplan: tt, Klassenarbeitsplan: xp)
+async function uploadPlan(kind) {
+  if (!aiReady()) return toast('Bitte zuerst die KI einrichten (Mehr → KI-Verbindung).', 'error');
+  if (kind === 'tt' && tt().lessons.length && !(await confirmDialog('Der neue Plan ersetzt den eingetragenen Stundenplan. Weiter?', 'Ersetzen', 'Abbrechen', 'primary'))) return;
+  const files = await pickFiles({ accept: 'image/*,application/pdf,.pdf' });
+  if (!files.length) return;
+  const ids = await uploadPages(files, { kind: kind === 'tt' ? 'timetable' : 'examplan', together: true });
+  if (!ids.length) return;
+  if (kind === 'tt') {
+    for (const id of tt().fileIds) await removeFile(id);
+    tt().fileIds = ids;
+  } else xp().fileIds.push(...ids);
+  save();
+  go('wimport', { kind, ids });
+}
+
+async function importPlan(kind, ids) {
+  const parts = [{ text: kind === 'tt' ? P.timetablePrompt() : P.examPlanPrompt(isoDate(new Date())) }];
+  for (const id of ids) parts.push(await filePart(id));
+  const res = await generate({ system: P.baseSystem(null), parts, json: true, temperature: 0.1 });
+  if (kind === 'tt') {
+    const t = tt();
+    const lessons = (res.stunden || []).filter((x) => x && Number(x.tag) >= 1 && Number(x.tag) <= 6 && Number(x.stunde) >= 1 && x.fach).map((x) => {
+      const s = matchSubject(x.fach);
+      return { id: uid(), day: Number(x.tag), slot: Number(x.stunde), subjectId: s?.id || null, fach: s ? '' : String(x.fach), teacher: String(x.lehrer || '').trim(), room: String(x.raum || '').trim(), week: x.woche === 'A' || x.woche === 'B' ? x.woche : null };
+    });
+    if (!lessons.length) throw new AIError('Ich konnte im Bild keinen Stundenplan erkennen. Ist das Foto scharf und vollständig?');
+    t.lessons = lessons;
+    const zeiten = (res.zeiten || []).filter((z) => Number(z.stunde) >= 1 && /^\d{1,2}:\d{2}$/.test(z.von || '') && /^\d{1,2}:\d{2}$/.test(z.bis || ''));
+    if (zeiten.length) t.slots = zeiten.map((z) => ({ n: Number(z.stunde), von: z.von.padStart(5, '0'), bis: z.bis.padStart(5, '0') })).sort((a, b) => a.n - b.n);
+    if (res.abWochen || lessons.some((l) => l.week)) { t.ab = true; t.abRef ||= isoDate(mondayOf(new Date())); }
+    // Häufigste Lehrkraft je Fach merken
+    for (const s of state.subjects) {
+      const names = lessons.filter((l) => l.subjectId === s.id && l.teacher).map((l) => l.teacher);
+      if (names.length && !s.teacher) s.teacher = names.sort((a, b) => names.filter((x) => x === b).length - names.filter((x) => x === a).length)[0];
+    }
+    const unknown = [...new Set(lessons.filter((l) => !l.subjectId).map((l) => l.fach))];
+    toast(`${lessons.length} Stunden eingetragen.${unknown.length ? ` Nicht als Fach angelegt: ${unknown.slice(0, 4).join(', ')}${unknown.length > 4 ? ' …' : ''}.` : ''} Bitte kurz prüfen.`, 'ok');
+  } else {
+    const p = xp();
+    let added = 0;
+    for (const x of res.eintraege || []) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(x?.datum || '') || !x.fach) continue;
+      const s = matchSubject(x.fach);
+      if (p.items.some((it) => it.date === x.datum && (s ? it.subjectId === s.id : it.fach === x.fach))) continue;
+      p.items.push({ id: uid(), date: x.datum, subjectId: s?.id || null, fach: s ? '' : String(x.fach), art: EXAM_KINDS.includes(x.art) ? x.art : 'Klassenarbeit', thema: String(x.thema || ''), stunde: String(x.stunde || ''), raum: String(x.raum || ''), examId: null });
+      added++;
+    }
+    if (!added && !(res.eintraege || []).length) throw new AIError('Ich konnte im Bild keine Termine erkennen. Ist das Foto scharf und vollständig?');
+    toast(`${added} Termine eingetragen. Bitte kurz prüfen.`, 'ok');
+  }
+}
+
+function viewWeekImport({ kind, ids }) {
+  const main = h('main', { class: 'content narrow' });
+  const back = () => { ui.weekTab = kind === 'tt' ? 'plan' : 'arbeiten'; go('week'); };
+  pending(main, `wimport:${kind}:${(ids || []).join(',')}`, kind === 'tt' ? 'Ich lese deinen Stundenplan …' : 'Ich lese deinen Klassenarbeitsplan …',
+    ['Plan lesen', 'Eintragen'], async () => { await importPlan(kind, ids || []); setTimeout(back, 0); });
+  return h('div', { class: 'screen' }, topbar({ back, title: kind === 'tt' ? 'Stundenplan' : 'Klassenarbeiten' }), main);
+}
+
 // ================================================================ TUTOR-CHAT
 function viewTutor() {
   const exam = activeExam();
@@ -2251,6 +2609,7 @@ function viewSettings() {
             h('p', { class: 'muted small' }, `${p.minutesPerDay} Min./Tag · Korrektur: ${p.feedbackStyle === 'hart' ? 'schonungslos' : 'ermutigend'} · ${p.gradeScale === '0-15' ? 'Punkte 0–15' : 'Noten 1–6'}`),
             h('button', { class: 'btn primary block', onclick: () => { o.remove(); draft = null; go('onboarding'); } }, 'Fragebogen neu ausfüllen')]);
         }),
+        menuRow('chat', 'Tutor-Chat', 'Fragen zum Stoff deiner Klausur', () => go('tutor')),
         menuRow('folder', 'Hochgeladene Dateien', `${Object.keys(state.files || {}).length} Dateien`, () => go('files')),
         menuRow('save', 'Datensicherung', 'Backup speichern oder einspielen', () => {
           sheet('Datensicherung', [
@@ -2267,7 +2626,7 @@ function viewSettings() {
 }
 
 function viewFiles() {
-  const order = ['material', 'archive', 'sheet', 'vocab', 'vtest', 'answer'];
+  const order = ['material', 'archive', 'sheet', 'vocab', 'vtest', 'timetable', 'examplan', 'answer'];
   const files = Object.values(state.files || {}).sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0));
   const groups = order.map((k) => [k, files.filter((f) => f.kind === k)]).concat([['other', files.filter((f) => !order.includes(f.kind))]]).filter(([, l]) => l.length);
   const sub = (f) => [subjectById(f.subjectId)?.name, f.addedAt ? new Date(f.addedAt).toLocaleDateString('de-DE') : '', f.mime === 'application/pdf' ? 'PDF' : f.mime?.startsWith('image/') ? 'Foto' : 'Text'].filter(Boolean).join(' · ');

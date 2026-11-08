@@ -114,6 +114,8 @@ export const defaultState = () => ({
   tutor: {},      // examId -> [{ role, text }]
   vocab: { sets: [], tests: {} },
   solved: [],     // gelöste Arbeitsblätter
+  timetable: null, // Stundenplan (wird beim ersten Öffnen angelegt)
+  examPlan: null,  // Klassenarbeitsplan
   activeExamId: null,
   settings: { provider: 'gemini', apiKey: '', model: '', baseUrl: '', oaKey: '', oaModel: '' },
 });

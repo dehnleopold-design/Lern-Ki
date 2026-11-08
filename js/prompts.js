@@ -480,3 +480,37 @@ Gib NUR JSON zurück:
 LÖSUNGEN ZUM BLATT:
 ${loesung}`;
 }
+
+// ---------- 9. Stundenplan & Klassenarbeitsplan auslesen ----------
+const subjectList = () => state.subjects.map((s) => `${s.name}${s.short ? ` (${s.short})` : ''}`).join(', ') || 'keine angelegt';
+
+export function timetablePrompt() {
+  return `Das ist ein STUNDENPLAN (Foto, Screenshot oder PDF, evtl. mehrere Seiten). Lies ihn vollständig und genau ab.
+Gib NUR JSON zurück:
+{
+ "zeiten": [ { "stunde": 1, "von": "08:00", "bis": "08:45" } ],
+ "stunden": [ { "tag": 1, "stunde": 1, "fach": "Mathe", "lehrer": "Name oder Kürzel", "raum": "A104", "woche": null } ],
+ "abWochen": false
+}
+REGELN
+- tag: 1 = Montag … 5 = Freitag (6 = Samstag, falls vorhanden). Doppelstunden als zwei Einträge (stunde 1 und 2).
+- woche: "A" oder "B", wenn der Plan A-/B-Wochen (bzw. gerade/ungerade Wochen) unterscheidet, sonst null. abWochen dann true.
+- fach: Die Fächer des Schülers sind: ${subjectList()}. Ordne jedes Fach im Plan einem dieser Namen zu (exakt so geschrieben), wenn es eindeutig passt (z. B. "M" → Mathe, "Ph" → Physik). Sonst den Namen aus dem Plan ausgeschrieben übernehmen.
+- lehrer und raum genau so, wie sie im Plan stehen (Kürzel bleiben Kürzel). Fehlt etwas, leerer Text.
+- Stehen Uhrzeiten im Plan, trage sie in "zeiten" ein, sonst "zeiten": [].
+- Unleserliches leer lassen, nichts erfinden.`;
+}
+
+export function examPlanPrompt(todayIso) {
+  return `Das ist ein KLASSENARBEITSPLAN / KLAUSURPLAN / TESTPLAN (Foto, Screenshot oder PDF, evtl. mehrere Seiten). Lies alle Termine genau ab.
+Heute ist ${todayIso}.
+Gib NUR JSON zurück:
+{ "eintraege": [ { "datum": "YYYY-MM-DD", "fach": "Mathe", "art": "Klassenarbeit", "thema": "", "stunde": "", "raum": "" } ] }
+REGELN
+- art: eines von "Klassenarbeit", "Klausur", "Test", "Vokabeltest", "Referat", "Sonstiges" – so, wie es im Plan steht.
+- Fehlt die Jahreszahl, nimm das Jahr, das zum laufenden Schuljahr passt (Schuljahr = August bis Juli, bezogen auf heute).
+- fach: Die Fächer des Schülers sind: ${subjectList()}. Ordne jedes Fach einem dieser Namen zu (exakt so geschrieben), wenn es eindeutig passt. Sonst den Namen aus dem Plan ausgeschrieben.
+- thema, stunde (z. B. "3.–4.") und raum nur, wenn sie im Plan stehen, sonst leer.
+- Steht der Plan für mehrere Klassen/Kurse, nimm nur Einträge, die eindeutig für alle oder für die Klasse des Schülers (Klasse ${state.profile?.grade || '?'}) gelten; im Zweifel alle.
+- Nichts erfinden.`;
+}
