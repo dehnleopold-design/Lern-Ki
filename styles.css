@@ -615,3 +615,8 @@ input.input[type=date]::-webkit-date-and-time-value, input.input[type=time]::-we
 .cal-dots i { width: 6px; height: 6px; border-radius: 50%; display: block; }
 .cal-day-head { margin: 16px 0 8px; align-items: center; }
 .note-sub { color: var(--accent-2); white-space: normal; }
+.exam-row-wrap { position: relative; }
+.exam-row-wrap .exam-row { width: 100%; padding-right: 52px; }
+.exam-edit { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); }
+.chip-static.prep { display: inline-flex; align-items: center; gap: 4px; background: var(--accent-soft); color: var(--accent-2); white-space: nowrap; }
+.class-chip { display: inline-flex; align-items: center; gap: 8px; margin: 0 0 10px; padding: 8px 14px; border-radius: 99px; border: 1px solid var(--line); background: var(--surface); color: var(--text); font-weight: 600; font-size: .9rem; }

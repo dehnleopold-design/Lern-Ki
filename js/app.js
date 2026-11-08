@@ -14,7 +14,7 @@ setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.29 (8.11.)';
+const APP_VERSION = '2.30 (8.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -911,6 +911,7 @@ function startExamBuild() {
   state.activeExamId = exam.id;
   const item = nx.planItem && xp().items.find((it) => it.id === nx.planItem);
   if (item) item.examId = exam.id; // Eintrag im Klassenarbeitsplan ↔ Lernplan
+  else linkExamsToPlan();
   ui.planTab = 'lernplan';
   save();
   nx = null;
@@ -2221,7 +2222,22 @@ function daysUntil(iso) { return Math.round((parseISO(iso) - parseISO(isoDate(ne
 const untilLabel = (iso) => { const d = daysUntil(iso); return d === 0 ? 'heute' : d === 1 ? 'morgen' : d > 1 ? `in ${d} Tagen` : d === -1 ? 'gestern' : `vor ${-d} Tagen`; };
 
 // Alle Arbeiten: Einträge aus dem Klassenarbeitsplan + Klausuren mit Datum, die (noch) keinem Eintrag zugeordnet sind
+// Ein Lernplan (Klausur) gehört zu einem Termin im Arbeitsplan, wenn Fach und Datum passen.
+function linkExamsToPlan() {
+  let changed = false;
+  for (const e of state.exams) {
+    if (!e.date || xp().items.some((it) => it.examId === e.id)) continue;
+    const free = xp().items.filter((it) => !it.examId && it.subjectId === e.subjectId);
+    const same = free.filter((it) => it.date === e.date);
+    const near = free.filter((it) => Math.abs((parseISO(it.date) - parseISO(e.date)) / 86400000) <= 3);
+    const hit = same[0] || (near.length === 1 ? near[0] : null);
+    if (hit) { hit.examId = e.id; if (hit.date !== e.date) e.date = hit.date; changed = true; }
+  }
+  if (changed) save();
+}
+
 function allExamDates() {
+  linkExamsToPlan();
   const items = xp().items.map((it) => ({ ...it, src: 'plan' }));
   const linked = new Set(items.map((it) => it.examId).filter(Boolean));
   for (const e of state.exams) if (e.date && !linked.has(e.id)) items.push({ id: `e:${e.id}`, date: e.date, subjectId: e.subjectId, art: 'Klausur', thema: e.plan?.titel || '', examId: e.id, src: 'exam' });
@@ -2425,16 +2441,33 @@ function editAB() {
 }
 
 // ---------- Klassenarbeiten
+const PREP_KINDS = ['Klassenarbeit', 'Klausur', 'Test', 'Vokabeltest'];
+
+// Tippen auf einen Termin: Lernplan öffnen bzw. direkt einen Prüfungsplan erstellen
+function openExamItem(x) {
+  const exam = x.examId && examById(x.examId);
+  if (exam) { state.activeExamId = exam.id; ui.planTab = 'lernplan'; save(); go('plan'); return; }
+  if (x.src === 'plan' && x.subjectId && PREP_KINDS.includes(x.art) && daysUntil(x.date) >= 0) {
+    if (x.art === 'Vokabeltest') { toast('Für Vokabeltests: Reiter Vokabeln → Vokabelseite hochladen und das Testdatum eintragen.'); return; }
+    startNewExam(x.subjectId, x.date, { topicsText: [x.thema, x.notiz].filter(Boolean).join(' – '), planItem: x.id });
+    return;
+  }
+  editExamItem(x);
+}
+
 function examRow(x) {
   const sub = subjectById(x.subjectId);
   const d = daysUntil(x.date);
-  return h('button', { class: `menu-row exam-row ${d < 0 ? 'past' : d <= 7 ? 'soon' : ''}`, onclick: () => editExamItem(x) },
+  const hasPlan = x.examId && examById(x.examId);
+  const canPrep = !hasPlan && x.src === 'plan' && x.subjectId && PREP_KINDS.includes(x.art) && d >= 0;
+  return h('div', { class: 'exam-row-wrap' }, h('button', { class: `menu-row exam-row ${d < 0 ? 'past' : d <= 7 ? 'soon' : ''}`, onclick: () => openExamItem(x) },
     sub ? subjectBadge(sub, 36) : h('span', { class: 'menu-ico' }, icon('exam', 20)),
     h('span', { class: 'menu-text' },
       h('span', { class: 'menu-label' }, `${itemName(x)} · ${x.art || 'Arbeit'}`),
       h('span', { class: 'menu-sub' }, [fmtDate(x.date), untilLabel(x.date), x.thema, x.stunde ? `${x.stunde} Std.` : '', x.raum ? `Raum ${x.raum}` : ''].filter(Boolean).join(' · ')),
       x.notiz ? h('span', { class: 'menu-sub note-sub' }, x.notiz) : null),
-    x.examId && examById(x.examId) ? h('span', { class: 'chip-static' }, 'Lernplan') : null);
+    hasPlan ? h('span', { class: 'chip-static' }, 'Lernplan') : canPrep ? h('span', { class: 'chip-static prep' }, icon('sparkles', 14), 'Prüfungsplan') : null),
+    x.src === 'plan' ? h('button', { class: 'iconbtn exam-edit', 'aria-label': 'Termin bearbeiten', onclick: () => editExamItem(x) }, icon('edit', 18)) : null);
 }
 
 function drawExamPlan(main) {
@@ -2449,6 +2482,7 @@ function drawExamPlan(main) {
     return;
   }
   add(main,
+    h('button', { class: 'class-chip', onclick: () => editClass() }, icon('user', 16), xp().klasse ? `Meine Klasse: ${xp().klasse}` : 'Meine Klasse eintragen (z. B. 10c)', icon('edit', 14)),
     up.length ? h('div', { class: 'menu' }, up.map(examRow)) : h('p', { class: 'muted center' }, 'Keine anstehenden Arbeiten.'),
     h('div', { class: 'row gap' },
       h('button', { class: 'btn grow', onclick: () => editExamItem(null) }, icon('plus', 18), 'Eintragen'),
@@ -2468,12 +2502,31 @@ function examPlanMenu() {
     menuRow('plus', 'Arbeit eintragen', null, () => { o.remove(); editExamItem(null); }))]);
 }
 
-function editClass() {
+function editClass(then = null) {
   const p = xp();
   const inp = h('input', { class: 'input', placeholder: 'z. B. 10c', value: p.klasse || '' });
-  const o = sheet('Meine Klasse / Kurs', [
-    h('p', { class: 'muted small' }, 'Steht der Plan für mehrere Klassen oder Kurse, übernimmt Jelly beim Hochladen nur die Termine, die für dich gelten. Unklare Termine bekommen eine Anmerkung.'),
-    inp, h('button', { class: 'btn primary block', onclick: () => { p.klasse = inp.value.trim(); save(); o.remove(); render(); } }, 'Speichern')]);
+  const files = p.fileIds.filter((id) => state.files[id] && isGroupLead(id));
+  const o = sheet('In welcher Klasse bist du?', [
+    h('p', { class: 'muted small' }, 'Steht der Plan für mehrere Klassen (z. B. 10a–10d), übernimmt Jelly nur die Termine für deine Klasse.'),
+    inp,
+    h('button', { class: 'btn primary block', onclick: () => {
+      const changed = (p.klasse || '') !== inp.value.trim();
+      p.klasse = inp.value.trim(); save(); o.remove();
+      if (then) { then(); return; }
+      if (changed && files.length && p.klasse) { rereadExamPlans(); return; }
+      render();
+    } }, then ? 'Weiter zum Hochladen' : 'Speichern'),
+    files.length && !then ? h('button', { class: 'btn block', onclick: () => { p.klasse = inp.value.trim(); save(); o.remove(); rereadExamPlans(); } }, icon('refresh', 16), 'Hochgeladenen Plan neu auslesen') : null]);
+}
+
+// Hochgeladene Arbeitspläne neu auslesen: vorhandene Termine aus diesen Plänen ersetzen (außer solchen mit Lernplan)
+function rereadExamPlans() {
+  const p = xp();
+  const ids = p.fileIds.filter((id) => state.files[id]);
+  if (!ids.length) return render();
+  p.items = p.items.filter((it) => !it.fromPlan || it.examId);
+  save();
+  go('wimport', { kind: 'xp', ids });
 }
 
 function editExamItem(x) {
@@ -2521,7 +2574,7 @@ function editExamItem(x) {
         if (!cur.subjectId) return toast('Für einen Lernplan muss das Fach angelegt sein (Fächer → +).');
         o.remove();
         startNewExam(cur.subjectId, cur.date, { topicsText: cur.thema, planItem: cur.id });
-      } }, icon('sparkles', 18), 'Lernplan erstellen'),
+      } }, icon('sparkles', 18), 'Prüfungsplan erstellen'),
     h('button', { class: 'btn block', onclick: () => { if (store()) { o.remove(); render(); } } }, 'Speichern'),
     isNew ? null : h('button', { class: 'btn ghost block danger-text', onclick: () => { p.items = p.items.filter((it) => it.id !== cur.id); save(); o.remove(); render(); } }, 'Eintrag löschen'),
   ]);
@@ -2531,6 +2584,7 @@ function editExamItem(x) {
 async function uploadPlan(kind) {
   if (!aiReady()) return toast('Bitte zuerst die KI einrichten (Mehr → KI-Verbindung).', 'error');
   if (kind === 'tt' && tt().lessons.length && !(await confirmDialog('Der neue Plan ersetzt den eingetragenen Stundenplan. Weiter?', 'Ersetzen', 'Abbrechen', 'primary'))) return;
+  if (kind === 'xp' && !xp().klasse) { editClass(() => uploadPlan('xp')); return; }
   const files = await pickFiles({ accept: 'image/*,application/pdf,.pdf' });
   if (!files.length) return;
   const ids = await uploadPages(files, { kind: kind === 'tt' ? 'timetable' : 'examplan', together: true });
@@ -2573,7 +2627,7 @@ async function importPlan(kind, ids) {
       if (x.fuerMich === false) { other++; continue; } // laut Plan für eine andere Klasse
       const s = matchSubject(x.fach);
       if (p.items.some((it) => it.date === x.datum && (s ? it.subjectId === s.id : it.fach === x.fach))) continue;
-      p.items.push({ id: uid(), date: x.datum, subjectId: s?.id || null, fach: s ? '' : String(x.fach), art: EXAM_KINDS.includes(x.art) ? x.art : 'Klassenarbeit', thema: String(x.thema || ''), stunde: String(x.stunde || ''), raum: String(x.raum || ''), notiz: String(x.anmerkung || ''), examId: null });
+      p.items.push({ id: uid(), date: x.datum, subjectId: s?.id || null, fach: s ? '' : String(x.fach), art: EXAM_KINDS.includes(x.art) ? x.art : 'Klassenarbeit', thema: String(x.thema || ''), stunde: String(x.stunde || ''), raum: String(x.raum || ''), notiz: String(x.anmerkung || ''), examId: null, fromPlan: true });
       added++;
     }
     if (!added && !(res.eintraege || []).length) throw new AIError('Ich konnte im Bild keine Termine erkennen. Ist das Foto scharf und vollständig?');
