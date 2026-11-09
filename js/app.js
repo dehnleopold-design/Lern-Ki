@@ -16,7 +16,7 @@ setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.42 (9.11.)';
+const APP_VERSION = '2.43 (9.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -1227,6 +1227,21 @@ function taskCard(exam, sess, a, idx) {
   return card;
 }
 
+// „Denkt nach …“ wie bei ChatGPT: schimmernder Text, Sekunden und ggf. KI-Hinweise (z. B. Ersatzmodell)
+function thinkingBubble() {
+  const label = h('span', { class: 'think-text' }, 'Denkt nach …');
+  const sub = h('div', { class: 'think-sub' });
+  const el = h('div', { class: 'msg model thinking', role: 'status' }, h('div', { class: 'think-row' }, h('span', { class: 'think-dot' }), label), sub);
+  const t0 = Date.now();
+  const timer = setInterval(() => {
+    if (!el.isConnected) { clearInterval(timer); return; }
+    const sec = Math.round((Date.now() - t0) / 1000);
+    if (sec >= 5) label.textContent = `Denkt nach … ${sec} s`;
+  }, 1000);
+  onAIStatus((msg) => { sub.textContent = msg; });
+  return el;
+}
+
 function followupChat(exam, sess, task, res) {
   const msgs = (sess.chats[task.id] ||= []);
   const box = h('div', { class: 'chat compact' });
@@ -1246,6 +1261,9 @@ function followupChat(exam, sess, task, res) {
     msgs.push({ role: 'user', text });
     draw();
     send.disabled = true;
+    const think = thinkingBubble();
+    add(list, think);
+    think.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     try {
       const reply = await generate({ system: P.followupSystem(exam, task, sess, res), parts: [{ text }], history, temperature: 0.4 });
       msgs.push({ role: 'model', text: reply });
@@ -3005,8 +3023,9 @@ function viewTutor() {
     msgs.push({ role: 'user', text });
     draw();
     send.disabled = true;
-    const typing = h('div', { class: 'msg model typing' }, '…');
+    const typing = thinkingBubble();
     add(list, typing);
+    typing.scrollIntoView({ block: 'end', behavior: 'smooth' });
     try {
       const reply = await generate({ system: P.tutorSystem(exam), parts: [{ text }], history, temperature: 0.5 });
       msgs.push({ role: 'model', text: reply });

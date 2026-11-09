@@ -815,3 +815,21 @@ input.input[type=date]::-webkit-date-and-time-value, input.input[type=time]::-we
 .ch-end-bot { display: flex; align-items: center; gap: 12px; margin: 14px 0; text-align: left; }
 .ch-end-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .ch-end-x { position: absolute; right: 12px; top: 6px; font-size: 1.6rem; color: var(--muted); line-height: 1; }
+/* Chat: Abstand zur Schreibzeile + „Denkt nach …“ */
+.chat.compact { display: flex; flex-direction: column; gap: 16px; }
+.chat .chat-input { margin-top: 6px; }
+.msg.thinking { background: transparent; padding-left: 4px; }
+.think-row { display: flex; align-items: center; gap: 10px; }
+.think-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--text); animation: thinkPulse 1.2s ease-in-out infinite; flex-shrink: 0; }
+@keyframes thinkPulse { 0%, 100% { transform: scale(.7); opacity: .5; } 50% { transform: scale(1.05); opacity: 1; } }
+.think-text { font-weight: 600; background: linear-gradient(90deg, var(--muted) 0%, var(--muted) 35%, var(--text) 50%, var(--muted) 65%, var(--muted) 100%); background-size: 250% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: thinkShimmer 1.8s linear infinite; }
+@keyframes thinkShimmer { from { background-position: 100% 0; } to { background-position: -150% 0; } }
+.think-sub { color: var(--warn); font-size: .82rem; margin-top: 4px; }
+.think-sub:empty { display: none; }
+/* Nie seitlich verschiebbar (z. B. beim Screenshot mit dem Pencil aus der Ecke):
+   lange Wörter/Links umbrechen und alles Überstehende abschneiden, ohne Sticky-Leisten zu brechen */
+body { overflow-wrap: break-word; }
+.md, .msg, .card, .task-text, .feedback, .error-item { overflow-wrap: anywhere; }
+html, body { overflow-x: hidden; }
+@supports (overflow: clip) { html, body { overflow-x: clip; } }
+.screen { max-width: 100vw; }
