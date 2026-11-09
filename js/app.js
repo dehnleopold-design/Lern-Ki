@@ -14,7 +14,7 @@ setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.31 (8.11.)';
+const APP_VERSION = '2.32 (9.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -61,13 +61,13 @@ function render() {
 function tabbar(active) {
   const tab = (name, ic, label) => h('button', { class: `tab ${active === name ? 'active' : ''}`, onclick: () => go(name), 'aria-label': label }, icon(ic, 22), h('span', {}, label));
   // Kamera-Knopf in der Mitte: öffnet sofort die Kamera, das Foto landet in "Blatt lösen"
-  const cam = h('button', { class: 'tab-cam', 'aria-label': 'Arbeitsblatt fotografieren', onclick: () => {
+  const cam = h('button', { class: `tab ${active === 'solve' ? 'active' : ''}`, 'aria-label': 'Arbeitsblatt scannen', onclick: () => {
     startSolve();
     pickFiles({ accept: 'image/*', capture: 'environment', multiple: false }).then(async (files) => {
       for (const f of files) { try { nsv.fileIds.push(await addFile(f, { kind: 'sheet', subjectId: nsv.subjectId })); } catch (e) { toast(errorMsg(e), 'error'); } }
       if (route.name === 'solve') render();
     });
-  } }, icon('camera', 24));
+  } }, icon('camera', 22), h('span', {}, 'Scannen'));
   return h('nav', { class: 'tabbar' }, tab('plan', 'route', 'Prüfung'), tab('subjects', 'library', 'Fächer'), cam, tab('vocab', 'languages', 'Vokabeln'), tab('week', 'calendar', 'Pläne'), tab('settings', 'gear', 'Mehr'));
 }
 
@@ -1266,14 +1266,14 @@ function sheetHead(exam, subject, topic) {
     return {
       title: `Lernzettel: ${subject?.name || ''} ${exam.date ? 'Klausur' : ''}`.trim(),
       subtitle: `${exam.date ? `Themen für die Klausur (${dmy(exam.date)})` : 'Themen'} | ${themen.join(' & ')}`,
-      meta: [klasse, `Fach: ${subject?.name || ''}`],
+      meta: [klasse, `Fach: ${subject?.name || ''}`, subject?.teacher ? `Lehrkraft: ${subject.teacher}` : ''].filter(Boolean),
       footer: `${subject?.name || ''} Lernzettel – Gesamt`,
     };
   }
   return {
     title: `Lernzettel: ${topic.titel}`,
     subtitle: `${subject?.name || ''}${exam.date ? ` | Klausur am ${dmy(exam.date)}` : ''}${topic.schwerpunkte?.length ? ` | ${topic.schwerpunkte.slice(0, 3).join(', ')}` : ''}`,
-    meta: [klasse, `Thema: ${topic.titel}`],
+    meta: [klasse, `Thema: ${topic.titel}`, subject?.teacher ? `Lehrkraft: ${subject.teacher}` : ''].filter(Boolean),
     footer: `${subject?.name || ''} Lernzettel – ${topic.titel}`,
   };
 }
@@ -1510,6 +1510,9 @@ function viewSubject({ id }) {
       return;
     }
     profileBox.replaceChildren(
+      h('div', { class: 'label' }, 'Name der Lehrkraft'),
+      h('input', { class: 'input', placeholder: 'z. B. Frau Müller', value: s.teacher || '', onchange: (e) => { s.teacher = e.target.value.trim(); save(); } }),
+      h('p', { class: 'muted small' }, 'Steht dann oben auf deinen Lernzetteln. Der Name wird nicht an die KI geschickt.'),
       s.profileBuilding && !ui.busy[`prof:${s.id}`] ? h('p', { class: 'muted small' }, backgroundAvailable() ? 'Jelly arbeitet im Hintergrund am Lehrerprofil.' : 'Das Lehrerprofil ist noch nicht fertig.') : null,
       s.teacherProfile ? mdEl(s.teacherProfile) : h('p', { class: 'muted small' }, 'Wird automatisch erstellt, sobald alte Klausuren oder Vokabeltests gelesen wurden.'),
       P.vocabProfileFor(s) ? h('p', { class: 'muted small' }, `Enthält auch das Profil deiner ${P.vocabSpracheOf(s)}-Vokabeltests.`) : null,
@@ -1545,13 +1548,11 @@ function viewSubject({ id }) {
         fold('checkc', 'Gelöste Arbeitsblätter', `${solvedList().filter((x) => x.subjectId === s.id).length} Blätter`, [
           h('div', { class: 'menu' }, solvedList().filter((x) => x.subjectId === s.id).map((x) => menuRow('file', x.titel, x.ersteAufgabe || '', () => go('solved', { id: x.id })))),
           h('button', { class: 'btn block', onclick: () => startSolve(s.id) }, icon('camera', 18), 'Arbeitsblatt lösen')]),
-        fold('user', 'Lehrerprofil', s.teacherProfile ? 'Erstellt' : 'Noch keins', [profileBox]),
+        fold('user', 'Lehrerprofil', [s.teacher, s.teacherProfile ? 'Profil erstellt' : 'Noch kein Profil'].filter(Boolean).join(' · '), [profileBox]),
         P.vocabSpracheOf(s) ? (() => { const sp = P.vocabSpracheOf(s); const n = vocab().tests[sp]?.fileIds?.length || 0; return h('div', { class: 'menu' }, menuRow('layers', 'Vokabeltests', n ? `${n} alte Tests · fließen ins Lehrerprofil ein` : 'Alte Vokabeltests hochladen', () => go('vtests', { sprache: sp }))); })() : null,
         fold('gear', 'Fach-Einstellungen', null, [
           h('div', { class: 'label' }, 'Name'),
           h('input', { class: 'input', value: s.name, onchange: (e) => { if (e.target.value.trim()) { s.name = e.target.value.trim(); save(); } } }),
-          h('div', { class: 'label' }, 'Lehrkraft'),
-          h('input', { class: 'input', placeholder: 'z. B. Frau Müller', value: s.teacher || '', onchange: (e) => { s.teacher = e.target.value.trim(); save(); } }),
           h('div', { class: 'label' }, 'Unterrichtssprache'),
           h('div', { class: 'seg seg-wrap' }, [['de', 'Deutsch'], ['en', 'Englisch'], ['es', 'Spanisch'], ['fr', 'Französisch']].map(([v, l]) => h('button', { class: `seg-btn ${P.langInfo(s).teach === v ? 'active' : ''}`, onclick: () => { s.language = v; s.langSet = true; save(); render(); } }, l))),
           P.langInfo(s).fach ? h('p', { class: 'muted small' }, `Sprachfach erkannt: Lernzettel kommen gemischt (Erklärungen auf Deutsch, Beispiele auf ${P.LANG_NAMES[P.langInfo(s).fach]}).`) : null,
