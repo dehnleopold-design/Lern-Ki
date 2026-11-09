@@ -103,3 +103,8 @@ Einrichtung (einmalig):
    git clone -b claude/knowunity-exam-prep-app-ycrff7 https://github.com/dehnleopold-design/Lern-Ki.git && cd Lern-Ki && (cd functions && npm install) && npx -y firebase-tools@latest deploy --only functions --project jelly-721e4
    ```
    Fragt das Programm nach einer Anmeldung, `npx -y firebase-tools@latest login --no-localhost` ausführen und den Anweisungen folgen, danach den Befehl wiederholen.
+
+## Jelly Control (Kontoübersicht)
+
+Unter `/control/` liegt eine eigene kleine Web-App (eigenes Symbol, „Zum Home-Bildschirm“ möglich), die alle Jelly-Konten mit Kennzahlen zeigt: Name, E-Mail, registriert seit, zuletzt aktiv, Version, Gerät, Klasse, KI eingerichtet, Anzahl Fächer/Klausuren/Vokabellisten/Blätter/Dateien/Stunden. **Keine Lerninhalte.**
+Jelly schreibt dafür beim Öffnen (höchstens alle 15 Minuten) `userIndex/{uid}`. Lesen darf nur das Admin-Konto – die nötigen Firestore-Regeln zeigt die Control-App nach der ersten Anmeldung zum Kopieren an.

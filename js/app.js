@@ -14,7 +14,7 @@ setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.33 (9.11.)';
+const APP_VERSION = '2.34 (9.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -3000,7 +3000,8 @@ function privacySheet() {
 - **Google Gemini:** Material, Fotos, Fragen und Antworten, wenn Jelly etwas erstellt oder korrigiert. Laut Googles Bedingungen werden Eingaben von Nutzern in der EU **nicht zur Produktverbesserung** genutzt, auch in der kostenlosen Stufe.
 - **Ersatz-Anbieter** (Groq, Mistral oder OpenRouter) – nur wenn du ihn einrichtest und Google überlastet ist. Es gelten dessen Bedingungen; Groq und OpenRouter sitzen in den USA.
 ${backgroundAvailable() ? `- **Jelly im Hintergrund** (nur mit Konto): Damit Lernzettel & Co. auch bei geschlossener App fertig werden, liest eine Funktion in **Google Cloud (Firebase, Rechenzentrum Frankfurt)** deinen Stand und deine hochgeladenen Dateien aus Firestore, schickt die Anfragen mit deinem Schlüssel an Gemini und legt die Ergebnisse wieder in Firestore ab. Die Protokolle der Funktion enthalten keine Inhalte.
-` : ''}- **YouTube** – nur wenn du das Warte-Video abspielst.
+` : ''}- **Kontoübersicht** (nur mit Konto): Der Betreiber dieser Jelly-Version sieht in einer Übersicht deine E-Mail-Adresse, deinen Namen, seit wann du registriert bist, wann du zuletzt aktiv warst, App-Version, Gerätetyp, Klassenstufe, ob die KI eingerichtet ist, und wie viele Fächer, Klausuren, Vokabellisten, Blätter, Dateien und Stunden du angelegt hast. **Keine Lerninhalte, keine Lösungen, keine Schlüssel.**
+- **YouTube** – nur wenn du das Warte-Video abspielst.
 - **GitHub Pages** liefert die App aus; dabei sieht GitHub (USA) wie bei jeder Website deine IP-Adresse.
 - Schriften und PDF-Bibliothek liegen in der App selbst – dafür wird kein fremder Server kontaktiert.
 
@@ -3114,7 +3115,11 @@ async function handleUser(user) {
   await loadState();
   // Neuere Daten von einem anderen Gerät holen (max. 10 s warten, dann im Hintergrund weiter)
   let booted = false;
-  const synced = startSync(user, { onConflict: (remote) => new Promise((done) => {
+  const synced = startSync(user, { info: () => ({
+    version: APP_VERSION, klasse: state.profile?.grade ? `${state.profile.grade}${xp().klasse ? ` (${xp().klasse})` : ''}` : (xp().klasse || ''),
+    counts: { faecher: state.subjects.length, klausuren: state.exams.length, vokabellisten: (state.vocab?.sets || []).length, blaetter: (state.solved || []).length, dateien: Object.keys(state.files || {}).length, stunden: (state.timetable?.lessons || []).length },
+    ki: state.settings?.provider === 'openai' ? 'anderer Anbieter' : state.settings?.apiKey ? 'Gemini' : 'nicht eingerichtet',
+  }), onConflict: (remote) => new Promise((done) => {
     ui.conflictOpen = true;
     const resolve = (v) => { ui.conflictOpen = false; app.replaceChildren(h('div', { class: 'boot' }, mascot(90), h('p', { class: 'muted' }, 'Gleiche ab …'))); done(v); };
     const when = new Date(remote.updatedAt).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });

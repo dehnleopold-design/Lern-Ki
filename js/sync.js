@@ -64,7 +64,38 @@ function friendly(e) {
   return e?.message || 'Unbekannter Fehler';
 }
 
-export async function startSync(user, { onRemoteApplied, onConflict: conflictFn, onBackground } = {}) {
+// Kontoübersicht für die Control-App: nur Kennzahlen, keine Lerninhalte (userIndex/{uid}).
+// Höchstens alle 15 Minuten, beim Öffnen der App.
+let indexUser = null;
+let indexInfo = null;
+function deviceType() {
+  const ua = navigator.userAgent || '';
+  const touchMac = /Macintosh/.test(ua) && navigator.maxTouchPoints > 1;
+  const kind = /iPad/.test(ua) || touchMac ? 'iPad' : /iPhone/.test(ua) ? 'iPhone' : /Android/.test(ua) ? 'Android' : /Mac/.test(ua) ? 'Mac' : /Windows/.test(ua) ? 'Windows' : 'Computer';
+  const app = matchMedia?.('(display-mode: standalone)').matches || navigator.standalone ? 'App' : 'Browser';
+  return `${kind} · ${app}`;
+}
+export async function writeIndex(force = false) {
+  if (!db || !indexUser) return;
+  const key = `lernki-index-${indexUser.uid}`;
+  try { if (!force && Date.now() - Number(localStorage.getItem(key) || 0) < 15 * 60000) return; } catch {}
+  const u = indexUser;
+  const doc = {
+    uid: u.uid, email: u.email || '', name: u.displayName || state.profile?.name || '',
+    provider: u.providerData?.[0]?.providerId || 'password',
+    createdAt: Date.parse(u.metadata?.creationTime || '') || null,
+    lastSeen: Date.now(), device: deviceType(), devices: { [deviceId()]: deviceType() },
+    ...(indexInfo ? indexInfo() : {}),
+  };
+  try {
+    await fs.setDoc(fs.doc(db, 'userIndex', u.uid), doc, { merge: true });
+    try { localStorage.setItem(key, String(Date.now())); } catch {}
+  } catch { /* Regeln noch nicht freigegeben – egal, die App funktioniert trotzdem */ }
+}
+
+export async function startSync(user, { onRemoteApplied, onConflict: conflictFn, onBackground, info } = {}) {
+  indexUser = user;
+  indexInfo = info || null;
   onApplied = onRemoteApplied;
   bgListener = onBackground;
   onConflict = conflictFn;
@@ -82,11 +113,12 @@ export async function startSync(user, { onRemoteApplied, onConflict: conflictFn,
   });
   addEventListener('online', () => syncNow());
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') { heartbeat(true); syncNow(); }
+    if (document.visibilityState === 'visible') { heartbeat(true); syncNow(); writeIndex().catch(() => {}); }
     else { heartbeat(false); if (local.dirty) push().catch(() => {}); }
   });
   await syncNow(true);
   heartbeat(true);
+  writeIndex().catch(() => {});
   setInterval(() => { if (document.visibilityState === 'visible') heartbeat(true); }, 2 * 60000);
   // Fertige Inhalte vom Hintergrund-Dienst sofort übernehmen, sobald sie da sind
   try { fs.onSnapshot(resultsCol(), (snap) => { bgDocs = snap.docs; applyBackground(); }, () => {}); } catch {}
@@ -245,6 +277,8 @@ export async function push(force = false, overwrite = false) {
 // Alle Daten dieses Kontos aus der Cloud löschen (Recht auf Löschung).
 export async function deleteCloudData() {
   if (!db) throw new Error('Keine Verbindung zum Online-Speicher.');
+  try { await fs.deleteDoc(fs.doc(db, 'userIndex', uid)); } catch {}
+  indexUser = null;
   for (const name of ['bgjobs', 'bgresults', 'bgpresence']) {
     const all = await fs.getDocs(fs.collection(db, 'users', uid, name));
     for (const d of all.docs) await fs.deleteDoc(d.ref);
