@@ -14,7 +14,7 @@ setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.35 (9.11.)';
+const APP_VERSION = '2.36 (9.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -110,7 +110,7 @@ function render() {
   applyTheme();
   app.replaceChildren();
   if (!state.profile && !['onboarding', 'login'].includes(route.name)) route = { name: 'onboarding', params: {} };
-  const views = { login: viewLogin, onboarding: viewOnboarding, prepare: viewPrepare, plan: viewPlan, pick: viewPick, vocab: viewVocab, solve: viewSolveNew, solved: viewSolved, vnew: viewVocabNew, vset: viewVocabSet, vwords: viewVocabWords, vplan: viewVocabPlan, vquiz: viewVocabQuiz, vtests: viewVocabTests, files: viewFiles, week: viewWeek, wimport: viewWeekImport, calendar: viewCalendar, newExam: viewNewExam, session: viewSession, subjects: viewSubjects, subject: viewSubject, tutor: viewTutor, settings: viewSettings };
+  const views = { login: viewLogin, onboarding: viewOnboarding, prepare: viewPrepare, plan: viewPlan, pick: viewPick, vocab: viewVocab, solve: viewSolveNew, solved: viewSolved, vnew: viewVocabNew, vset: viewVocabSet, vwords: viewVocabWords, vplan: viewVocabPlan, vquiz: viewVocabQuiz, vtests: viewVocabTests, files: viewFiles, week: viewWeek, wimport: viewWeekImport, todo: viewTodos, calendar: viewCalendar, newExam: viewNewExam, session: viewSession, subjects: viewSubjects, subject: viewSubject, tutor: viewTutor, settings: viewSettings };
   const v = (views[route.name] || viewPlan)(route.params);
   add(app, v);
 }
@@ -125,7 +125,7 @@ function tabbar(active) {
       if (route.name === 'solve') render();
     });
   } }, icon('camera', 22), h('span', {}, 'Scannen'));
-  return h('nav', { class: 'tabbar' }, tab('plan', 'route', 'Prüfung'), tab('subjects', 'library', 'Fächer'), cam, tab('vocab', 'languages', 'Vokabeln'), tab('week', 'calendar', 'Pläne'), tab('settings', 'gear', 'Mehr'));
+  return h('nav', { class: 'tabbar' }, tab('plan', 'route', 'Prüfung'), tab('subjects', 'library', 'Fächer'), cam, tab('vocab', 'languages', 'Vokabeln'), tab('todo', 'checkc', 'To-dos'), tab('week', 'calendar', 'Pläne'), tab('settings', 'gear', 'Mehr'));
 }
 
 function topbar({ back, close, title, progress }) {
@@ -2712,7 +2712,7 @@ function dayItems(iso) {
   const d = parseISO(iso);
   const wd = (d.getDay() + 6) % 7;
   const exams = allExamDates().filter((x) => x.date === iso);
-  const events = ownEvents().filter((e) => e.date === iso).sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+  const events = [...ownEvents().filter((e) => e.date === iso), ...todos().filter((t) => !t.done && t.due === iso).map((t) => ({ id: `todo-${t.id}`, title: `To-do: ${t.title}`, time: t.time, note: t.note, color: subjectById(t.subjectId)?.color || '#fcd34d', todo: t }))].sort((a, b) => (a.time || '').localeCompare(b.time || ''));
   const lessons = wd < 5 ? lessonsOn(wd + 1, abWeek(d)) : [];
   return { exams, events, lessons };
 }
@@ -2748,7 +2748,7 @@ function viewCalendar() {
       h('div', { class: 'label' }, `${sel.toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' })}${ui.calDay === today ? ' · heute' : ''}`),
       h('button', { class: 'btn small', onclick: () => editEvent(null, ui.calDay) }, icon('plus', 16), 'Termin')),
     exams.length ? h('div', { class: 'menu' }, exams.map(examRow)) : null,
-    events.length ? h('div', { class: 'menu' }, events.map((e) => h('button', { class: 'menu-row', onclick: () => editEvent(e) },
+    events.length ? h('div', { class: 'menu' }, events.map((e) => h('button', { class: 'menu-row', onclick: () => (e.todo ? editTodo(e.todo) : editEvent(e)) },
       h('span', { class: 'swatch', style: { background: e.color || '#94a3b8' } }),
       h('span', { class: 'menu-text' }, h('span', { class: 'menu-label' }, e.title), h('span', { class: 'menu-sub' }, [e.time ? `${e.time}${e.end ? `–${e.end}` : ''} Uhr` : 'ganztägig', e.note].filter(Boolean).join(' · ')))))) : null,
     lessons.length ? h('details', { class: 'fold' },
@@ -2861,6 +2861,86 @@ function exportICS(lessonsToo) {
   document.body.append(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 60000);
   toast(`${n} Termine vorbereitet – im Kalender „Alle hinzufügen“ tippen.`, 'ok');
+}
+
+// ================================================================ TO-DOS
+const todos = () => (state.todos ||= []);
+
+function dueLabel(t) {
+  if (!t.due) return 'ohne Termin';
+  const d = daysUntil(t.due);
+  const when = d === 0 ? 'heute' : d === 1 ? 'morgen' : d === -1 ? 'seit gestern' : d < 0 ? `seit ${-d} Tagen` : `in ${d} Tagen`;
+  return `bis ${fmtDate(t.due)}${t.time ? `, ${t.time} Uhr` : ''} · ${when}`;
+}
+
+function viewTodos() {
+  const open = todos().filter((t) => !t.done).sort((a, b) => (a.due || '9999').localeCompare(b.due || '9999') || (a.time || '').localeCompare(b.time || '') || a.createdAt - b.createdAt);
+  const done = todos().filter((t) => t.done).sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0));
+  // Schnell eintragen: Aufgabe + bis wann
+  const title = h('input', { class: 'input', placeholder: 'Neue Aufgabe, z. B. Bio-Referat vorbereiten', enterkeyhint: 'done' });
+  const due = h('input', { class: 'input', type: 'date', value: isoDate(new Date(Date.now() + 86400000)) });
+  const addIt = () => {
+    const txt = title.value.trim();
+    if (!txt) { title.focus(); return; }
+    todos().push({ id: uid(), title: txt, due: due.value || null, time: '', subjectId: matchSubject(txt.split(/[\s-:]/)[0])?.id || null, note: '', done: false, createdAt: Date.now() });
+    save(); render();
+    setTimeout(() => document.querySelector('.todo-add .input')?.focus(), 50);
+  };
+  title.addEventListener('keydown', (e) => { if (e.key === 'Enter') addIt(); });
+  const row = (t) => {
+    const sub = subjectById(t.subjectId);
+    const d = t.due ? daysUntil(t.due) : null;
+    const el = h('div', { class: `todo ${d !== null && d < 0 ? 'late' : d === 0 ? 'today' : ''}` },
+      h('button', { class: 'todo-main', onclick: () => editTodo(t) },
+        sub ? h('span', { class: 'todo-dot', style: { background: sub.color } }) : null,
+        h('span', { class: 'todo-text' }, h('span', { class: 'todo-title' }, t.title), h('span', { class: 'todo-due' }, [sub?.name, dueLabel(t)].filter(Boolean).join(' · ')), t.note ? h('span', { class: 'todo-note' }, t.note) : null)),
+      h('button', { class: 'todo-check', 'aria-label': `„${t.title}“ erledigt`, onclick: () => {
+        el.classList.add('checked');
+        setTimeout(() => { t.done = true; t.doneAt = Date.now(); save(); render(); toastUndo(t); }, 450); // kurz zeigen, dann verschwinden
+      } }, icon('check', 18)));
+    return el;
+  };
+  const screen = h('div', { class: 'screen with-tabs' },
+    h('header', { class: 'topbar' }, h('span', { class: 'iconbtn-spacer' }), h('div', { class: 'topbar-title' }, 'To-dos'), h('span', { class: 'iconbtn-spacer' })),
+    h('main', { class: 'content narrow' },
+      h('div', { class: 'todo-add card' }, title, h('div', { class: 'row gap' }, h('div', { class: 'grow' }, h('div', { class: 'label' }, 'Bis wann?'), due), h('button', { class: 'btn primary todo-add-btn', 'aria-label': 'Hinzufügen', title: 'Hinzufügen', onclick: addIt }, icon('plus', 22)))),
+      open.length ? h('div', { class: 'todo-list' }, open.map(row)) : h('div', { class: 'center stack todo-empty' }, mascot(90), h('p', { class: 'muted' }, done.length ? 'Alles erledigt – stark!' : 'Noch keine Aufgaben. Trag oben ein, was du bis wann schaffen musst.')),
+      done.length ? h('details', { class: 'fold' },
+        h('summary', {}, h('span', { class: 'menu-ico' }, icon('checkc', 20)), h('span', { class: 'menu-text' }, h('span', { class: 'menu-label' }, 'Erledigt'), h('span', { class: 'menu-sub' }, `${done.length} Aufgaben`)), h('span', { class: 'fold-chev' }, icon('chev', 18))),
+        h('div', { class: 'fold-body' }, h('div', { class: 'menu' }, done.slice(0, 50).map((t) => h('div', { class: 'menu-row done-row' },
+          h('span', { class: 'menu-text' }, h('span', { class: 'menu-label' }, t.title), h('span', { class: 'menu-sub' }, `erledigt am ${new Date(t.doneAt || Date.now()).toLocaleDateString('de-DE')}`)),
+          h('button', { class: 'btn small ghost', onclick: () => { t.done = false; delete t.doneAt; save(); render(); } }, 'Zurückholen')))),
+          h('button', { class: 'btn small ghost danger-text', onclick: async () => { if (await confirmDialog('Alle erledigten Aufgaben endgültig löschen?', 'Löschen')) { state.todos = todos().filter((x) => !x.done); save(); render(); } } }, 'Erledigte löschen'))) : null),
+    tabbar('todo'));
+  return screen;
+}
+
+function toastUndo(t) {
+  const el = h('div', { class: 'toast ok undo-toast' }, h('span', {}, `„${t.title}“ erledigt`),
+    h('button', { class: 'undo-btn', onclick: () => { t.done = false; delete t.doneAt; save(); el.remove(); render(); } }, 'Rückgängig'));
+  document.body.append(el);
+  requestAnimationFrame(() => el.classList.add('show'));
+  setTimeout(() => el.remove(), 4000);
+}
+
+function editTodo(t) {
+  const title = h('input', { class: 'input', value: t.title });
+  const due = h('input', { class: 'input', type: 'date', value: t.due || '' });
+  const time = h('input', { class: 'input', type: 'time', value: t.time || '' });
+  const subSel = h('select', { class: 'input' }, h('option', { value: '' }, 'Kein Fach'), state.subjects.map((s) => h('option', { value: s.id, selected: s.id === t.subjectId }, s.name)));
+  const note = h('textarea', { class: 'input', rows: 2, placeholder: 'Notiz (optional)', value: t.note || '' });
+  const o = sheet('Aufgabe', [
+    h('div', { class: 'label' }, 'Aufgabe'), title,
+    h('div', { class: 'row gap' }, h('div', { class: 'grow' }, h('div', { class: 'label' }, 'Bis wann?'), due), h('div', { class: 'grow' }, h('div', { class: 'label' }, 'Uhrzeit (optional)'), time)),
+    h('div', { class: 'label' }, 'Fach'), subSel,
+    h('div', { class: 'label' }, 'Notiz'), note,
+    h('button', { class: 'btn primary block', onclick: () => {
+      if (!title.value.trim()) return toast('Bitte die Aufgabe eintragen.');
+      Object.assign(t, { title: title.value.trim(), due: due.value || null, time: time.value, subjectId: subSel.value || null, note: note.value.trim() });
+      save(); o.remove(); render();
+    } }, 'Speichern'),
+    h('button', { class: 'btn ghost block danger-text', onclick: () => { state.todos = todos().filter((x) => x !== t); save(); o.remove(); render(); } }, 'Löschen'),
+  ]);
 }
 
 // ================================================================ TUTOR-CHAT

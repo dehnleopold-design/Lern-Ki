@@ -630,3 +630,34 @@ input.input[type=date]::-webkit-date-and-time-value, input.input[type=time]::-we
 .color-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; }
 .color-row input[type=color] { width: 52px; height: 40px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); padding: 3px; }
 .theme-preview { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 6px 0 14px; }
+
+/* To-dos */
+.todo-add { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+.todo-add .row { align-items: flex-end; }
+.todo-add-btn { white-space: nowrap; min-height: 52px; }
+.todo-list { display: flex; flex-direction: column; gap: 8px; }
+.todo { display: flex; align-items: stretch; gap: 8px; background: var(--surface); border: 1px solid var(--line); border-radius: 18px; overflow: hidden; transition: opacity .4s ease, transform .4s ease, max-height .4s ease; max-height: 200px; }
+.todo.late { border-color: color-mix(in srgb, var(--bad) 55%, transparent); }
+.todo.late .todo-due { color: var(--bad); }
+.todo.today .todo-due { color: var(--accent-2); }
+.todo-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; padding: 14px 4px 14px 16px; text-align: left; color: var(--text); }
+.todo-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.todo-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.todo-title { font-weight: 700; }
+.todo-due { font-size: .82rem; color: var(--muted); }
+.todo-note { font-size: .82rem; color: var(--muted); font-style: italic; }
+.todo-check { flex-shrink: 0; width: 64px; display: grid; place-items: center; border-left: 1px solid var(--line); color: transparent; }
+.todo-check::before { content: ''; position: absolute; }
+.todo-check svg { width: 30px; height: 30px; padding: 5px; border-radius: 10px; border: 2px solid var(--muted); box-sizing: border-box; transition: all .2s ease; }
+.todo-check:hover svg { border-color: var(--accent); }
+.todo.checked .todo-check svg { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.todo.checked .todo-title { text-decoration: line-through; opacity: .6; }
+.todo.checked { opacity: 0; transform: translateX(30px); transition-delay: .15s; }
+.todo-empty { margin-top: 30px; }
+.done-row { align-items: center; }
+.undo-toast { display: flex; align-items: center; gap: 14px; }
+.undo-btn { color: var(--accent-2); font-weight: 700; }
+.todo-add-btn { width: 56px; padding: 0; flex-shrink: 0; }
+/* 7 Reiter: etwas kleinere Beschriftung, damit nichts aneinanderstößt */
+.tabbar .tab { font-size: .62rem; letter-spacing: -.01em; padding-left: 0; padding-right: 0; }
+@media (min-width: 600px) { .tabbar { width: min(560px, calc(100% - 24px)); } .tabbar .tab { font-size: .7rem; } }
