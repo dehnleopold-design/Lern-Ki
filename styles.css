@@ -785,3 +785,5 @@ input.input[type=date]::-webkit-date-and-time-value, input.input[type=time]::-we
 .wait:has(> .ch) { width: min(1040px, calc(100vw - 32px)); margin-left: calc(50% - min(520px, 50vw - 16px)); }
 .ch-act span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 @container (max-width: 420px) { .ch-act { font-size: .68rem; } }
+.play-seg { margin-bottom: 14px; }
+.wait-done-bar { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(env(safe-area-inset-bottom) + 16px); z-index: 60; display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 14px; border-radius: 22px; background: var(--surface-2); border: 1px solid var(--line); box-shadow: 0 16px 50px rgba(0, 0, 0, .55); font-weight: 700; white-space: nowrap; animation: chPop .3s ease; }

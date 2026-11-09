@@ -16,7 +16,7 @@ setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.40 (9.11.)';
+const APP_VERSION = '2.41 (9.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -109,10 +109,12 @@ function designSheet() {
 }
 
 function render() {
+  // „Fertig mit Haken bestätigen“: Seite nicht wechseln, bis der Haken gedrückt ist (Video/Schach läuft weiter)
+  if (ui.waitHold) { if (ui.waitHold === JSON.stringify(route)) return; ui.waitHold = null; }
   applyTheme();
   app.replaceChildren();
   if (!state.profile && !['onboarding', 'login'].includes(route.name)) route = { name: 'onboarding', params: {} };
-  const views = { login: viewLogin, onboarding: viewOnboarding, prepare: viewPrepare, plan: viewPlan, pick: viewPick, vocab: viewVocab, solve: viewSolveNew, solved: viewSolved, vnew: viewVocabNew, vset: viewVocabSet, vwords: viewVocabWords, vplan: viewVocabPlan, vquiz: viewVocabQuiz, vtests: viewVocabTests, files: viewFiles, week: viewWeek, wimport: viewWeekImport, todo: viewTodos, notes: viewNotes, notebook: viewNotebook, calendar: viewCalendar, newExam: viewNewExam, session: viewSession, subjects: viewSubjects, subject: viewSubject, tutor: viewTutor, settings: viewSettings };
+  const views = { login: viewLogin, onboarding: viewOnboarding, prepare: viewPrepare, plan: viewPlan, pick: viewPick, vocab: viewVocab, solve: viewSolveNew, solved: viewSolved, vnew: viewVocabNew, vset: viewVocabSet, vwords: viewVocabWords, vplan: viewVocabPlan, vquiz: viewVocabQuiz, vtests: viewVocabTests, files: viewFiles, week: viewWeek, wimport: viewWeekImport, todo: viewTodos, notes: viewNotes, notebook: viewNotebook, calendar: viewCalendar, newExam: viewNewExam, session: viewSession, subjects: viewSubjects, subject: viewSubject, tutor: viewTutor, settings: viewSettings, play: viewPlay };
   const v = (views[route.name] || viewPlan)(route.params);
   add(app, v);
 }
@@ -807,15 +809,33 @@ function waitPanel(title) {
       h('div', { class: 'progress' }, bar),
       list, status, errBox));
   onAIStatus((msg) => { status.textContent = msg; });
-  return {
+  const titleEl = el.querySelector('.wait-title');
+  return (lastWaitPanel = {
     el, errBox,
+    showDone(cb) {
+      steps.forEach((x) => { if (x.state !== 'fail') x.state = 'done'; }); draw();
+      bar.style.width = '100%';
+      titleEl.textContent = 'Fertig! Schau zu Ende oder spiel weiter – dann den Haken drücken.';
+      status.textContent = '';
+      errBox.replaceChildren(h('div', { class: 'wait-done-bar' }, mascot(40, 'normal'), h('span', {}, 'Jelly ist fertig!'),
+        h('button', { class: 'btn primary', onclick: () => { ui.waitHold = null; cb(); } }, icon('check', 20), 'Fertig – ansehen')));
+    },
     setSteps(labels) { steps = labels.map((label) => ({ label, state: 'wait' })); draw(); },
     addSteps(labels) { const start = steps.length; steps.push(...labels.map((label) => ({ label, state: 'wait' }))); draw(); return start; },
     mark(i, st) { if (steps[i]) steps[i].state = st; draw(); },
     run(i) { steps.forEach((x, j) => { if (j < i) x.state = 'done'; }); if (steps[i]) steps[i].state = 'run'; draw(); },
     done(i) { if (steps[i]) steps[i].state = 'done'; draw(); },
     fail(i) { if (steps[i]) steps[i].state = 'fail'; draw(); },
-  };
+  });
+}
+
+// Wenn eine Erstellung fertig ist: sofort weiter oder (Einstellung) erst nach Haken.
+let lastWaitPanel = null;
+function finishWait(panel, cb) {
+  const p = panel?.el.isConnected ? panel : lastWaitPanel?.el.isConnected ? lastWaitPanel : null;
+  if (!state.settings.waitConfirm || !p) { cb(); return; }
+  ui.waitHold = JSON.stringify(route);
+  p.showDone(cb);
 }
 
 // ================================================================ NEUE KLAUSUR (Ablauf wie in den Screenshots)
@@ -1073,7 +1093,7 @@ function viewPrepare({ examId }) {
         }
         const failed = await prepareAll(exam, panel);
         toast(failed ? `${failed} Inhalt(e) konnten nicht vorbereitet werden – sie werden beim Öffnen erstellt.` : 'Alles fertig vorbereitet!', failed ? 'info' : 'ok');
-        if (route.name === 'prepare') jellyTransition(() => go('plan'));
+        if (route.name === 'prepare') finishWait(panel, () => jellyTransition(() => go('plan')));
       } catch (e) {
         panel.errBox.replaceChildren(h('div', { class: 'card warn' }, h('p', {}, errorMsg(e)), fallbackTip(errorMsg(e)),
           h('p', { class: 'muted small' }, 'Schon Gelesenes ist gespeichert – beim nächsten Versuch geht es dort weiter.'),
@@ -1143,7 +1163,7 @@ function viewSession({ examId, unitId }) {
       let graded = false;
       try { await gradeSession(exam, unit, sess); graded = true; } catch (e) { toast(errorMsg(e), 'error'); }
       const finish = () => { overlay.remove(); render(); };
-      if (graded) jellyTransition(finish); else finish();
+      if (graded) finishWait(panel, () => jellyTransition(finish)); else finish();
     } }, 'Abgeben & korrigieren lassen');
     add(main, submit);
   } else {
@@ -1307,7 +1327,12 @@ function pending(main, key, title, steps, producer) {
   producer()
     .then(() => { ok = true; save(); })
     .catch((e) => { ui.busy[`err:${key}`] = errorMsg(e); })
-    .finally(() => { delete ui.busy[key]; if (route === here) (ok ? jellyTransition(() => { if (route === here) render(); }) : render()); });
+    .finally(() => {
+      delete ui.busy[key];
+      if (route !== here) return;
+      if (!ok) { render(); return; }
+      finishWait(panel, () => jellyTransition(() => { if (route === here) render(); }));
+    });
 }
 
 function ensureSheetCSS() {
@@ -3010,7 +3035,24 @@ function waitAreaSheet() {
           if (v && !youtubeId(v)) { toast('Das ist kein gültiger YouTube-Link.', 'error'); return; }
           st.waitVideo = v; save(); toast(v ? 'Video gespeichert.' : 'Video ausgeschaltet.', 'ok'); o.remove(); render();
         } })),
+    h('div', { class: 'label' }, 'Wenn Jelly fertig ist'),
+    h('div', { class: 'wait-mode' },
+      h('button', { class: st.waitConfirm ? '' : 'on', onclick: () => { st.waitConfirm = false; save(); o.remove(); render(); waitAreaSheet(); } }, icon('zap', 24), 'Automatisch weiter'),
+      h('button', { class: st.waitConfirm ? 'on' : '', onclick: () => { st.waitConfirm = true; save(); o.remove(); render(); waitAreaSheet(); } }, icon('checkc', 24), 'Mit Haken bestätigen')),
+    h('p', { class: 'muted small' }, st.waitConfirm ? 'Du bleibst im Wartebereich, bis du „Fertig – ansehen“ drückst – so kannst du dein Video oder die Partie zu Ende bringen.' : 'Sobald alles fertig ist, springt Jelly direkt zum Ergebnis.'),
+    h('button', { class: 'btn ghost block', onclick: () => { o.remove(); go('play'); } }, icon('play', 18), 'Jetzt öffnen'),
   ]);
+}
+
+// Schach & Video jederzeit, unabhängig vom Warten
+let playTab = null;
+function viewPlay() {
+  const tab = playTab || (state.settings.waitMode === 'chess' ? 'chess' : 'video');
+  const seg = (k, label) => h('button', { class: `seg-btn${tab === k ? ' active' : ''}`, onclick: () => { playTab = k; render(); } }, label);
+  return h('div', { class: 'screen' }, topbar({ back: () => go('settings'), title: 'Schach & Video' }),
+    h('main', { class: 'content narrow' },
+      h('div', { class: 'seg play-seg' }, seg('chess', 'Schach'), seg('video', 'Video')),
+      h('div', { class: 'wait' }, tab === 'chess' ? chessPanel() : (waitVideo() || h('div', { class: 'card muted' }, 'Kein Video eingestellt – unter Mehr → Wartebereich einen YouTube-Link eintragen.')))));
 }
 
 function viewSettings() {
@@ -3022,7 +3064,8 @@ function viewSettings() {
     h('main', { class: 'content narrow' },
       h('div', { class: 'menu' },
         menuRow('sparkles', 'KI-Verbindung', aiSub, () => sheet('KI-Verbindung', [aiSetupBlock(false)])),
-        menuRow(st.waitMode === 'chess' ? 'target' : 'video', 'Wartebereich', st.waitMode === 'chess' ? 'Schach gegen Bots' : (st.waitVideo ?? DEFAULT_WAIT_VIDEO) ? 'Video' : 'Aus', () => waitAreaSheet())),
+        menuRow(st.waitMode === 'chess' ? 'target' : 'video', 'Wartebereich', `${st.waitMode === 'chess' ? 'Schach gegen Bots' : (st.waitVideo ?? DEFAULT_WAIT_VIDEO) ? 'Video' : 'Aus'} · ${st.waitConfirm ? 'mit Haken bestätigen' : 'automatisch weiter'}`, () => waitAreaSheet()),
+        menuRow('play', 'Schach & Video', 'Jederzeit spielen oder schauen – auch ohne Warten', () => go('play'))),
       authEnabled && !bootedUid ? h('div', { class: 'menu' },
         menuRow('key', 'Konto & Sync einrichten', 'Anmelden – dann hast du alles auf iPad und Handy', () => openAccountSetup())) : null,
       authEnabled && bootedUid ? h('div', { class: 'menu' },
