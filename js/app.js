@@ -14,7 +14,7 @@ setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.34 (9.11.)';
+const APP_VERSION = '2.35 (9.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -3000,7 +3000,7 @@ function privacySheet() {
 - **Google Gemini:** Material, Fotos, Fragen und Antworten, wenn Jelly etwas erstellt oder korrigiert. Laut Googles Bedingungen werden Eingaben von Nutzern in der EU **nicht zur Produktverbesserung** genutzt, auch in der kostenlosen Stufe.
 - **Ersatz-Anbieter** (Groq, Mistral oder OpenRouter) – nur wenn du ihn einrichtest und Google überlastet ist. Es gelten dessen Bedingungen; Groq und OpenRouter sitzen in den USA.
 ${backgroundAvailable() ? `- **Jelly im Hintergrund** (nur mit Konto): Damit Lernzettel & Co. auch bei geschlossener App fertig werden, liest eine Funktion in **Google Cloud (Firebase, Rechenzentrum Frankfurt)** deinen Stand und deine hochgeladenen Dateien aus Firestore, schickt die Anfragen mit deinem Schlüssel an Gemini und legt die Ergebnisse wieder in Firestore ab. Die Protokolle der Funktion enthalten keine Inhalte.
-` : ''}- **Kontoübersicht** (nur mit Konto): Der Betreiber dieser Jelly-Version sieht in einer Übersicht deine E-Mail-Adresse, deinen Namen, seit wann du registriert bist, wann du zuletzt aktiv warst, App-Version, Gerätetyp, Klassenstufe, ob die KI eingerichtet ist, und wie viele Fächer, Klausuren, Vokabellisten, Blätter, Dateien und Stunden du angelegt hast. **Keine Lerninhalte, keine Lösungen, keine Schlüssel.**
+` : ''}- **Einsicht durch den Betreiber** (nur mit Konto): Der Betreiber dieser Jelly-Version sieht in einer Übersicht deine E-Mail-Adresse, deinen Namen, seit wann du registriert bist, wann du zuletzt aktiv warst, App-Version, Gerätetyp, Klassenstufe und ob die KI eingerichtet ist. Außerdem kann er **deine Inhalte lesen**: Fächer und Lehrerprofile, Klausuren mit Lernzetteln, Quiz und Aufgaben (auch deine Antworten und Korrekturen), Vokabeln, gelöste Blätter, Stundenplan, Termine und hochgeladene Dateien. Ändern kann er nichts. **Deine KI-Schlüssel sieht er nicht** – sie liegen getrennt. Wer das nicht möchte, nutzt Jelly ohne Konto (dann bleibt alles nur auf dem Gerät).
 - **YouTube** – nur wenn du das Warte-Video abspielst.
 - **GitHub Pages** liefert die App aus; dabei sieht GitHub (USA) wie bei jeder Website deine IP-Adresse.
 - Schriften und PDF-Bibliothek liegen in der App selbst – dafür wird kein fremder Server kontaktiert.
@@ -3154,6 +3154,18 @@ async function handleUser(user) {
   await Promise.race([synced, new Promise((r) => { const t = setInterval(() => { if (!ui.conflictOpen && Date.now() - started > 10000) { clearInterval(t); r(); } }, 300); })]);
   await boot(user);
   booted = true;
+  // Einmaliger, offener Hinweis: Der Betreiber kann Inhalte einsehen
+  try {
+    const k = `lernki-einsicht-${user.uid}`;
+    if (!localStorage.getItem(k)) {
+      setTimeout(() => {
+        const o = sheet('Kurzer Hinweis', [
+          h('p', {}, 'Der Betreiber dieser Jelly-Version kann in einer Übersicht dein Konto und deine Inhalte lesen (Lernzettel, Aufgaben, Vokabeln, Stundenplan, hochgeladene Dateien). Ändern kann er nichts, deine KI-Schlüssel sieht er nicht.'),
+          h('p', { class: 'muted small' }, 'Details unter Mehr → Datenschutz. Ohne Konto bleibt alles nur auf deinem Gerät.'),
+          h('button', { class: 'btn primary block', onclick: () => { try { localStorage.setItem(k, '1'); } catch {} o.remove(); } }, 'Verstanden')]);
+      }, 1500);
+    }
+  } catch {}
 }
 
 async function startAuth() {

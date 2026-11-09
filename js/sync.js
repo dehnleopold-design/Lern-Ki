@@ -40,6 +40,24 @@ function deviceId() {
 }
 
 const metaRef = () => fs.doc(db, 'users', uid, 'state', 'meta');
+// KI-Schlüssel liegen getrennt vom Stand (users/{uid}/secret/keys). Den Stand darf auch Control lesen, die Schlüssel nicht.
+const secretRef = () => fs.doc(db, 'users', uid, 'secret', 'keys');
+const keysOf = (st) => ({ apiKey: st.settings?.apiKey || '', oaKey: st.settings?.oaKey || '', fbKey: st.settings?.fb?.key || '' });
+function withoutKeys(st) {
+  const s = st.settings || {};
+  return { ...st, settings: { ...s, apiKey: '', oaKey: '', ...(s.fb ? { fb: { ...s.fb, key: '' } } : {}) } };
+}
+async function readKeys() {
+  try { const d = await fs.getDoc(secretRef()); return d.exists() ? d.data() : null; } catch { return null; }
+}
+// Schlüssel in einen geladenen Stand einsetzen: aus der Cloud, sonst die, die auf diesem Gerät schon da sind
+function putKeys(next, keys) {
+  const own = keysOf(state);
+  const k = { apiKey: keys?.apiKey || next.settings?.apiKey || own.apiKey, oaKey: keys?.oaKey || next.settings?.oaKey || own.oaKey, fbKey: keys?.fbKey || next.settings?.fb?.key || own.fbKey };
+  next.settings = { ...(next.settings || {}), apiKey: k.apiKey, oaKey: k.oaKey };
+  if (next.settings.fb) next.settings.fb = { ...next.settings.fb, key: k.fbKey };
+  return next;
+}
 const chunkRef = (i) => fs.doc(db, 'users', uid, 'state', `c${i}`);
 const blobRef = (id, i) => fs.doc(db, 'users', uid, 'blobs', `${id}_${i}`);
 const jobRef = (examId) => fs.doc(db, 'users', uid, 'bgjobs', examId);
@@ -202,7 +220,7 @@ async function pull(remote) {
     if (!c.exists()) throw new Error('Unvollständiger Stand in der Cloud.');
     parts.push(c.data().d);
   }
-  const next = JSON.parse(parts.join(''));
+  const next = putKeys(JSON.parse(parts.join('')), await readKeys());
   // Fehlende Dateien (Fotos/PDFs) holen
   const have = new Set(await blobKeys());
   for (const [id, n] of Object.entries(remote.blobs || {})) {
@@ -218,7 +236,7 @@ async function pull(remote) {
     if (pieces.length) await putBlob(id, { mime, data: pieces.join('') });
   }
   await applyRemoteState(next);
-  local = { base: remote.updatedAt, dirty: false, dirtyAt: 0, blobs: remote.blobs || {} };
+  local = { base: remote.updatedAt, dirty: false, dirtyAt: 0, blobs: remote.blobs || {}, keys: local.keys };
   await saveLocalMeta();
   setStatus('ok');
   try { onApplied?.(); } catch {}
@@ -239,7 +257,9 @@ export async function push(force = false, overwrite = false) {
       await pull(remote);
       return;
     }
-    const json = JSON.stringify(state);
+    const json = JSON.stringify(withoutKeys(state));
+    const keys = keysOf(state);
+    if (JSON.stringify(keys) !== local.keys) { await fs.setDoc(secretRef(), keys); local.keys = JSON.stringify(keys); }
     const n = Math.max(1, Math.ceil(json.length / CHUNK));
     for (let i = 0; i < n; i++) await fs.setDoc(chunkRef(i), { d: json.slice(i * CHUNK, (i + 1) * CHUNK) });
     // Dateien: neue hochladen, gelöschte entfernen
@@ -264,7 +284,7 @@ export async function push(force = false, overwrite = false) {
     for (let i = n; i < (remote?.n || 0); i++) { try { await fs.deleteDoc(chunkRef(i)); } catch {} }
     // Wurde während des Hochladens weiter gelernt? Dann gleich nochmal.
     const stillDirty = local.dirtyAt > started;
-    local = { base: updatedAt, dirty: stillDirty, dirtyAt: stillDirty ? local.dirtyAt : 0, blobs };
+    local = { base: updatedAt, dirty: stillDirty, dirtyAt: stillDirty ? local.dirtyAt : 0, blobs, keys: local.keys };
     await saveLocalMeta();
     setStatus('ok');
     if (stillDirty) schedulePush();
@@ -278,6 +298,7 @@ export async function push(force = false, overwrite = false) {
 export async function deleteCloudData() {
   if (!db) throw new Error('Keine Verbindung zum Online-Speicher.');
   try { await fs.deleteDoc(fs.doc(db, 'userIndex', uid)); } catch {}
+  try { await fs.deleteDoc(secretRef()); } catch {}
   indexUser = null;
   for (const name of ['bgjobs', 'bgresults', 'bgpresence']) {
     const all = await fs.getDocs(fs.collection(db, 'users', uid, name));

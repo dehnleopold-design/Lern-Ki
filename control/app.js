@@ -2,6 +2,8 @@
 // Lesen darf nur das Admin-Konto; das legen die Firestore-Regeln fest (siehe Einrichtung in dieser App).
 
 import { firebaseConfig } from '../js/firebase-config.js';
+import { md } from '../js/ui.js';
+import { SHEET_CSS } from '../js/pdf.js';
 
 const V = '10.12.2';
 const base = `https://www.gstatic.com/firebasejs/${V}`;
@@ -15,6 +17,8 @@ const root = document.getElementById('app');
 let users = [];
 let unsub = null;
 const ui = { q: '', sort: 'seen' };
+let viewing = null; // uid, dessen Inhalte gerade angezeigt werden
+{ const st = document.createElement('style'); st.textContent = SHEET_CSS; document.head.append(st); }
 
 // ---------- kleine Helfer
 function h(tag, attrs = {}, ...kids) {
@@ -32,6 +36,7 @@ function h(tag, attrs = {}, ...kids) {
 const ICON = {
   out: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/>',
   close: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  back: '<path d="m15 18-6-6 6-6"/>',
   copy: '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
 };
 const icon = (n) => { const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('viewBox', '0 0 24 24'); s.setAttribute('width', '20'); s.setAttribute('height', '20'); s.setAttribute('fill', 'none'); s.setAttribute('stroke', 'currentColor'); s.setAttribute('stroke-width', '1.8'); s.setAttribute('stroke-linecap', 'round'); s.setAttribute('stroke-linejoin', 'round'); s.innerHTML = ICON[n]; return s; };
@@ -73,6 +78,13 @@ service cloud.firestore {
     match /users/{uid}/{document=**} {
       allow read, write: if request.auth != null && request.auth.uid == uid;
     }
+    // Control darf Stand und Dateien lesen (nicht ändern). KI-Schlüssel liegen unter secret/ – dort kein Zugriff.
+    match /users/{uid}/state/{doc} {
+      allow read: if request.auth != null && request.auth.uid == '${uid}';
+    }
+    match /users/{uid}/blobs/{doc} {
+      allow read: if request.auth != null && request.auth.uid == '${uid}';
+    }
     // Kontoübersicht: jedes Konto schreibt nur seinen eigenen Eintrag, lesen darf nur Control
     match /userIndex/{uid} {
       allow write: if request.auth != null && request.auth.uid == uid;
@@ -82,12 +94,12 @@ service cloud.firestore {
 }`;
 }
 
-function viewSetup(user) {
+function viewSetup(user, update = false) {
   const text = rulesText(user.uid);
   root.replaceChildren(h('div', { class: 'center-screen' },
     h('div', { class: 'logo big' }),
-    h('h1', {}, 'Noch eine Freigabe'),
-    h('p', { class: 'muted' }, `Angemeldet als ${user.email || user.uid}. Damit nur du die Übersicht sehen kannst, müssen die Firestore-Regeln einmal ergänzt werden.`),
+    h('h1', {}, update ? 'Regeln ergänzen' : 'Noch eine Freigabe'),
+    h('p', { class: 'muted' }, update ? 'Um Inhalte ansehen zu können, brauchen die Firestore-Regeln eine Ergänzung (nur Lesen, keine Schlüssel).' : `Angemeldet als ${user.email || user.uid}. Damit nur du die Übersicht sehen kannst, müssen die Firestore-Regeln einmal ergänzt werden.`),
     h('ol', { class: 'steps' },
       h('li', {}, 'Regeln unten kopieren.'),
       h('li', {}, h('a', { href: 'https://console.firebase.google.com/project/jelly-721e4/firestore/rules', target: '_blank', rel: 'noopener' }, 'Firestore → Regeln'), ' öffnen, alles markieren, durch die kopierten Regeln ersetzen und „Veröffentlichen“ tippen.'),
@@ -95,7 +107,7 @@ function viewSetup(user) {
     h('pre', { class: 'code' }, text),
     h('div', { class: 'stack' },
       h('button', { class: 'btn primary block', onclick: async () => { try { await navigator.clipboard.writeText(text); toast('Regeln kopiert'); } catch { toast('Kopieren nicht erlaubt – bitte markieren und kopieren.'); } } }, icon('copy'), 'Regeln kopieren'),
-      h('button', { class: 'btn block', onclick: () => listen(user) }, 'Erneut prüfen'),
+      h('button', { class: 'btn block', onclick: () => (update && viewing ? openContent(viewing) : listen(user)) }, 'Erneut prüfen'),
       h('button', { class: 'btn block', onclick: () => A.signOut(auth) }, 'Anderes Konto'))));
 }
 
@@ -159,6 +171,7 @@ function detail(u) {
       h('div', { class: 'counts' },
         [['faecher', 'Fächer'], ['klausuren', 'Klausuren'], ['vokabellisten', 'Vokabellisten'], ['blaetter', 'Gelöste Blätter'], ['dateien', 'Dateien'], ['stunden', 'Stunden im Plan']]
           .map(([k, l]) => h('div', {}, h('b', {}, c[k] ?? '–'), h('span', {}, l)))),
+      h('button', { class: 'btn primary block', style: 'margin-bottom:10px', onclick: () => { close(); openContent(u); } }, 'Inhalte ansehen'),
       h('p', { class: 'muted small' }, `UID: ${u.uid}`),
       h('button', { class: 'btn block', onclick: async () => {
         if (!confirm('Eintrag aus der Übersicht entfernen? Das Konto selbst bleibt bestehen und erscheint wieder, wenn es Jelly öffnet.')) return;
@@ -173,7 +186,7 @@ function listen(user) {
   root.replaceChildren(h('div', { class: 'center-screen' }, h('div', { class: 'logo big' }), h('p', { class: 'muted' }, 'Lade Konten …')));
   unsub = F.onSnapshot(F.collection(db, 'userIndex'), (snap) => {
     users = snap.docs.map((d) => ({ uid: d.id, ...d.data() }));
-    if (!document.querySelector('.overlay')) viewDashboard(user);
+    if (!document.querySelector('.overlay') && !viewing) viewDashboard(user);
   }, (e) => {
     if (e.code === 'permission-denied') viewSetup(user);
     else root.replaceChildren(h('div', { class: 'center-screen' }, h('div', { class: 'logo big' }), h('p', {}, `Fehler: ${e.message}`), h('button', { class: 'btn', onclick: () => listen(user) }, 'Nochmal')));
@@ -184,3 +197,129 @@ A.onAuthStateChanged(auth, (user) => {
   unsub?.(); unsub = null;
   if (user) listen(user); else viewLogin();
 });
+
+// ================================================================ Inhalte eines Kontos (nur lesen)
+const userDoc = (uid, ...p) => F.doc(db, 'users', uid, ...p);
+
+async function loadState(uid) {
+  const meta = await F.getDoc(userDoc(uid, 'state', 'meta'));
+  if (!meta.exists()) return null;
+  const m = meta.data();
+  const parts = [];
+  for (let i = 0; i < m.n; i++) parts.push((await F.getDoc(userDoc(uid, 'state', `c${i}`))).data()?.d || '');
+  const st = JSON.parse(parts.join(''));
+  delete st.settings; // Einstellungen (bei alten Ständen noch mit Schlüssel) werden nie angezeigt
+  return { meta: m, st };
+}
+
+async function loadBlob(uid, meta, fid) {
+  const n = meta.blobs?.[fid];
+  if (!n) return null;
+  let mime = '', data = '';
+  for (let i = 0; i < n; i++) { const b = (await F.getDoc(userDoc(uid, 'blobs', `${fid}_${i}`))).data(); if (!b) return null; mime = b.mime; data += b.d; }
+  return { mime, data };
+}
+
+const htmlBox = (markdown, cls = 'md-box') => { const d = h('div', { class: cls }); d.innerHTML = md(markdown || ''); return d; };
+const paper = (markdown) => { const d = h('div', { class: 'sheet-doc paper' }); d.innerHTML = md(markdown || ''); return d; };
+
+function bigSheet(title, ...content) {
+  const close = () => ov.remove();
+  const ov = h('div', { class: 'overlay', onclick: (e) => { if (e.target === ov) close(); } },
+    h('div', { class: 'sheet wide' }, h('div', { class: 'sheet-head' }, h('div', { style: 'flex:1;min-width:0;font-weight:800;font-size:1.1rem' }, title), h('button', { class: 'iconbtn', 'aria-label': 'Schließen', onclick: close }, icon('close'))), ...content));
+  document.body.append(ov);
+}
+
+async function openContent(u) {
+  viewing = u;
+  root.replaceChildren(h('div', { class: 'center-screen' }, h('div', { class: 'logo big' }), h('p', { class: 'muted' }, `Lade Inhalte von ${u.name || u.email} …`)));
+  let data;
+  try { data = await loadState(u.uid); } catch (e) {
+    if (e.code === 'permission-denied') { viewSetup(auth.currentUser, true); return; }
+    root.replaceChildren(h('div', { class: 'center-screen' }, h('p', {}, `Fehler: ${e.message}`), h('button', { class: 'btn', onclick: () => { viewing = null; listen(auth.currentUser); } }, 'Zurück')));
+    return;
+  }
+  if (!data) { toast('Dieses Konto hat noch nichts in der Cloud.'); viewing = null; viewDashboard(auth.currentUser); return; }
+  ui.ctab ??= 'exams';
+  drawContent(u, data);
+}
+
+function drawContent(u, { meta, st }) {
+  const subj = (id) => (st.subjects || []).find((s) => s.id === id);
+  const tabs = [['exams', 'Klausuren'], ['subjects', 'Fächer'], ['vocab', 'Vokabeln'], ['solved', 'Blätter'], ['plan', 'Stundenplan'], ['files', 'Dateien']];
+  const body = h('div', { class: 'list' });
+  const card = (title, sub, onclick) => h('button', { class: 'user', onclick }, h('div', { class: 'txt' }, h('div', { class: 'name' }, title), sub ? h('div', { class: 'sub' }, sub) : null));
+  const fill = () => {
+    const t = ui.ctab;
+    let items = [];
+    if (t === 'exams') {
+      items = (st.exams || []).map((e) => {
+        const units = (e.plan?.abschnitte || []).flatMap((a) => a.einheiten || []);
+        return h('div', { class: 'exam-box' },
+          h('div', { class: 'name' }, `${subj(e.subjectId)?.name || 'Fach'}${e.date ? ` · ${new Date(e.date).toLocaleDateString('de-DE')}` : ''}`),
+          h('div', { class: 'sub muted small' }, [e.plan?.themen?.length ? `${e.plan.themen.length} Themen` : 'noch kein Plan', e.topicsText ? `Notizen: ${e.topicsText.slice(0, 120)}` : ''].filter(Boolean).join(' · ')),
+          h('div', { class: 'unit-list' }, units.map((un) => {
+            const sess = st.sessions?.[un.id];
+            const done = sess && (sess.lernzettel || sess.fragen || sess.aufgaben);
+            return h('button', { class: `unit ${done ? '' : 'missing'}`, onclick: () => done && showUnit(un, sess, e) }, un.titel, un.status === 'done' ? ' ✓' : un.status === 'skipped' ? ' (übersprungen)' : '', done ? '' : ' – noch leer');
+          })));
+      });
+    } else if (t === 'subjects') {
+      items = (st.subjects || []).map((s) => card(s.name, [s.teacher, s.teacherProfile ? 'Lehrerprofil vorhanden' : 'kein Lehrerprofil', s.teacherNotes ? 'Notizen' : ''].filter(Boolean).join(' · '),
+        () => bigSheet(s.name, s.teacherNotes ? [h('h3', {}, 'Notizen zur Lehrkraft'), h('p', {}, s.teacherNotes)] : null, h('h3', {}, 'Lehrerprofil'), s.teacherProfile ? htmlBox(s.teacherProfile) : h('p', { class: 'muted' }, 'Keins.'))));
+    } else if (t === 'vocab') {
+      items = (st.vocab?.sets || []).map((v) => card(v.titel, `${v.sprache || ''} · ${(v.words || []).length} Vokabeln${v.testDate ? ` · Test ${new Date(v.testDate).toLocaleDateString('de-DE')}` : ''}`,
+        () => bigSheet(v.titel, h('table', { class: 'tbl' }, h('tbody', {}, (v.words || []).map((w) => h('tr', {}, h('td', {}, w.w), h('td', {}, w.t), h('td', { class: 'muted' }, `Stufe ${w.box || 0}`))))))));
+    } else if (t === 'solved') {
+      items = (st.solved || []).map((x) => card(x.titel, x.ersteAufgabe || (x.links || []).join(' '), () => bigSheet(x.titel, x.loesung ? paper(x.loesung) : h('p', { class: 'muted' }, 'Noch nicht gelöst.'))));
+    } else if (t === 'plan') {
+      const L = st.timetable?.lessons || [];
+      const days = ['Mo', 'Di', 'Mi', 'Do', 'Fr'];
+      items = L.length ? [h('table', { class: 'tbl' }, h('tbody', {}, days.map((d, i) => h('tr', {}, h('th', {}, d), h('td', {}, L.filter((l) => l.day === i + 1).sort((a, b) => a.slot - b.slot).map((l) => `${l.slot}. ${subj(l.subjectId)?.name || l.fach}${l.room ? ` (${l.room})` : ''}`).join(' · ') || '–')))))]
+        : [h('div', { class: 'empty' }, 'Kein Stundenplan.')];
+      const ex = st.examPlan?.items || [];
+      if (ex.length) items.push(h('h3', {}, 'Termine'), ...ex.sort((a, b) => a.date.localeCompare(b.date)).map((x) => card(`${subj(x.subjectId)?.name || x.fach} · ${x.art}`, [new Date(x.date).toLocaleDateString('de-DE'), x.thema, x.notiz].filter(Boolean).join(' · '))));
+    } else if (t === 'files') {
+      items = Object.values(st.files || {}).filter((f) => !f.group || f.group === f.id).sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0)).map((f) => card(f.digest?.titel || f.name, [f.kind, f.mime === 'application/pdf' ? 'PDF' : 'Foto', f.addedAt ? new Date(f.addedAt).toLocaleDateString('de-DE') : ''].join(' · '), async () => {
+        const ids = Object.values(st.files).filter((x) => (x.group || x.id) === (f.group || f.id)).map((x) => x.id);
+        const blobs = (await Promise.all(ids.map((id) => loadBlob(u.uid, meta, id)))).filter(Boolean);
+        if (!blobs.length) return toast('Datei ist nicht in der Cloud.');
+        if (blobs[0].mime === 'application/pdf') {
+          const bytes = Uint8Array.from(atob(blobs[0].data), (c) => c.charCodeAt(0));
+          window.open(URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' })), '_blank');
+          return;
+        }
+        bigSheet(f.digest?.titel || f.name, blobs.map((b) => h('img', { class: 'full-img', src: `data:${b.mime};base64,${b.data}` })));
+      }));
+    }
+    body.replaceChildren(...(items.length ? items : [h('div', { class: 'empty' }, 'Nichts vorhanden.')]));
+  };
+  const seg = h('div', { class: 'ctabs' }, tabs.map(([k, l]) => h('button', { class: `ctab ${ui.ctab === k ? 'on' : ''}`, onclick: () => { ui.ctab = k; drawContent(u, { meta, st }); } }, l)));
+  fill();
+  root.replaceChildren(h('div', { class: 'wrap' },
+    h('header', { class: 'top' }, h('button', { class: 'iconbtn', 'aria-label': 'Zurück', onclick: () => { viewing = null; viewDashboard(auth.currentUser); } }, icon('back')),
+      h('div', { style: 'flex:1;min-width:0' }, h('h1', {}, u.name || u.email), h('div', { class: 'who' }, `Stand vom ${new Date(meta.updatedAt).toLocaleString('de-DE')} · nur lesen`))),
+    seg, body));
+}
+
+function showUnit(un, sess, exam) {
+  if (sess.lernzettel) return bigSheet(un.titel, paper(sess.lernzettel));
+  if (sess.fragen) {
+    return bigSheet(un.titel, h('ol', { class: 'qlist' }, sess.fragen.map((q, i) => {
+      const a = sess.antworten?.[i];
+      const right = q.typ === 'mc' ? q.optionen?.[q.richtig] : q.typ === 'wahrfalsch' ? (q.richtig ? 'Wahr' : 'Falsch') : (q.antworten || [])[0];
+      return h('li', {}, h('div', {}, q.frage), h('div', { class: 'small' }, h('b', {}, `Richtig: ${right}`), a ? ` · Antwort: ${a.label ?? '–'} ${a.correct ? '✓' : '✗'}` : ' · nicht beantwortet'));
+    })));
+  }
+  const g = sess.grading;
+  return bigSheet(un.titel,
+    g ? h('p', {}, h('b', {}, `${g.got}/${g.max} Punkte (${g.percent} %) · Note ≈ ${g.grade}`)) : h('p', { class: 'muted' }, 'Noch nicht abgegeben.'),
+    (sess.aufgaben || []).map((a, i) => {
+      const r = g?.ergebnisse?.find((x) => x.id === a.id);
+      return h('div', { class: 'task-box' },
+        h('div', { class: 'name' }, `Aufgabe ${i + 1}${a.punkte ? ` (${a.punkte} P.)` : ''}`), htmlBox(a.aufgabe),
+        a.material ? htmlBox(a.material, 'md-box material') : null,
+        h('div', { class: 'label' }, 'Antwort'), h('p', {}, sess.answers?.[a.id] || '–'),
+        r ? [h('div', { class: 'label' }, `Bewertung: ${r.punkte}/${r.maxPunkte}`), htmlBox(r.feedback || '')] : null);
+    }));
+}

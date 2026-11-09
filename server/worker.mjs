@@ -39,7 +39,10 @@ export function makeWorker(db, { deadline, log = console.log }) {
       if (!c.exists) return null; // gerade im Hochladen – später nochmal
       parts.push(c.data().d);
     }
-    return { meta: m, data: JSON.parse(parts.join('')) };
+    const data = JSON.parse(parts.join(''));
+    const keys = await userRef(uid).collection('secret').doc('keys').get(); // Schlüssel liegen getrennt
+    if (keys.exists) { const k = keys.data(); data.settings = { ...(data.settings || {}), apiKey: k.apiKey || data.settings?.apiKey || '', oaKey: k.oaKey || data.settings?.oaKey || '' }; if (data.settings.fb) data.settings.fb.key = k.fbKey || data.settings.fb.key || ''; }
+    return { meta: m, data };
   }
 
   // Hochgeladene Dateien (Fotos/PDFs) liegen in Stücken unter users/{uid}/blobs
