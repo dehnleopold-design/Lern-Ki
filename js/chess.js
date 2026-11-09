@@ -1,7 +1,9 @@
 // Warte-Schach: gegen Bots (400–2000 Elo) spielen, während Jelly arbeitet.
-// Bedienung: Figur ziehen oder antippen und Zielfeld antippen. Die Partie bleibt gespeichert (nur auf diesem Gerät).
+// Bedienung: Figur ziehen oder antippen und Zielfeld antippen. Die laufende Partie bleibt auf dem Gerät gespeichert,
+// die eigene Elo-Wertung (state.chess) gehört zum Konto und wird mitsynchronisiert.
 
 import { h, icon, confirmDialog } from './ui.js';
+import { state, save } from './store.js';
 import { START, parseFEN, toFEN, legalMoves, makeMove, moveKey, posKey, gameResult, inCheck, colorOf, bestMove } from './chess-engine.js';
 
 // ---------------------------------------------------------------- Bots
@@ -92,6 +94,8 @@ export function pieceSVG(p) {
 
 // ---------------------------------------------------------------- Zustand (nur lokal)
 const KEY = 'lernki-chess';
+const PV = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+const CAP_ORDER = 'pnbrq';
 const DEF = { view: 'pick', bot: 2, color: 'w', side: 'w', moves: [], over: null, say: '' };
 let S = (() => { try { const s = JSON.parse(localStorage.getItem(KEY)); if (s && Array.isArray(s.moves)) return { ...DEF, ...s }; } catch {} return { ...DEF }; })();
 const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch {} };
@@ -100,12 +104,16 @@ function game() {
   let pos = parseFEN(START);
   const hist = [posKey(pos)];
   let last = null;
+  const caps = { w: [], b: [] }; // geschlagen VON Weiß / Schwarz
   for (const u of S.moves) {
     const m = legalMoves(pos).find((x) => moveKey(x) === u);
     if (!m) break;
+    if (m.cap) caps[colorOf(m.p)].push(m.cap.toLowerCase());
     pos = makeMove(pos, m); hist.push(posKey(pos)); last = m;
   }
-  return { pos, hist, last };
+  let mat = 0; // Materialvorsprung von Weiß (Bauer 1, Läufer/Springer 3, Turm 5, Dame 9)
+  for (const p of pos.b) if (p) mat += (PV[p.toLowerCase()] || 0) * (colorOf(p) === 'w' ? 1 : -1);
+  return { pos, hist, last, caps, mat };
 }
 
 // ---------------------------------------------------------------- Engine (im Worker, sonst direkt)
@@ -133,6 +141,7 @@ let boardEl = null, bubbleEl = null, statusEl = null;
 let sel = null, hint = null, promo = null, drag = null;
 let thinking = false, botTurnId = 0, menuOpen = false;
 let acts = {};
+let capsBotEl = null, capsMeEl = null, meEloEl = null, meDeltaEl = null, eloAnim = false;
 // Spielende: 'big' (große Schilder) → 'small' (kleine Abzeichen) → 'done' (Ergebnisfenster)
 let endPhase = 'done', endClosed = false, endTimers = [];
 
@@ -183,12 +192,13 @@ function pickView() {
         colorBtn('w', h('span', { class: 'ch-mini', html: pieceSVG('K') }), 'Mit Weiß spielen'),
         colorBtn('r', h('span', { class: 'ch-q' }, '?'), 'Zufällige Farbe'),
         colorBtn('b', h('span', { class: 'ch-mini', html: pieceSVG('k') }), 'Mit Schwarz spielen')),
+      h('div', { class: 'ch-myrating' }, 'Deine Elo: ', h('strong', {}, String(rating().elo)), rating().games ? h('span', { class: 'muted' }, ` · ${rating().wins} S / ${rating().draws} R / ${rating().losses} N`) : null),
       h('button', { class: 'btn primary block ch-play', onclick: startGame }, 'Spielen')));
 }
 
 function startGame() {
   S.side = S.color === 'r' ? (Math.random() < 0.5 ? 'w' : 'b') : S.color;
-  S.moves = []; S.over = null; S.view = 'game';
+  S.moves = []; S.over = null; S.rated = false; S.view = 'game';
   resetEnd();
   sel = hint = promo = null; thinking = false; botTurnId++;
   S.say = `${pickLine(LINES.start)} Du spielst ${S.side === 'w' ? 'Weiß' : 'Schwarz'}.`;
@@ -212,9 +222,11 @@ function gameView() {
     h('div', { class: 'ch-side' },
       botHead(b, S.say || b.greet),
       h('div', { class: 'ch-name' }, b.name, h('span', { class: 'ch-elo' }, ` ${b.elo}`)),
+      (capsBotEl = h('div', { class: 'ch-caps bot' })),
       statusEl,
       h('div', { class: 'ch-spacer' }),
       menu,
+      meCard(),
       h('div', { class: 'ch-actions' },
         btn('menu', 'list', 'Optionen', () => { menuOpen = !menuOpen; draw(); }),
         btn('resign', 'flag', 'Aufgeben', resign),
@@ -223,6 +235,12 @@ function gameView() {
 }
 
 function setStatus() {
+  if (capsBotEl) {
+    const g = game();
+    const botSide = S.side === 'w' ? 'b' : 'w';
+    fillCaps(capsBotEl, g, botSide);
+    fillCaps(capsMeEl, g, S.side);
+  }
   if (acts.resign) {
     acts.resign.disabled = !!S.over;
     acts.hint.disabled = !!S.over || thinking || game().pos.turn !== S.side;
@@ -374,7 +392,7 @@ function after(m, animate, who) {
   drawBoard(g, animate ? m : null);
   const res = gameResult(g.pos, g.hist);
   if (res.over) {
-    S.over = res; persist();
+    S.over = res; rate(); persist();
     say(pickLine(res.winner === S.side ? LINES.playerWin : res.winner ? LINES.botWin : LINES.draw));
     endTimers.push(setTimeout(playEnd, animate ? 260 : 0)); // erst den letzten Zug zu Ende gleiten lassen
     return;
@@ -413,7 +431,7 @@ async function resign() {
   if (S.over) return;
   if (!(await confirmDialog('Partie aufgeben?', 'Aufgeben', 'Weiterspielen'))) return;
   botTurnId++; thinking = false;
-  S.over = { over: true, winner: S.side === 'w' ? 'b' : 'w', why: 'aufgabe' }; persist();
+  S.over = { over: true, winner: S.side === 'w' ? 'b' : 'w', why: 'aufgabe' }; rate(); persist();
   say(pickLine(LINES.resign));
   playEnd();
 }
@@ -455,6 +473,7 @@ function playEnd() {
   endTimers.push(setTimeout(() => {
     endPhase = 'small';
     boardEl?.querySelectorAll('.ch-badge').forEach((b) => b.classList.add('small'));
+    showEloChange(true);
   }, 1400));
   endTimers.push(setTimeout(() => { endPhase = 'done'; if (boardEl?.isConnected) drawBoard(game()); }, 2300));
 }
@@ -492,8 +511,92 @@ function endDialog() {
     h('button', { class: 'ch-end-x', 'aria-label': 'Schließen', onclick: () => { endClosed = true; drawBoard(game()); } }, '×'),
     h('div', { class: 'ch-end-title' }, won ? 'Du gewinnst!' : S.over.winner ? `${bot().name} gewinnt` : 'Remis'),
     h('div', { class: 'ch-end-why' }, why),
+    S.over.elo ? eloLine() : null,
     h('div', { class: 'ch-end-bot' }, face(bot(), 56), h('div', { class: 'ch-bubble' }, S.say || '')),
     h('div', { class: 'ch-end-btns' },
       h('button', { class: 'btn primary', onclick: startGame }, 'Revanche'),
       h('button', { class: 'btn ghost', onclick: () => { resetEnd(); S.view = 'pick'; persist(); draw(); } }, 'Anderer Bot'))));
+}
+
+// ---------------------------------------------------------------- Geschlagene Figuren & Elo
+function fillCaps(el, g, by) {
+  if (!el) return;
+  const list = g.caps[by].slice().sort((a, b) => CAP_ORDER.indexOf(a) - CAP_ORDER.indexOf(b));
+  const lead = g.mat * (by === 'w' ? 1 : -1);
+  let prev = null;
+  const kids = list.map((t) => {
+    const el2 = h('span', { class: `ch-cap${prev === t ? ' same' : prev ? ' gap' : ''}`, html: pieceSVG(by === 'w' ? t : t.toUpperCase()) });
+    prev = t;
+    return el2;
+  });
+  if (lead > 0) kids.push(h('span', { class: 'ch-adv' }, `+${lead}`));
+  el.replaceChildren(...kids);
+}
+
+export function rating() {
+  return (state.chess ||= { elo: 400, games: 0, wins: 0, losses: 0, draws: 0 });
+}
+
+// Elo nach der üblichen Formel: Erwartung aus der Differenz, K = 40 für die ersten 20 Partien, danach 20
+function rate() {
+  if (S.rated || !S.over) return;
+  S.rated = true;
+  const r = rating();
+  const score = S.over.winner === S.side ? 1 : S.over.winner ? 0 : 0.5;
+  const expected = 1 / (1 + 10 ** ((bot().elo - r.elo) / 400));
+  const k = r.games < 20 ? 40 : 20;
+  const before = r.elo;
+  r.elo = Math.max(100, Math.round(r.elo + k * (score - expected)));
+  r.games++;
+  if (score === 1) r.wins++; else if (score === 0) r.losses++; else r.draws++;
+  S.over.elo = { before, after: r.elo, delta: r.elo - before };
+  eloAnim = true;
+  save();
+}
+
+function meCard() {
+  const r = rating();
+  const name = state.profile?.name || 'Du';
+  const showBefore = eloAnim && S.over?.elo;
+  meEloEl = h('span', { class: 'ch-me-elo' }, String(showBefore ? S.over.elo.before : r.elo));
+  meDeltaEl = h('span', { class: 'ch-delta' });
+  capsMeEl = h('div', { class: 'ch-caps me' });
+  if (S.over?.elo && !eloAnim) setDelta(meDeltaEl, S.over.elo.delta);
+  return h('div', { class: 'ch-me' },
+    h('div', { class: 'ch-me-top' }, h('span', { class: 'ch-me-av' }, name.slice(0, 1).toUpperCase()), h('span', { class: 'ch-me-name' }, name), meEloEl, meDeltaEl),
+    capsMeEl);
+}
+
+function setDelta(el, d) {
+  el.textContent = d > 0 ? `+${d}` : d < 0 ? `−${-d}` : '±0';
+  el.className = `ch-delta show ${d > 0 ? 'up' : d < 0 ? 'down' : 'same'}`;
+}
+
+function countUp(el, from, to, ms = 1100) {
+  const t0 = performance.now();
+  const step = (t) => {
+    const k = Math.min(1, (t - t0) / ms);
+    const e = 1 - (1 - k) ** 3;
+    el.textContent = String(Math.round(from + (to - from) * e));
+    if (k < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
+// Grün/rot einblenden und die Elo live hoch- bzw. runterzählen
+function showEloChange() {
+  const e = S.over?.elo;
+  if (!e || !eloAnim || !meEloEl) return;
+  eloAnim = false;
+  setDelta(meDeltaEl, e.delta);
+  countUp(meEloEl, e.before, e.after);
+}
+
+function eloLine() {
+  const e = S.over.elo;
+  const num = h('strong', {}, String(e.after));
+  const d = h('span', { class: 'ch-delta' });
+  setDelta(d, e.delta);
+  if (!e.shown) { e.shown = true; persist(); num.textContent = String(e.before); requestAnimationFrame(() => countUp(num, e.before, e.after, 1300)); }
+  return h('div', { class: 'ch-end-elo' }, 'Deine Elo ', num, d);
 }

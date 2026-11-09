@@ -833,3 +833,27 @@ body { overflow-wrap: break-word; }
 html, body { overflow-x: hidden; }
 @supports (overflow: clip) { html, body { overflow-x: clip; } }
 .screen { max-width: 100vw; }
+/* Schach: geschlagene Figuren, Material, Elo */
+.ch-caps { display: flex; align-items: center; flex-wrap: wrap; min-height: 22px; row-gap: 2px; }
+.ch-cap { width: 22px; height: 22px; display: block; }
+.ch-cap svg { width: 100%; height: 100%; display: block; }
+.ch-cap.same { margin-left: -12px; }
+.ch-cap.gap { margin-left: 2px; }
+.ch-adv { margin-left: 6px; color: var(--muted); font-weight: 700; font-size: .85rem; }
+.ch-me { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 14px; background: var(--surface-2); }
+.ch-me-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ch-me-av { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; background: var(--accent); color: var(--accent-ink); font-weight: 800; flex-shrink: 0; }
+.ch-me-name { font-weight: 800; font-family: var(--display); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ch-me-elo { color: var(--muted); font-weight: 700; font-variant-numeric: tabular-nums; }
+.ch-delta { font-weight: 800; font-size: .85rem; padding: 2px 8px; border-radius: 99px; opacity: 0; transform: scale(.6); transition: opacity .3s, transform .35s cubic-bezier(.2, 1.6, .4, 1); font-variant-numeric: tabular-nums; }
+.ch-delta.show { opacity: 1; transform: none; }
+.ch-delta.up { color: #34d399; background: rgba(52, 211, 153, .15); }
+.ch-delta.down { color: #f87171; background: rgba(248, 113, 113, .15); }
+.ch-delta.same { color: var(--muted); background: var(--surface-2); }
+.ch-end-elo { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 10px; font-size: 1.05rem; }
+.ch-end-elo strong { font-family: var(--display); font-size: 1.4rem; font-variant-numeric: tabular-nums; }
+.ch-myrating { font-size: .9rem; text-align: center; }
+@container (max-width: 600px) { .ch-game .ch-caps.bot { order: -1; } }
+.ch-cap svg { filter: drop-shadow(0 0 1.2px rgba(255, 255, 255, .55)); }
+/* Im Warte-Bildschirm das Brett etwas tiefer, damit die oberste Reihe frei liegt */
+.wait:has(> .ch) { padding-top: 14px; }
