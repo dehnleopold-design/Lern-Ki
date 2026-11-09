@@ -711,5 +711,3 @@ input.input[type=date]::-webkit-date-and-time-value, input.input[type=time]::-we
 .nb-tpl-prev { width: 100%; aspect-ratio: 1 / 1.414; border-radius: 8px; background: #fff; }
 .nb-tpl-prev.tpl-liniert { background: #fff repeating-linear-gradient(to bottom, transparent 0 9px, #d3d9e2 9px 10px); }
 .nb-tpl-prev.tpl-kariert { background: #fff; background-image: linear-gradient(#e2e6ee 1px, transparent 1px), linear-gradient(90deg, #e2e6ee 1px, transparent 1px); background-size: 8px 8px; }
-.nb-scroll { touch-action: none; }
-.nb-pages { width: max-content; min-width: 100%; box-sizing: border-box; transform-origin: 0 0; }

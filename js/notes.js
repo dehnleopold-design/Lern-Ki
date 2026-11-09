@@ -310,8 +310,8 @@ export function viewNotebook({ id }) {
       pagesEl.querySelectorAll('.nb-page.active').forEach((x) => x.classList.remove('active'));
       pageEl.classList.add('active');
       if (e.pointerType === 'pen' && prefs.finger === null) { prefs.finger = false; savePrefs(); toast('Apple Pencil erkannt: Der Stift schreibt, mit dem Finger blätterst du. Umstellen unter ⋯'); }
-      if (e.pointerType === 'touch' && (touches.size > 1 || pinch || prefs.finger === false || prefs.tool === 'hand')) return; // Blättern/Zoomen macht die Seitenansicht
-      if (prefs.tool === 'hand') { scrollFrom = { y: e.clientY, x: e.clientX, top: scroller.scrollTop, left: scroller.scrollLeft }; try { canvas.setPointerCapture(e.pointerId); } catch {} return; }
+      const fingerScroll = e.pointerType === 'touch' && (prefs.finger === false || prefs.tool === 'hand');
+      if (prefs.tool === 'hand' || fingerScroll) { scrollFrom = { y: e.clientY, x: e.clientX, top: scroller.scrollTop, left: scroller.scrollLeft }; try { canvas.setPointerCapture(e.pointerId); } catch {} return; }
       if (prefs.tool === 'text') {
         e.preventDefault();
         const [x, y] = toUnits(e);
@@ -326,14 +326,6 @@ export function viewNotebook({ id }) {
       e.preventDefault();
       try { canvas.setPointerCapture(e.pointerId); } catch {}
       const pt = toUnits(e);
-      // Kommt ein zweiter Finger dazu (Zoomen), wird der angefangene Strich verworfen
-      cancelStroke = () => {
-        if (!stroke) return;
-        stroke = null; lastPt = null;
-        const last = undo.pop();
-        if (last?.page === p) Object.assign(p, JSON.parse(last.before));
-        redraw(canvas, p); updateUndo();
-      };
       if (prefs.tool === 'eraser') { remember(p); stroke = { erase: true }; eraseAt(pt); return; }
       remember(p);
       const hl = prefs.tool === 'marker';
@@ -342,7 +334,7 @@ export function viewNotebook({ id }) {
     });
     canvas.addEventListener('pointermove', (e) => {
       if (scrollFrom) { scroller.scrollTop = scrollFrom.top - (e.clientY - scrollFrom.y); scroller.scrollLeft = scrollFrom.left - (e.clientX - scrollFrom.x); return; }
-      if (!stroke || pinch) return;
+      if (!stroke) return;
       const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
       for (const ev of evs.length ? evs : [e]) {
         const pt = toUnits(ev);
@@ -373,80 +365,7 @@ export function viewNotebook({ id }) {
     canvas.addEventListener('pointercancel', end);
   }
 
-  // ---------- Finger: Blättern (mit Schwung) und Zoomen mit zwei Fingern
-  // Die Seitenansicht hat touch-action: none – alles läuft hier selbst, damit Pencil, Finger und Zoom sich nicht stören.
-  const touches = new Map();
-  let pinch = null;
-  let pan = null;
-  let cancelStroke = null;
-  let glide = 0;
-  const clampZoom = (z) => Math.max(0.6, Math.min(3, z));
-  const two = () => [...touches.values()];
-
-  function startPinch() {
-    const [a, c] = two();
-    const r = scroller.getBoundingClientRect();
-    const mid = { x: (a.x + c.x) / 2, y: (a.y + c.y) / 2 };
-    pinch = { d0: Math.hypot(a.x - c.x, a.y - c.y) || 1, z0: prefs.zoom, fx: scroller.scrollLeft + mid.x - r.left, fy: scroller.scrollTop + mid.y - r.top, m0: mid, s: 1, dx: 0, dy: 0 };
-    pagesEl.style.transformOrigin = `${pinch.fx}px ${pinch.fy}px`;
-    pagesEl.style.willChange = 'transform';
-  }
-  function updatePinch() {
-    const [a, c] = two();
-    const z = clampZoom(pinch.z0 * (Math.hypot(a.x - c.x, a.y - c.y) / pinch.d0));
-    pinch.s = z / pinch.z0;
-    pinch.dx = (a.x + c.x) / 2 - pinch.m0.x;
-    pinch.dy = (a.y + c.y) / 2 - pinch.m0.y;
-    pagesEl.style.transform = `translate(${pinch.dx}px, ${pinch.dy}px) scale(${pinch.s})`;
-  }
-  function endPinch() {
-    const { s, fx, fy, m0, dx, dy, z0 } = pinch;
-    pinch = null;
-    pagesEl.style.transform = ''; pagesEl.style.willChange = '';
-    if (Math.abs(s - 1) < 0.02) { scroller.scrollLeft -= dx; scroller.scrollTop -= dy; return; }
-    prefs.zoom = +clampZoom(z0 * s).toFixed(2); savePrefs();
-    drawPages();
-    const r = scroller.getBoundingClientRect();
-    scroller.scrollLeft = fx * s - (m0.x + dx - r.left);
-    scroller.scrollTop = fy * s - (m0.y + dy - r.top);
-  }
-  scroller.addEventListener('pointerdown', (e) => {
-    if (e.pointerType !== 'touch') return;
-    cancelAnimationFrame(glide);
-    touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (touches.size === 2) { cancelStroke?.(); cancelStroke = null; pan = null; startPinch(); return; }
-    if (touches.size > 2 || e.target.closest?.('.nb-text-wrap, .nb-addpage')) return;
-    const fingerDraws = e.target.classList?.contains('nb-canvas') && prefs.finger !== false && !['hand', 'text'].includes(prefs.tool);
-    if (!fingerDraws) pan = { x: e.clientX, y: e.clientY, vx: 0, vy: 0, t: performance.now() };
-  }, true);
-  scroller.addEventListener('pointermove', (e) => {
-    if (!touches.has(e.pointerId)) return;
-    touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (pinch) { updatePinch(); return; }
-    if (!pan) return;
-    const now = performance.now();
-    const dx = e.clientX - pan.x, dy = e.clientY - pan.y, dt = Math.max(1, now - pan.t);
-    scroller.scrollLeft -= dx; scroller.scrollTop -= dy;
-    pan = { x: e.clientX, y: e.clientY, vx: 0.8 * (dx / dt) + 0.2 * pan.vx, vy: 0.8 * (dy / dt) + 0.2 * pan.vy, t: now };
-  }, true);
-  const lift = (e) => {
-    if (!touches.has(e.pointerId)) return;
-    touches.delete(e.pointerId);
-    if (pinch && touches.size < 2) { endPinch(); pan = null; return; }
-    if (pan && !touches.size) {
-      let { vx, vy } = pan; pan = null;
-      const step = () => { // Schwung auslaufen lassen
-        if (Math.abs(vx) < 0.02 && Math.abs(vy) < 0.02) return;
-        scroller.scrollLeft -= vx * 16; scroller.scrollTop -= vy * 16; vx *= 0.94; vy *= 0.94;
-        glide = requestAnimationFrame(step);
-      };
-      glide = requestAnimationFrame(step);
-    }
-  };
-  scroller.addEventListener('pointerup', lift, true);
-  scroller.addEventListener('pointercancel', lift, true);
-
-  // Zoom auch mit Knöpfen
+  // Zoom mit zwei Knöpfen (Pinch würde mit dem Zeichnen kollidieren)
   const zoomBox = h('div', { class: 'nb-zoom' },
     h('button', { class: 'nb-tool', 'aria-label': 'Verkleinern', onclick: () => { prefs.zoom = Math.max(0.6, +(prefs.zoom - 0.2).toFixed(1)); savePrefs(); drawPages(); } }, icon('minus', 18)),
     h('button', { class: 'nb-tool', 'aria-label': 'Vergrößern', onclick: () => { prefs.zoom = Math.min(2.2, +(prefs.zoom + 0.2).toFixed(1)); savePrefs(); drawPages(); } }, icon('plus', 18)));
