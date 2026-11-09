@@ -9,13 +9,14 @@ import { allUnits, hasContent, lernzettelText, missingPhases, genLernzettel, gen
 import { gradeLabel, gradeOptions, percentToGrade, reachesTarget, scale } from './grades.js';
 import { downloadLernzettel, sheetHTML, SHEET_CSS } from './pdf.js';
 import { openFile, fileKindLabel } from './viewer.js';
+import { chessPanel } from './chess.js';
 import { initNotes, viewNotes, viewNotebook } from './notes.js';
 
 setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.39 (9.11.)';
+const APP_VERSION = '2.40 (9.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -767,7 +768,7 @@ function loadVideo(id) {
   const giveUp = (why) => {
     wrap.replaceWith(h('div', { class: 'video-fallback' }, mascot(64, 'side'),
       h('div', {}, h('strong', {}, 'Video lässt sich nicht abspielen'),
-        h('div', { class: 'muted small' }, `${why} Anderes Video: Einstellungen → „Video beim Warten“.`))));
+        h('div', { class: 'muted small' }, `${why} Anderes Video oder Schach: Mehr → „Wartebereich“.`))));
   };
   loadYouTubeApi().then((YT) => {
     if (!holder.isConnected) return;
@@ -800,7 +801,7 @@ function waitPanel(title) {
     bar.style.width = `${Math.max(3, Math.round(((done + running) / Math.max(1, steps.length)) * 100))}%`;
   };
   const el = h('div', { class: 'wait' },
-    waitVideo(),
+    state.settings.waitMode === 'chess' ? chessPanel() : waitVideo(),
     h('div', { class: 'wait-card' },
       h('div', { class: 'row gap' }, mascot(52, 'think'), h('div', { class: 'wait-title' }, title)),
       h('div', { class: 'progress' }, bar),
@@ -2992,6 +2993,26 @@ function viewTutor() {
 }
 
 // ================================================================ EINSTELLUNGEN
+// Was beim Warten auf die KI oben läuft: Schach gegen Bots oder ein YouTube-Video
+function waitAreaSheet() {
+  const st = state.settings;
+  const o = sheet('Wartebereich', [
+    h('p', { class: 'muted small' }, 'Läuft oben im Warte-Bildschirm, während Jelly arbeitet.'),
+    h('div', { class: 'wait-mode' },
+      h('button', { class: st.waitMode === 'chess' ? 'on' : '', onclick: () => { st.waitMode = 'chess'; save(); o.remove(); render(); waitAreaSheet(); } }, icon('target', 26), 'Schach spielen'),
+      h('button', { class: st.waitMode !== 'chess' ? 'on' : '', onclick: () => { st.waitMode = 'video'; save(); o.remove(); render(); waitAreaSheet(); } }, icon('video', 26), 'Video beim Warten')),
+    st.waitMode === 'chess'
+      ? h('p', { class: 'muted small' }, 'Gegen Bots von 400 bis 2000 Elo (Stärke grob geschätzt). Die Partie bleibt gespeichert und geht beim nächsten Warten weiter – nur auf diesem Gerät.')
+      : h('div', { class: 'stack' },
+        h('div', { class: 'label' }, 'YouTube-Link (leer = kein Video)'),
+        h('input', { class: 'input', placeholder: 'https://youtu.be/…', value: st.waitVideo ?? DEFAULT_WAIT_VIDEO, onchange: (e) => {
+          const v = e.target.value.trim();
+          if (v && !youtubeId(v)) { toast('Das ist kein gültiger YouTube-Link.', 'error'); return; }
+          st.waitVideo = v; save(); toast(v ? 'Video gespeichert.' : 'Video ausgeschaltet.', 'ok'); o.remove(); render();
+        } })),
+  ]);
+}
+
 function viewSettings() {
   const p = state.profile;
   const st = state.settings;
@@ -3001,15 +3022,7 @@ function viewSettings() {
     h('main', { class: 'content narrow' },
       h('div', { class: 'menu' },
         menuRow('sparkles', 'KI-Verbindung', aiSub, () => sheet('KI-Verbindung', [aiSetupBlock(false)])),
-        menuRow('video', 'Video beim Warten', (st.waitVideo ?? DEFAULT_WAIT_VIDEO) ? 'An' : 'Aus', () => {
-          const o = sheet('Video beim Warten', [
-            h('p', { class: 'muted small' }, 'YouTube-Link, der läuft, während die KI arbeitet. Leer lassen = kein Video.'),
-            h('input', { class: 'input', placeholder: 'https://youtu.be/…', value: st.waitVideo ?? DEFAULT_WAIT_VIDEO, onchange: (e) => {
-              const v = e.target.value.trim();
-              if (v && !youtubeId(v)) { toast('Das ist kein gültiger YouTube-Link.', 'error'); return; }
-              st.waitVideo = v; save(); toast(v ? 'Video gespeichert.' : 'Video ausgeschaltet.', 'ok'); o.remove(); render();
-            } })]);
-        })),
+        menuRow(st.waitMode === 'chess' ? 'target' : 'video', 'Wartebereich', st.waitMode === 'chess' ? 'Schach gegen Bots' : (st.waitVideo ?? DEFAULT_WAIT_VIDEO) ? 'Video' : 'Aus', () => waitAreaSheet())),
       authEnabled && !bootedUid ? h('div', { class: 'menu' },
         menuRow('key', 'Konto & Sync einrichten', 'Anmelden – dann hast du alles auf iPad und Handy', () => openAccountSetup())) : null,
       authEnabled && bootedUid ? h('div', { class: 'menu' },
