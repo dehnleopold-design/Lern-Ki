@@ -14,7 +14,7 @@ setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.32 (9.11.)';
+const APP_VERSION = '2.33 (9.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -50,7 +50,64 @@ function go(name, params = {}) {
   window.scrollTo(0, 0);
 }
 
+// ---------- Farben der App (Mehr → Design)
+const THEMES = [
+  { id: 'lila', name: 'Lila', a: '#8b5cf6', b: '#b794ff' },
+  { id: 'indigo', name: 'Indigo', a: '#6366f1', b: '#a5b4fc' },
+  { id: 'blau', name: 'Blau', a: '#3b82f6', b: '#93c5fd' },
+  { id: 'tuerkis', name: 'Türkis', a: '#0d9488', b: '#5eead4' },
+  { id: 'gruen', name: 'Grün', a: '#16a34a', b: '#86efac' },
+  { id: 'gold', name: 'Gold', a: '#ca8a04', b: '#fde047' },
+  { id: 'orange', name: 'Orange', a: '#ea580c', b: '#fdba74' },
+  { id: 'rot', name: 'Rot', a: '#dc2626', b: '#fca5a5' },
+  { id: 'pink', name: 'Pink', a: '#db2777', b: '#f9a8d4' },
+  { id: 'grau', name: 'Grau', a: '#64748b', b: '#cbd5e1' },
+];
+const isHex = (c) => /^#[0-9a-f]{6}$/i.test(c || '');
+// Helle Hauptfarbe → dunkle Schrift auf Knöpfen, sonst weiß
+function inkFor(hex) {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.45 ? '#111111' : '#ffffff';
+}
+function applyTheme() {
+  const t = state.settings?.theme;
+  const a = isHex(t?.a) ? t.a : THEMES[0].a;
+  const b = isHex(t?.b) ? t.b : THEMES[0].b;
+  const root = document.documentElement.style;
+  if (root.getPropertyValue('--accent') === a && root.getPropertyValue('--accent-2') === b) return;
+  root.setProperty('--accent', a);
+  root.setProperty('--accent-2', b);
+  root.setProperty('--accent-ink', inkFor(a));
+}
+
+function designSheet() {
+  const cur = () => state.settings.theme || { id: 'lila', a: THEMES[0].a, b: THEMES[0].b };
+  const body = h('div');
+  const setTheme = (t) => { state.settings.theme = t; save(); render(); draw(); };
+  const draw = () => {
+    const t = cur();
+    // Beim Ziehen nur anwenden (Farbwähler bleibt offen), beim Loslassen alles neu zeichnen
+    const live = (k) => (e) => { state.settings.theme = { ...cur(), id: 'eigen', [k]: e.target.value }; save(); applyTheme(); };
+    const done = () => { render(); draw(); };
+    const a = h('input', { type: 'color', value: t.a, oninput: live('a'), onchange: done });
+    const b = h('input', { type: 'color', value: t.b, oninput: live('b'), onchange: done });
+    body.replaceChildren(
+      h('div', { class: 'label' }, 'Farbschema'),
+      h('div', { class: 'theme-grid' }, THEMES.map((x) => h('button', { class: `theme-opt ${t.id === x.id ? 'on' : ''}`, onclick: () => setTheme({ id: x.id, a: x.a, b: x.b }) },
+        h('span', { class: 'theme-dot', style: { background: `linear-gradient(135deg, ${x.a} 50%, ${x.b} 50%)` } }), x.name))),
+      h('div', { class: 'label' }, 'Eigene Farben'),
+      h('label', { class: 'color-row' }, a, h('span', {}, h('strong', {}, 'Hauptfarbe'), h('div', { class: 'muted small' }, 'Knöpfe, aktive Reiter, Fortschritt'))),
+      h('label', { class: 'color-row' }, b, h('span', {}, h('strong', {}, 'Zweitfarbe'), h('div', { class: 'muted small' }, 'Hervorhebungen, Schrift auf dunklen Flächen'))),
+      h('div', { class: 'label' }, 'Vorschau'),
+      h('div', { class: 'theme-preview' }, h('button', { class: 'btn primary small' }, 'Knopf'), h('span', { class: 'chip active' }, 'Aktiv'), h('span', { class: 'chip-static prep' }, icon('sparkles', 14), 'Hinweis'), progressRing(64, 44)),
+      t.id !== 'lila' ? h('button', { class: 'btn ghost block', onclick: () => { delete state.settings.theme; save(); render(); draw(); } }, 'Zurück zu Lila') : null);
+  };
+  draw();
+  sheet('Design', [body]);
+}
+
 function render() {
+  applyTheme();
   app.replaceChildren();
   if (!state.profile && !['onboarding', 'login'].includes(route.name)) route = { name: 'onboarding', params: {} };
   const views = { login: viewLogin, onboarding: viewOnboarding, prepare: viewPrepare, plan: viewPlan, pick: viewPick, vocab: viewVocab, solve: viewSolveNew, solved: viewSolved, vnew: viewVocabNew, vset: viewVocabSet, vwords: viewVocabWords, vplan: viewVocabPlan, vquiz: viewVocabQuiz, vtests: viewVocabTests, files: viewFiles, week: viewWeek, wimport: viewWeekImport, calendar: viewCalendar, newExam: viewNewExam, session: viewSession, subjects: viewSubjects, subject: viewSubject, tutor: viewTutor, settings: viewSettings };
@@ -2902,6 +2959,7 @@ function viewSettings() {
             h('p', { class: 'muted small' }, `${p.minutesPerDay} Min./Tag · Korrektur: ${p.feedbackStyle === 'hart' ? 'schonungslos' : 'ermutigend'} · ${p.gradeScale === '0-15' ? 'Punkte 0–15' : 'Noten 1–6'}`),
             h('button', { class: 'btn primary block', onclick: () => { o.remove(); draft = null; go('onboarding'); } }, 'Fragebogen neu ausfüllen')]);
         }),
+        menuRow('sparkles', 'Design', `Farben: ${THEMES.find((x) => x.id === state.settings.theme?.id)?.name || (state.settings.theme ? 'Eigene' : 'Lila')}`, () => designSheet()),
         menuRow('chat', 'Tutor-Chat', 'Fragen zum Stoff deiner Klausur', () => go('tutor')),
         menuRow('folder', 'Hochgeladene Dateien', `${Object.keys(state.files || {}).length} Dateien`, () => go('files')),
         menuRow('save', 'Datensicherung', 'Backup speichern oder einspielen', () => {
