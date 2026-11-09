@@ -16,7 +16,7 @@ setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.44 (9.11.)';
+const APP_VERSION = '2.45 (9.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten

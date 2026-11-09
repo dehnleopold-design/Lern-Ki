@@ -857,3 +857,5 @@ html, body { overflow-x: hidden; }
 .ch-cap svg { filter: drop-shadow(0 0 1.2px rgba(255, 255, 255, .55)); }
 /* Im Warte-Bildschirm das Brett etwas tiefer, damit die oberste Reihe frei liegt */
 .wait:has(> .ch) { padding-top: 14px; }
+.ch-casual { margin-left: auto; font-size: .72rem; font-weight: 700; color: var(--muted); border: 1px solid var(--line); padding: 2px 8px; border-radius: 99px; white-space: nowrap; }
+.ch-casual[hidden] { display: none; }

@@ -141,6 +141,7 @@ let boardEl = null, bubbleEl = null, statusEl = null;
 let sel = null, hint = null, promo = null, drag = null;
 let thinking = false, botTurnId = 0, menuOpen = false;
 let acts = {};
+let casualEl = null;
 let capsBotEl = null, capsMeEl = null, meEloEl = null, meDeltaEl = null, eloAnim = false;
 // Spielende: 'big' (große Schilder) → 'small' (kleine Abzeichen) → 'done' (Ergebnisfenster)
 let endPhase = 'done', endClosed = false, endTimers = [];
@@ -198,7 +199,7 @@ function pickView() {
 
 function startGame() {
   S.side = S.color === 'r' ? (Math.random() < 0.5 ? 'w' : 'b') : S.color;
-  S.moves = []; S.over = null; S.rated = false; S.view = 'game';
+  S.moves = []; S.over = null; S.rated = false; S.casual = false; S.view = 'game';
   resetEnd();
   sel = hint = promo = null; thinking = false; botTurnId++;
   S.say = `${pickLine(LINES.start)} Du spielst ${S.side === 'w' ? 'Weiß' : 'Schwarz'}.`;
@@ -235,6 +236,7 @@ function gameView() {
 }
 
 function setStatus() {
+  if (casualEl) casualEl.hidden = !S.casual || !!S.over?.elo;
   if (capsBotEl) {
     const g = game();
     const botSide = S.side === 'w' ? 'b' : 'w';
@@ -436,8 +438,17 @@ async function resign() {
   playEnd();
 }
 
-function showHint() {
+// Rückgängig/Hinweis: Partie wird danach nicht mehr gewertet (einmal nachfragen)
+async function okCasual(what) {
+  if (S.casual || S.rated || !S.moves.length && what === 'Rückgängig') return true;
+  const ok = await confirmDialog(`${what} benutzen? Dann wird diese Partie nicht für deine Elo gewertet.`, `${what} nutzen`, 'Abbrechen', 'primary');
+  if (ok) { S.casual = true; persist(); setStatus(); }
+  return ok;
+}
+
+async function showHint() {
   if (!canMove()) return;
+  if (!(await okCasual('Hinweis'))) return;
   const g = game();
   statusEl?.replaceChildren(h('span', { class: 'ch-dots' }, 'Suche einen guten Zug'));
   ask(toFEN(g.pos), 'hint', g.hist).then((r) => {
@@ -450,8 +461,9 @@ function showHint() {
   });
 }
 
-function undoMove() {
+async function undoMove() {
   if (!S.moves.length) return;
+  if (!S.over && !(await okCasual('Rückgängig'))) return;
   botTurnId++; thinking = false; promo = null; sel = null; hint = null;
   const turnAfter = () => (S.moves.length % 2 === 0 ? 'w' : 'b');
   do { S.moves.pop(); } while (S.moves.length && turnAfter() !== S.side);
@@ -511,7 +523,7 @@ function endDialog() {
     h('button', { class: 'ch-end-x', 'aria-label': 'Schließen', onclick: () => { endClosed = true; drawBoard(game()); } }, '×'),
     h('div', { class: 'ch-end-title' }, won ? 'Du gewinnst!' : S.over.winner ? `${bot().name} gewinnt` : 'Remis'),
     h('div', { class: 'ch-end-why' }, why),
-    S.over.elo ? eloLine() : null,
+    S.over.elo ? eloLine() : S.over.unrated ? h('div', { class: 'ch-end-elo muted small' }, 'Ungewertet – Rückgängig oder Hinweis benutzt') : null,
     h('div', { class: 'ch-end-bot' }, face(bot(), 56), h('div', { class: 'ch-bubble' }, S.say || '')),
     h('div', { class: 'ch-end-btns' },
       h('button', { class: 'btn primary', onclick: startGame }, 'Revanche'),
@@ -541,6 +553,7 @@ export function rating() {
 function rate() {
   if (S.rated || !S.over) return;
   S.rated = true;
+  if (S.casual) { S.over.unrated = true; return; }
   const r = rating();
   const score = S.over.winner === S.side ? 1 : S.over.winner ? 0 : 0.5;
   const expected = 1 / (1 + 10 ** ((bot().elo - r.elo) / 400));
@@ -563,7 +576,7 @@ function meCard() {
   capsMeEl = h('div', { class: 'ch-caps me' });
   if (S.over?.elo && !eloAnim) setDelta(meDeltaEl, S.over.elo.delta);
   return h('div', { class: 'ch-me' },
-    h('div', { class: 'ch-me-top' }, h('span', { class: 'ch-me-av' }, name.slice(0, 1).toUpperCase()), h('span', { class: 'ch-me-name' }, name), meEloEl, meDeltaEl),
+    h('div', { class: 'ch-me-top' }, h('span', { class: 'ch-me-av' }, name.slice(0, 1).toUpperCase()), h('span', { class: 'ch-me-name' }, name), meEloEl, meDeltaEl, (casualEl = h('span', { class: 'ch-casual' }, 'ungewertet'))),
     capsMeEl);
 }
 
