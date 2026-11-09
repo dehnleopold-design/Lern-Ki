@@ -133,6 +133,8 @@ let boardEl = null, bubbleEl = null, statusEl = null;
 let sel = null, hint = null, promo = null, drag = null;
 let thinking = false, botTurnId = 0, menuOpen = false;
 let acts = {};
+// Spielende: 'big' (große Schilder) → 'small' (kleine Abzeichen) → 'done' (Ergebnisfenster)
+let endPhase = 'done', endClosed = false, endTimers = [];
 
 const bot = () => BOTS[S.bot] || BOTS[0];
 
@@ -187,6 +189,7 @@ function pickView() {
 function startGame() {
   S.side = S.color === 'r' ? (Math.random() < 0.5 ? 'w' : 'b') : S.color;
   S.moves = []; S.over = null; S.view = 'game';
+  resetEnd();
   sel = hint = promo = null; thinking = false; botTurnId++;
   S.say = `${pickLine(LINES.start)} Du spielst ${S.side === 'w' ? 'Weiß' : 'Schwarz'}.`;
   persist(); draw();
@@ -247,6 +250,7 @@ function drawBoard(g, anim = null, flipOverride) {
     if (sq === sel) cls.push('sel');
     if (hint && (sq === hint.from || sq === hint.to)) cls.push('hint');
     if (sq === kingSq) cls.push('check');
+    if (S.over?.winner && !boardEl?.classList.contains('ch-static') && g.pos.b[sq]?.toLowerCase() === 'k') cls.push(colorOf(g.pos.b[sq]) === S.over.winner ? 'won' : 'lost');
     const el = h('div', { class: cls.join(' '), 'data-sq': sq, style: { left: `${c * 12.5}%`, top: `${r * 12.5}%` } });
     const lm = legal.find((m) => m.to === sq);
     if (lm) el.append(h('i', { class: lm.cap ? 'ring' : 'dot' }));
@@ -268,13 +272,8 @@ function drawBoard(g, anim = null, flipOverride) {
       h('button', { class: 'ch-promo-x', onpointerdown: (e) => e.stopPropagation(), onclick: () => { promo = null; drawBoard(game()); } }, '×')));
   }
   if (S.over && boardEl && !boardEl.classList.contains('ch-static')) {
-    const won = S.over.winner === S.side;
-    kids.push(h('div', { class: 'ch-over' }, h('div', { class: 'ch-over-card' },
-      face(bot(), 56),
-      h('div', { class: 'ch-over-title' }, won ? 'Du hast gewonnen!' : S.over.winner ? `${bot().name} gewinnt` : 'Remis'),
-      h('div', { class: 'row gap' },
-        h('button', { class: 'btn small primary', onclick: startGame }, 'Revanche'),
-        h('button', { class: 'btn small ghost', onclick: () => { S.view = 'pick'; persist(); draw(); } }, 'Anderer Bot')))));
+    kids.push(...endBadges(g, disp));
+    if (endPhase === 'done' && !endClosed) kids.push(endDialog());
   }
   boardEl.replaceChildren(...kids);
   if (anim) {
@@ -377,7 +376,7 @@ function after(m, animate, who) {
   if (res.over) {
     S.over = res; persist();
     say(pickLine(res.winner === S.side ? LINES.playerWin : res.winner ? LINES.botWin : LINES.draw));
-    drawBoard(g);
+    endTimers.push(setTimeout(playEnd, animate ? 260 : 0)); // erst den letzten Zug zu Ende gleiten lassen
     return;
   }
   if (who === 'player') {
@@ -416,7 +415,7 @@ async function resign() {
   botTurnId++; thinking = false;
   S.over = { over: true, winner: S.side === 'w' ? 'b' : 'w', why: 'aufgabe' }; persist();
   say(pickLine(LINES.resign));
-  drawBoard(game());
+  playEnd();
 }
 
 function showHint() {
@@ -438,7 +437,63 @@ function undoMove() {
   botTurnId++; thinking = false; promo = null; sel = null; hint = null;
   const turnAfter = () => (S.moves.length % 2 === 0 ? 'w' : 'b');
   do { S.moves.pop(); } while (S.moves.length && turnAfter() !== S.side);
-  S.over = null; persist();
+  S.over = null; resetEnd(); persist();
   say(pickLine(LINES.undo));
   draw();
+}
+
+// ---------------------------------------------------------------- Spielende-Animation
+function resetEnd() {
+  endTimers.forEach(clearTimeout); endTimers = [];
+  endPhase = 'done'; endClosed = false;
+}
+
+function playEnd() {
+  resetEnd();
+  endPhase = 'big';
+  drawBoard(game());
+  endTimers.push(setTimeout(() => {
+    endPhase = 'small';
+    boardEl?.querySelectorAll('.ch-badge').forEach((b) => b.classList.add('small'));
+  }, 1400));
+  endTimers.push(setTimeout(() => { endPhase = 'done'; if (boardEl?.isConnected) drawBoard(game()); }, 2300));
+}
+
+const BADGE_ICON = {
+  crown: '<svg viewBox="0 0 24 24"><path d="M3 8l4.5 4L12 5l4.5 7L21 8l-2 11H5z" fill="#fff"/></svg>',
+  mate: '<svg viewBox="0 0 24 24"><path d="M9 3L7 21M17 3l-2 18M3.5 9h17M3 15h17" stroke="#fff" stroke-width="3" stroke-linecap="round" fill="none"/></svg>',
+  flag: '<svg viewBox="0 0 24 24"><path d="M6 21V4M6 4h11l-2.5 4L17 12H6" stroke="#fff" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round" fill="none"/></svg>',
+  half: '<svg viewBox="0 0 24 24"><text x="12" y="17" text-anchor="middle" font-size="15" font-weight="800" fill="#fff" font-family="system-ui">½</text></svg>',
+};
+
+// Schilder an beiden Königen: groß („Sieger“/„Schachmatt“), dann klein als Abzeichen
+function endBadges(g, disp) {
+  const out = [];
+  for (const c of ['w', 'b']) {
+    const sq = g.pos.b.indexOf(c === 'w' ? 'K' : 'k');
+    if (sq < 0) continue;
+    const d = disp(sq);
+    const win = S.over.winner === c, draw = !S.over.winner;
+    const kind = draw ? 'draw' : win ? 'win' : 'lose';
+    const label = draw ? 'Remis' : win ? 'Sieger' : S.over.why === 'matt' ? 'Schachmatt' : S.over.why === 'aufgabe' ? 'Aufgegeben' : 'Verloren';
+    const ic = draw ? 'half' : win ? 'crown' : S.over.why === 'aufgabe' ? 'flag' : 'mate';
+    const top = (d >> 3) === 0;
+    out.push(h('div', { class: `ch-badge ${kind}${endPhase === 'big' ? '' : ' small'}${top ? ' at-top' : ''}`, style: { left: `${(d & 7) * 12.5}%`, top: `${(d >> 3) * 12.5}%` } },
+      h('span', { class: 'ch-tag' }, h('span', { class: 'ch-tag-in' }, label)),
+      h('span', { class: 'ch-dot', html: BADGE_ICON[ic] })));
+  }
+  return out;
+}
+
+function endDialog() {
+  const won = S.over.winner === S.side;
+  const why = { matt: 'durch Schachmatt', patt: 'durch Patt', 50: 'durch 50-Züge-Regel', material: 'zu wenig Material', wiederholung: 'durch Stellungswiederholung', aufgabe: 'durch Aufgabe' }[S.over.why] || '';
+  return h('div', { class: 'ch-end' }, h('div', { class: 'ch-end-card' },
+    h('button', { class: 'ch-end-x', 'aria-label': 'Schließen', onclick: () => { endClosed = true; drawBoard(game()); } }, '×'),
+    h('div', { class: 'ch-end-title' }, won ? 'Du gewinnst!' : S.over.winner ? `${bot().name} gewinnt` : 'Remis'),
+    h('div', { class: 'ch-end-why' }, why),
+    h('div', { class: 'ch-end-bot' }, face(bot(), 56), h('div', { class: 'ch-bubble' }, S.say || '')),
+    h('div', { class: 'ch-end-btns' },
+      h('button', { class: 'btn primary', onclick: startGame }, 'Revanche'),
+      h('button', { class: 'btn ghost', onclick: () => { resetEnd(); S.view = 'pick'; persist(); draw(); } }, 'Anderer Bot'))));
 }
