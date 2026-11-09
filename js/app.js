@@ -9,12 +9,13 @@ import { allUnits, hasContent, lernzettelText, missingPhases, genLernzettel, gen
 import { gradeLabel, gradeOptions, percentToGrade, reachesTarget, scale } from './grades.js';
 import { downloadLernzettel, sheetHTML, SHEET_CSS } from './pdf.js';
 import { openFile, fileKindLabel } from './viewer.js';
+import { initNotes, viewNotes, viewNotebook } from './notes.js';
 
 setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.36 (9.11.)';
+const APP_VERSION = '2.37 (9.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -110,7 +111,7 @@ function render() {
   applyTheme();
   app.replaceChildren();
   if (!state.profile && !['onboarding', 'login'].includes(route.name)) route = { name: 'onboarding', params: {} };
-  const views = { login: viewLogin, onboarding: viewOnboarding, prepare: viewPrepare, plan: viewPlan, pick: viewPick, vocab: viewVocab, solve: viewSolveNew, solved: viewSolved, vnew: viewVocabNew, vset: viewVocabSet, vwords: viewVocabWords, vplan: viewVocabPlan, vquiz: viewVocabQuiz, vtests: viewVocabTests, files: viewFiles, week: viewWeek, wimport: viewWeekImport, todo: viewTodos, calendar: viewCalendar, newExam: viewNewExam, session: viewSession, subjects: viewSubjects, subject: viewSubject, tutor: viewTutor, settings: viewSettings };
+  const views = { login: viewLogin, onboarding: viewOnboarding, prepare: viewPrepare, plan: viewPlan, pick: viewPick, vocab: viewVocab, solve: viewSolveNew, solved: viewSolved, vnew: viewVocabNew, vset: viewVocabSet, vwords: viewVocabWords, vplan: viewVocabPlan, vquiz: viewVocabQuiz, vtests: viewVocabTests, files: viewFiles, week: viewWeek, wimport: viewWeekImport, todo: viewTodos, notes: viewNotes, notebook: viewNotebook, calendar: viewCalendar, newExam: viewNewExam, session: viewSession, subjects: viewSubjects, subject: viewSubject, tutor: viewTutor, settings: viewSettings };
   const v = (views[route.name] || viewPlan)(route.params);
   add(app, v);
 }
@@ -476,7 +477,7 @@ function planSeg() {
 function viewTermine() {
   const main = h('main', { class: 'content narrow' }, planSeg());
   const screen = h('div', { class: 'screen with-tabs' },
-    h('header', { class: 'topbar' }, h('button', { class: 'iconbtn', 'aria-label': 'Kalender', onclick: () => openCalendar('plan') }, icon('calendar', 20)), h('div', { class: 'topbar-title' }, 'Prüfungstermine'),
+    h('header', { class: 'topbar' }, topLeft('plan'), h('div', { class: 'topbar-title' }, 'Prüfungstermine'),
       h('button', { class: 'iconbtn', 'aria-label': 'Menü', onclick: () => examPlanMenu() }, icon('more'))),
     main, tabbar('plan'));
   drawExamPlan(main);
@@ -2373,7 +2374,7 @@ function viewWeek() {
   const next = allExamDates().filter((x) => daysUntil(x.date) >= 0).slice(0, 2);
   if (next.length) add(main, h('div', { class: 'label' }, 'Nächste Prüfungen'), h('div', { class: 'menu' }, next.map((x) => examRow(x))));
   return h('div', { class: 'screen with-tabs' },
-    h('header', { class: 'topbar' }, h('button', { class: 'iconbtn', 'aria-label': 'Kalender', onclick: () => openCalendar('week') }, icon('calendar', 20)), h('div', { class: 'topbar-title' }, 'Stundenplan'),
+    h('header', { class: 'topbar' }, topLeft('week'), h('div', { class: 'topbar-title' }, 'Stundenplan'),
       h('button', { class: 'iconbtn', 'aria-label': 'Menü', onclick: () => timetableMenu() }, icon('more'))),
     main, tabbar('week'));
 }
@@ -2703,6 +2704,11 @@ function viewWeekImport({ kind, ids }) {
 }
 
 const openCalendar = (from) => { ui.calBack = from; go('calendar'); };
+const openNotes = (from) => { ui.notesBack = from; go('notes'); };
+// Symbole oben links: Kalender und Notizen
+const topLeft = (from, withCal = true) => h('div', { class: 'top-left' },
+  withCal ? h('button', { class: 'iconbtn', 'aria-label': 'Kalender', onclick: () => openCalendar(from) }, icon('calendar', 20)) : null,
+  h('button', { class: 'iconbtn', 'aria-label': 'Notizen', onclick: () => openNotes(from) }, icon('notebook', 20)));
 // ---------- Kalender: Prüfungen, Stundenplan und eigene Termine
 const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
 const ownEvents = () => (xp().events ||= []);
@@ -2901,7 +2907,7 @@ function viewTodos() {
     return el;
   };
   const screen = h('div', { class: 'screen with-tabs' },
-    h('header', { class: 'topbar' }, h('span', { class: 'iconbtn-spacer' }), h('div', { class: 'topbar-title' }, 'To-dos'), h('span', { class: 'iconbtn-spacer' })),
+    h('header', { class: 'topbar' }, topLeft('todo'), h('div', { class: 'topbar-title' }, 'To-dos'), h('span', { class: 'iconbtn-spacer' })),
     h('main', { class: 'content narrow' },
       h('div', { class: 'todo-add card' }, title, h('div', { class: 'row gap' }, h('div', { class: 'grow' }, h('div', { class: 'label' }, 'Bis wann?'), due), h('button', { class: 'btn primary todo-add-btn', 'aria-label': 'Hinzufügen', title: 'Hinzufügen', onclick: addIt }, icon('plus', 22)))),
       open.length ? h('div', { class: 'todo-list' }, open.map(row)) : h('div', { class: 'center stack todo-empty' }, mascot(90), h('p', { class: 'muted' }, done.length ? 'Alles erledigt – stark!' : 'Noch keine Aufgaben. Trag oben ein, was du bis wann schaffen musst.')),
@@ -3040,6 +3046,7 @@ function viewSettings() {
             h('button', { class: 'btn primary block', onclick: () => { o.remove(); draft = null; go('onboarding'); } }, 'Fragebogen neu ausfüllen')]);
         }),
         menuRow('sparkles', 'Design', `Farben: ${THEMES.find((x) => x.id === state.settings.theme?.id)?.name || (state.settings.theme ? 'Eigene' : 'Lila')}`, () => designSheet()),
+        menuRow('notebook', 'Notizen', 'Notizbücher mit Apple Pencil und Tastatur', () => openNotes('settings')),
         menuRow('chat', 'Tutor-Chat', 'Fragen zum Stoff deiner Klausur', () => go('tutor')),
         menuRow('folder', 'Hochgeladene Dateien', `${Object.keys(state.files || {}).length} Dateien`, () => go('files')),
         menuRow('save', 'Datensicherung', 'Backup speichern oder einspielen', () => {
@@ -3304,6 +3311,8 @@ async function checkForUpdate() {
     add(document.body, bar);
   } catch {}
 }
+
+initNotes({ go, render, sheet, menuRow, subjectById, ui });
 
 // Für die Konsole/Tests
 window.__lernki = { state: () => state, md, save, putBlob };
