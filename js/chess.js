@@ -222,8 +222,7 @@ function gameView() {
     h('div', { class: 'ch-boardcol' }, boardEl),
     h('div', { class: 'ch-side' },
       botHead(b, S.say || b.greet),
-      h('div', { class: 'ch-name' }, b.name, h('span', { class: 'ch-elo' }, ` ${b.elo}`)),
-      (capsBotEl = h('div', { class: 'ch-caps bot' })),
+      botCard(b),
       statusEl,
       h('div', { class: 'ch-spacer' }),
       menu,
@@ -565,6 +564,14 @@ function rate() {
   S.over.elo = { before, after: r.elo, delta: r.elo - before };
   eloAnim = true;
   save();
+}
+
+// Gleiche Karte wie beim Spieler: Bild, Name, Elo, darunter die geschlagenen Figuren
+function botCard(b) {
+  capsBotEl = h('div', { class: 'ch-caps bot' });
+  return h('div', { class: 'ch-me ch-botcard' },
+    h('div', { class: 'ch-me-top' }, h('span', { class: 'ch-me-av ch-me-face', html: avatarSVG(b.look) }), h('span', { class: 'ch-me-name' }, b.name), h('span', { class: 'ch-me-elo' }, String(b.elo))),
+    capsBotEl);
 }
 
 function meCard() {
