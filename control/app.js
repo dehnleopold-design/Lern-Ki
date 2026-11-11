@@ -4,6 +4,7 @@
 import { firebaseConfig } from '../js/firebase-config.js';
 import { md } from '../js/ui.js';
 import { SHEET_CSS } from '../js/pdf.js';
+import { rulesText as buildRules } from './rules.js';
 
 const V = '10.12.2';
 const base = `https://www.gstatic.com/firebasejs/${V}`;
@@ -16,6 +17,8 @@ const db = F.getFirestore(app);
 const root = document.getElementById('app');
 let users = [];
 let unsub = null;
+let invites = [], licenses = {}, protectOn = null, partners = []; // Code-Schutz
+let unsubs = [];
 const ui = { q: '', sort: 'seen' };
 let viewing = null; // uid, dessen Inhalte gerade angezeigt werden
 { const st = document.createElement('style'); st.textContent = SHEET_CSS; document.head.append(st); }
@@ -37,6 +40,9 @@ const ICON = {
   out: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/>',
   close: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
   back: '<path d="m15 18-6-6 6-6"/>',
+  key: '<circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/>',
+  share: '<path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><path d="m16 6-4-4-4 4"/><path d="M12 2v13"/>',
+  trash: '<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
   copy: '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
 };
 const icon = (n) => { const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('viewBox', '0 0 24 24'); s.setAttribute('width', '20'); s.setAttribute('height', '20'); s.setAttribute('fill', 'none'); s.setAttribute('stroke', 'currentColor'); s.setAttribute('stroke-width', '1.8'); s.setAttribute('stroke-linecap', 'round'); s.setAttribute('stroke-linejoin', 'round'); s.innerHTML = ICON[n]; return s; };
@@ -71,35 +77,22 @@ function viewLogin(err = '') {
       err ? h('p', { class: 'small', style: 'color: var(--bad)' }, err) : null)));
 }
 
-function rulesText(uid) {
-  return `rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    match /users/{uid}/{document=**} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
-    }
-    // Control darf Stand und Dateien lesen (nicht ändern). KI-Schlüssel liegen unter secret/ – dort kein Zugriff.
-    match /users/{uid}/state/{doc} {
-      allow read: if request.auth != null && request.auth.uid == '${uid}';
-    }
-    match /users/{uid}/blobs/{doc} {
-      allow read: if request.auth != null && request.auth.uid == '${uid}';
-    }
-    // Kontoübersicht: jedes Konto schreibt nur seinen eigenen Eintrag, lesen darf nur Control
-    match /userIndex/{uid} {
-      allow write: if request.auth != null && request.auth.uid == uid;
-      allow read, delete: if request.auth != null && request.auth.uid == '${uid}';
-    }
-  }
-}`;
+// Admins = dieses Konto + eingetragene Partner (auch lokal gemerkt, falls control/admins noch nicht lesbar ist)
+function adminList(uid) {
+  let saved = [];
+  try { saved = JSON.parse(localStorage.getItem('control-partners') || '[]'); } catch {}
+  return [uid, ...partners, ...saved];
 }
+const rulesText = (uid) => buildRules(adminList(uid));
 
 function viewSetup(user, update = false) {
   const text = rulesText(user.uid);
   root.replaceChildren(h('div', { class: 'center-screen' },
     h('div', { class: 'logo big' }),
     h('h1', {}, update ? 'Regeln ergänzen' : 'Noch eine Freigabe'),
-    h('p', { class: 'muted' }, update ? 'Um Inhalte ansehen zu können, brauchen die Firestore-Regeln eine Ergänzung (nur Lesen, keine Schlüssel).' : `Angemeldet als ${user.email || user.uid}. Damit nur du die Übersicht sehen kannst, müssen die Firestore-Regeln einmal ergänzt werden.`),
+    h('p', { class: 'muted' }, update ? 'Für den Code-Schutz, Partner und das Ansehen von Inhalten brauchen die Firestore-Regeln eine Aktualisierung. Bestehende Konten bleiben freigeschaltet.' : `Angemeldet als ${user.email || user.uid}. Damit nur du die Übersicht sehen kannst, müssen die Firestore-Regeln einmal ergänzt werden.`),
+    !update ? h('p', { class: 'muted small' }, 'Du bist Partner? Dann musst du nichts einfügen – schick einfach deine Konto-ID an den Haupt-Admin: ',
+      h('button', { class: 'chip', onclick: async () => { try { await navigator.clipboard.writeText(user.uid); toast('ID kopiert'); } catch { toast(user.uid); } } }, user.uid)) : null,
     h('ol', { class: 'steps' },
       h('li', {}, 'Regeln unten kopieren.'),
       h('li', {}, h('a', { href: 'https://console.firebase.google.com/project/jelly-721e4/firestore/rules', target: '_blank', rel: 'noopener' }, 'Firestore → Regeln'), ' öffnen, alles markieren, durch die kopierten Regeln ersetzen und „Veröffentlichen“ tippen.'),
@@ -107,7 +100,7 @@ function viewSetup(user, update = false) {
     h('pre', { class: 'code' }, text),
     h('div', { class: 'stack' },
       h('button', { class: 'btn primary block', onclick: async () => { try { await navigator.clipboard.writeText(text); toast('Regeln kopiert'); } catch { toast('Kopieren nicht erlaubt – bitte markieren und kopieren.'); } } }, icon('copy'), 'Regeln kopieren'),
-      h('button', { class: 'btn block', onclick: () => (update && viewing ? openContent(viewing) : listen(user)) }, 'Erneut prüfen'),
+      h('button', { class: 'btn block', onclick: () => (update && viewing ? openContent(viewing) : listen(user)) }, update ? 'Fertig – zurück' : 'Erneut prüfen'),
       h('button', { class: 'btn block', onclick: () => A.signOut(auth) }, 'Anderes Konto'))));
 }
 
@@ -136,6 +129,7 @@ function viewDashboard(user) {
       kpi(users.filter((u) => u.lastSeen >= today.getTime()).length, 'heute aktiv'),
       kpi(users.filter((u) => u.lastSeen >= now - 7 * DAY).length, 'aktiv in 7 Tagen'),
       kpi(users.filter((u) => u.createdAt >= now - 7 * DAY).length, 'neu in 7 Tagen')),
+    protectSection(user),
     h('h2', {}, 'Jelly-Versionen'),
     h('div', { class: 'chips' }, Object.entries(versions).sort((a, b) => b[0].localeCompare(a[0], 'de', { numeric: true })).map(([v, n]) => h('span', { class: 'chip' }, `${v} · `, h('b', {}, n)))),
     h('div', { class: 'tools' }, search, sort),
@@ -149,12 +143,13 @@ function userRow(u) {
   return h('button', { class: 'user', onclick: () => detail(u) },
     h('div', { class: 'avatar' }, (label[0] || '?').toUpperCase()),
     h('div', { class: 'txt' }, h('div', { class: 'name' }, label), h('div', { class: 'sub' }, [u.email && u.name ? u.email : '', u.device, u.version ? `v${u.version}` : ''].filter(Boolean).join(' · '))),
+    licenses[u.uid]?.revoked ? h('span', { class: 'tag bad' }, 'gesperrt') : null,
     h('span', { class: `state ${online(u) ? 'online' : ''}` }, online(u) ? 'online' : ago(u.lastSeen)));
 }
 
 function detail(u) {
   const c = u.counts || {};
-  const close = () => ov.remove();
+  const close = () => { ov.remove(); if (!viewing) viewDashboard(auth.currentUser); };
   const ov = h('div', { class: 'overlay', onclick: (e) => { if (e.target === ov) close(); } },
     h('div', { class: 'sheet' },
       h('div', { class: 'sheet-head' }, h('div', { class: 'avatar' }, ((u.name || u.email || '?')[0]).toUpperCase()), h('div', { style: 'flex:1;min-width:0' }, h('div', { class: 'name', style: 'font-weight:700' }, u.name || '–'), h('div', { class: 'muted small' }, u.email || '')),
@@ -171,6 +166,7 @@ function detail(u) {
       h('div', { class: 'counts' },
         [['faecher', 'Fächer'], ['klausuren', 'Klausuren'], ['vokabellisten', 'Vokabellisten'], ['blaetter', 'Gelöste Blätter'], ['dateien', 'Dateien'], ['stunden', 'Stunden im Plan']]
           .map(([k, l]) => h('div', {}, h('b', {}, c[k] ?? '–'), h('span', {}, l)))),
+      accessBlock(u, close),
       h('button', { class: 'btn primary block', style: 'margin-bottom:10px', onclick: () => { close(); openContent(u); } }, 'Inhalte ansehen'),
       h('p', { class: 'muted small' }, `UID: ${u.uid}`),
       h('button', { class: 'btn block', onclick: async () => {
@@ -184,9 +180,27 @@ function detail(u) {
 function listen(user) {
   unsub?.();
   root.replaceChildren(h('div', { class: 'center-screen' }, h('div', { class: 'logo big' }), h('p', { class: 'muted' }, 'Lade Konten …')));
+  unsubs.forEach((f) => f()); unsubs = [];
+  const redraw = () => { if (!document.querySelector('.overlay') && !viewing && users.loaded) viewDashboard(user); };
+  // Code-Schutz: klappt das Lesen der Codes nicht, sind die Regeln noch alt
+  unsubs.push(F.onSnapshot(F.collection(db, 'invites'), (snap) => {
+    protectOn = true;
+    invites = snap.docs.map((d) => ({ code: d.id, ...d.data() })).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    redraw();
+  }, () => { protectOn = false; redraw(); }));
+  unsubs.push(F.onSnapshot(F.collection(db, 'licenses'), (snap) => {
+    licenses = Object.fromEntries(snap.docs.map((d) => [d.id, d.data()]));
+    redraw();
+  }, () => {}));
+  unsubs.push(F.onSnapshot(F.doc(db, 'control', 'admins'), (d) => {
+    partners = d.data()?.uids || [];
+    try { localStorage.setItem('control-partners', JSON.stringify(partners)); } catch {}
+    redraw();
+  }, () => {}));
   unsub = F.onSnapshot(F.collection(db, 'userIndex'), (snap) => {
     users = snap.docs.map((d) => ({ uid: d.id, ...d.data() }));
-    if (!document.querySelector('.overlay') && !viewing) viewDashboard(user);
+    users.loaded = true;
+    redraw();
   }, (e) => {
     if (e.code === 'permission-denied') viewSetup(user);
     else root.replaceChildren(h('div', { class: 'center-screen' }, h('div', { class: 'logo big' }), h('p', {}, `Fehler: ${e.message}`), h('button', { class: 'btn', onclick: () => listen(user) }, 'Nochmal')));
@@ -194,7 +208,7 @@ function listen(user) {
 }
 
 A.onAuthStateChanged(auth, (user) => {
-  unsub?.(); unsub = null;
+  unsub?.(); unsub = null; unsubs.forEach((f) => f()); unsubs = [];
   if (user) listen(user); else viewLogin();
 });
 
@@ -322,4 +336,93 @@ function showUnit(un, sess, exam) {
         h('div', { class: 'label' }, 'Antwort'), h('p', {}, sess.answers?.[a.id] || '–'),
         r ? [h('div', { class: 'label' }, `Bewertung: ${r.punkte}/${r.maxPunkte}`), htmlBox(r.feedback || '')] : null);
     }));
+}
+
+// ================================================================ Code-Schutz
+// Ohne Server lässt sich der Schutz nur über die Firestore-Regeln durchsetzen:
+// Neue Konten können erst synchronisieren, wenn sie einen Einmal-Code eingelöst haben (oder hier freigeschaltet wurden).
+const ALPHA = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // ohne 0/O, 1/I
+function newCode() {
+  const r = crypto.getRandomValues(new Uint32Array(8));
+  const c = [...r].map((x) => ALPHA[x % ALPHA.length]).join('');
+  return `${c.slice(0, 4)}-${c.slice(4)}`;
+}
+
+async function shareCode(code, note) {
+  const text = `Dein Zugangscode für Jelly: ${code}\n${location.origin}${location.pathname.replace(/control\/.*$/, '')}\nDer Code funktioniert nur einmal und nur für dein Konto.`;
+  try { if (navigator.share) { await navigator.share({ text }); return; } } catch { return; }
+  try { await navigator.clipboard.writeText(text); toast('Code und Link kopiert'); } catch { toast(code); }
+}
+
+function protectSection(user) {
+  if (protectOn === false) {
+    return h('section', { class: 'protect warn' },
+      h('div', { class: 'protect-head' }, icon('key'), h('b', {}, 'Code-Schutz ist noch aus')),
+      h('p', { class: 'muted small' }, 'Aktiviere ihn, indem du die Firestore-Regeln einmal aktualisierst. Alle Konten, die schon Daten in der Cloud haben, bleiben automatisch freigeschaltet.'),
+      h('button', { class: 'btn primary block', onclick: () => viewSetup(user, true) }, 'Regeln aktualisieren'));
+  }
+  if (protectOn !== true) return null;
+  const open = invites.filter((i) => !i.usedBy);
+  const used = invites.filter((i) => i.usedBy);
+  const nameOf = (uid) => { const u = users.find((x) => x.uid === uid); return u ? (u.name || u.email) : null; };
+  const row = (i) => h('div', { class: 'code-row' },
+    h('div', { class: 'txt' }, h('div', { class: 'code-val' }, i.code), h('div', { class: 'sub' }, i.usedBy ? `eingelöst von ${nameOf(i.usedBy) || i.usedEmail || 'Konto'} · ${fmt(i.usedAt)}` : [i.note, `erstellt ${fmt(i.createdAt)}`].filter(Boolean).join(' · '))),
+    i.usedBy ? null : h('button', { class: 'iconbtn', 'aria-label': 'Teilen', title: 'Teilen / kopieren', onclick: () => shareCode(i.code, i.note) }, icon('share')),
+    i.usedBy ? null : h('button', { class: 'iconbtn', 'aria-label': 'Löschen', title: 'Code löschen', onclick: async () => { if (confirm(`Code ${i.code} löschen?`)) await F.deleteDoc(F.doc(db, 'invites', i.code)).catch(() => toast('Löschen fehlgeschlagen.')); } }, icon('trash')));
+  return h('section', { class: 'protect' },
+    h('div', { class: 'protect-head' }, icon('key'), h('b', { style: 'flex:1' }, 'Zugangscodes'), h('span', { class: 'chip' }, 'Schutz aktiv')),
+    h('p', { class: 'muted small' }, 'Neue Konten brauchen einen Code. Jeder Code klappt genau einmal und ist danach an das Konto gebunden.'),
+    h('button', { class: 'btn primary block', onclick: async () => {
+      const note = prompt('Für wen ist der Code? (optional, nur für dich)') ?? null;
+      if (note === null) return;
+      const code = newCode();
+      try {
+        await F.setDoc(F.doc(db, 'invites', code), { usedBy: null, createdAt: Date.now(), createdBy: user.uid, note: note.trim() });
+        shareCode(code, note);
+      } catch { toast('Code konnte nicht erstellt werden.'); }
+    } }, '+ Neuer Code'),
+    open.length ? [h('div', { class: 'label' }, `Offen (${open.length})`), h('div', { class: 'list' }, open.map(row))] : null,
+    used.length ? h('details', {}, h('summary', { class: 'label' }, `Eingelöst (${used.length})`), h('div', { class: 'list' }, used.map(row))) : null,
+    h('details', { class: 'partners' }, h('summary', { class: 'label' }, `Partner mit Control-Zugriff (${partners.length})`),
+      h('p', { class: 'muted small' }, 'Der Partner öffnet Control, meldet sich an und schickt dir die angezeigte Konto-ID. Danach die Regeln einmal aktualisieren.'),
+      partners.map((p) => h('div', { class: 'code-row' }, h('div', { class: 'txt' }, h('div', { class: 'sub' }, nameOf(p) || p)),
+        h('button', { class: 'iconbtn', 'aria-label': 'Entfernen', onclick: async () => {
+          if (!confirm('Partner entfernen? Danach die Regeln aktualisieren.')) return;
+          await F.setDoc(F.doc(db, 'control', 'admins'), { uids: partners.filter((x) => x !== p) });
+          viewSetup(user, true);
+        } }, icon('trash')))),
+      h('button', { class: 'btn block', onclick: async () => {
+        const id = (prompt('Konto-ID des Partners:') || '').trim();
+        if (!/^[A-Za-z0-9]{20,40}$/.test(id)) { if (id) toast('Das sieht nicht wie eine Konto-ID aus.'); return; }
+        const next = [...new Set([...partners, id])];
+        try { await F.setDoc(F.doc(db, 'control', 'admins'), { uids: next }); } catch {}
+        partners = next;
+        try { localStorage.setItem('control-partners', JSON.stringify(next)); } catch {}
+        viewSetup(user, true);
+      } }, 'Partner hinzufügen')));
+}
+
+// Zugang eines Kontos im Detailblatt
+function accessBlock(u, close) {
+  if (protectOn !== true) return null;
+  const lic = licenses[u.uid];
+  const status = h('span', {}, '…');
+  const set = async (data, msg) => { try { await F.setDoc(F.doc(db, 'licenses', u.uid), { ...data, by: auth.currentUser.uid, changedAt: Date.now() }, { merge: true }); toast(msg); close(); } catch { toast('Ändern nicht erlaubt.'); } };
+  const btns = h('div', { class: 'row-btns' });
+  if (lic?.revoked) {
+    status.textContent = 'Gesperrt';
+    btns.append(h('button', { class: 'btn block', onclick: () => set({ revoked: false }, 'Wieder freigeschaltet') }, 'Entsperren'));
+  } else if (lic) {
+    status.textContent = lic.code && lic.code !== 'control' ? `Freigeschaltet mit Code ${lic.code}` : 'Freigeschaltet (von Control)';
+    btns.append(h('button', { class: 'btn block danger', onclick: () => confirm('Zugang sperren? Das Konto kann dann nicht mehr synchronisieren und Jelly nicht mehr öffnen.') && set({ revoked: true }, 'Gesperrt') }, 'Sperren'));
+  } else {
+    // Bestandskonto (Stand in der Cloud) oder ohne Zugang
+    F.getDoc(F.doc(db, 'users', u.uid, 'state', 'meta')).then((m) => {
+      status.textContent = m.exists() ? 'Bestandskonto (automatisch frei)' : 'Kein Zugang – noch kein Code eingelöst';
+      btns.replaceChildren(m.exists()
+        ? h('button', { class: 'btn block danger', onclick: () => confirm('Zugang sperren?') && set({ revoked: true }, 'Gesperrt') }, 'Sperren')
+        : h('button', { class: 'btn block', onclick: () => set({ code: 'control', at: Date.now() }, 'Freigeschaltet') }, 'Ohne Code freischalten'));
+    }).catch(() => { status.textContent = 'unbekannt'; });
+  }
+  return h('div', { class: 'access' }, h('div', { class: 'label' }, 'Zugang'), h('div', { style: 'margin:4px 0 8px;font-weight:600' }, status), btns);
 }

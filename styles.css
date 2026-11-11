@@ -864,3 +864,4 @@ html, body { overflow-x: hidden; }
 .ch-me .ch-caps { min-height: 24px; }
 .ch-cap svg { filter: drop-shadow(0 0 1px rgba(255, 255, 255, .9)) drop-shadow(0 0 .5px rgba(255, 255, 255, .9)); }
 @container (max-width: 600px) { .ch-game .ch-botcard { order: -1; } }
+.code-input { text-align: center; font-family: ui-monospace, Menlo, monospace; font-size: 1.4rem; font-weight: 800; letter-spacing: .12em; }

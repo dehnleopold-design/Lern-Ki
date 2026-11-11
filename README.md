@@ -108,3 +108,15 @@ Einrichtung (einmalig):
 
 Unter `/control/` liegt eine eigene kleine Web-App (eigenes Symbol, „Zum Home-Bildschirm“ möglich), die alle Jelly-Konten mit Kennzahlen zeigt: Name, E-Mail, registriert seit, zuletzt aktiv, Version, Gerät, Klasse, KI eingerichtet, Anzahl Fächer/Klausuren/Vokabellisten/Blätter/Dateien/Stunden. **Keine Lerninhalte.**
 Jelly schreibt dafür beim Öffnen (höchstens alle 15 Minuten) `userIndex/{uid}`. Lesen darf nur das Admin-Konto – die nötigen Firestore-Regeln zeigt die Control-App nach der ersten Anmeldung zum Kopieren an.
+
+## Zugangscodes (Schutz vor Weitergabe)
+
+Neue Konten können Jelly erst nutzen, wenn sie einen **Einmal-Code** eingelöst haben. Codes erstellt man in
+Jelly Control („+ Neuer Code“). Jeder Code funktioniert genau einmal und ist danach an das Konto gebunden.
+Konten, die schon vor dem Schutz Daten in der Cloud hatten, sind automatisch freigeschaltet.
+
+- Durchgesetzt wird das von den Firestore-Regeln (`control/rules.js`), nicht von der App – die Regeln müssen
+  einmal in der Firebase-Konsole veröffentlicht werden (Control zeigt sie unter „Regeln aktualisieren“).
+- In Control kann man Konten sperren, entsperren oder ohne Code freischalten und Partner als weitere Admins eintragen.
+- Grenzen: Der Quellcode ist öffentlich; wer ihn selbst hostet oder verändert, kommt an der Code-Abfrage vorbei,
+  aber nicht an die Cloud-Synchronisierung dieses Projekts. Wer seine Anmeldedaten weitergibt, gibt auch alle seine Daten weiter.

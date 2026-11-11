@@ -10,13 +10,14 @@ import { gradeLabel, gradeOptions, percentToGrade, reachesTarget, scale } from '
 import { downloadLernzettel, sheetHTML, SHEET_CSS } from './pdf.js';
 import { openFile, fileKindLabel } from './viewer.js';
 import { chessPanel } from './chess.js';
+import { checkAccess, redeemCode, cachedAccess, normalizeCode } from './license.js';
 import { initNotes, viewNotes, viewNotebook } from './notes.js';
 
 setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.46 (10.11.)';
+const APP_VERSION = '2.47 (11.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -3162,7 +3163,8 @@ function privacySheet() {
 - **Google Gemini:** Material, Fotos, Fragen und Antworten, wenn Jelly etwas erstellt oder korrigiert. Laut Googles Bedingungen werden Eingaben von Nutzern in der EU **nicht zur Produktverbesserung** genutzt, auch in der kostenlosen Stufe.
 - **Ersatz-Anbieter** (Groq, Mistral oder OpenRouter) – nur wenn du ihn einrichtest und Google überlastet ist. Es gelten dessen Bedingungen; Groq und OpenRouter sitzen in den USA.
 ${backgroundAvailable() ? `- **Jelly im Hintergrund** (nur mit Konto): Damit Lernzettel & Co. auch bei geschlossener App fertig werden, liest eine Funktion in **Google Cloud (Firebase, Rechenzentrum Frankfurt)** deinen Stand und deine hochgeladenen Dateien aus Firestore, schickt die Anfragen mit deinem Schlüssel an Gemini und legt die Ergebnisse wieder in Firestore ab. Die Protokolle der Funktion enthalten keine Inhalte.
-` : ''}- **Einsicht durch den Betreiber** (nur mit Konto): Der Betreiber dieser Jelly-Version sieht in einer Übersicht deine E-Mail-Adresse, deinen Namen, seit wann du registriert bist, wann du zuletzt aktiv warst, App-Version, Gerätetyp, Klassenstufe und ob die KI eingerichtet ist. Außerdem kann er **deine Inhalte lesen**: Fächer und Lehrerprofile, Klausuren mit Lernzetteln, Quiz und Aufgaben (auch deine Antworten und Korrekturen), Vokabeln, gelöste Blätter, Stundenplan, Termine und hochgeladene Dateien. Ändern kann er nichts. **Deine KI-Schlüssel sieht er nicht** – sie liegen getrennt. Wer das nicht möchte, nutzt Jelly ohne Konto (dann bleibt alles nur auf dem Gerät).
+` : ''}- **Einsicht durch den Betreiber** (nur mit Konto): Der Betreiber dieser Jelly-Version sieht in einer Übersicht deine E-Mail-Adresse, deinen Namen, seit wann du registriert bist, wann du zuletzt aktiv warst, App-Version, Gerätetyp, Klassenstufe und ob die KI eingerichtet ist. Außerdem kann er **deine Inhalte lesen**: Fächer und Lehrerprofile, Klausuren mit Lernzetteln, Quiz und Aufgaben (auch deine Antworten und Korrekturen), Vokabeln, gelöste Blätter, Stundenplan, Termine und hochgeladene Dateien. Ändern kann er nichts. **Deine KI-Schlüssel sieht er nicht** – sie liegen getrennt. Wer Jelly schon ohne Konto nutzt, kann das weiter tun (dann bleibt alles nur auf dem Gerät); neue Nutzer brauchen ein Konto.
+- **Freischaltung** (nur mit Konto): Neue Konten brauchen einen Einmal-Code. Gespeichert wird, welcher Code zu deinem Konto gehört, wann er eingelöst wurde und mit welcher E-Mail-Adresse. Der Betreiber kann einen Zugang sperren.
 - **YouTube** – nur wenn du das Warte-Video abspielst.
 - **GitHub Pages** liefert die App aus; dabei sieht GitHub (USA) wie bei jeder Website deine IP-Adresse.
 - Schriften und PDF-Bibliothek liegen in der App selbst – dafür wird kein fremder Server kontaktiert.
@@ -3237,9 +3239,37 @@ function viewLogin() {
         if (!email.value.trim()) { err.textContent = 'Gib zuerst deine E-Mail ein.'; return; }
         try { await resetPassword(email.value.trim()); toast('E-Mail zum Zurücksetzen ist unterwegs.', 'ok'); } catch (e) { err.textContent = authErrorText(e); }
       } }, 'Passwort vergessen?') : null,
-      h('button', { class: 'link-small', onclick: async () => { ui.localOnly = true; await boot(null); } }, state.profile ? 'Abbrechen' : 'Ohne Konto weiter'),
+      // Ohne Konto nur noch für alle, die Jelly schon so nutzen (neue Nutzer brauchen ein Konto + Zugangscode)
+      state.profile ? h('button', { class: 'link-small', onclick: async () => { ui.localOnly = true; await boot(null); } }, 'Abbrechen') : null,
       state.profile ? h('p', { class: 'muted small' }, 'Deine bisherigen Daten werden ins Konto übernommen. Mach das zuerst auf dem Gerät mit den meisten Daten.') : null,
       h('p', { class: 'muted small' }, 'Deine Lerndaten bleiben auf diesem Gerät. Das Konto trennt sie von den Daten anderer Personen.')));
+}
+
+// Seite „Zugangscode“: löst sich auf, sobald ein gültiger Code eingelöst ist
+function accessGate(user, access) {
+  return new Promise((resolve) => {
+    const revoked = access === 'revoked';
+    const err = h('div', { class: 'login-err' });
+    const input = h('input', { class: 'input code-input', placeholder: 'XXXX-XXXX', autocapitalize: 'characters', autocomplete: 'off', spellcheck: 'false', maxlength: 9,
+      oninput: (e) => { e.target.value = normalizeCode(e.target.value).slice(0, 9); } });
+    const btn = h('button', { class: 'btn primary block', onclick: async () => {
+      err.textContent = ''; btn.disabled = true; btn.textContent = 'Prüfe …';
+      try { await redeemCode(user, input.value); toast('Freigeschaltet – willkommen bei Jelly!', 'ok'); resolve(true); }
+      catch (e) { err.textContent = e.message; btn.disabled = false; btn.textContent = 'Freischalten'; }
+    } }, 'Freischalten');
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') btn.click(); });
+    app.replaceChildren(h('div', { class: 'screen login' },
+      h('main', { class: 'content narrow login-box' },
+        mascot(110),
+        h('h1', { class: 'display' }, revoked ? 'Zugang gesperrt' : 'Zugangscode'),
+        h('p', { class: 'muted' }, revoked
+          ? 'Dein Zugang zu Jelly wurde gesperrt. Wende dich an die Person, von der du Jelly hast.'
+          : 'Jelly ist nur mit Einladung nutzbar. Gib den Code ein, den du bekommen hast. Jeder Code funktioniert genau einmal und gehört danach zu deinem Konto.'),
+        revoked ? null : [input, err, btn],
+        h('p', { class: 'muted small' }, `Angemeldet als ${user.email || 'Konto'}`),
+        h('button', { class: 'link-small', onclick: () => signOutUser() }, 'Mit anderem Konto anmelden'))));
+    setTimeout(() => input.focus(), 50);
+  });
 }
 
 let bootedUid;
@@ -3268,6 +3298,11 @@ async function handleUser(user) {
     render();
     return;
   }
+  if (bootedUid === user.uid) return;
+  // Zugangsschutz: neue Konten brauchen einen Einmal-Code, Bestandskonten sind frei
+  app.replaceChildren(h('div', { class: 'boot' }, mascot(90), h('p', { class: 'muted' }, 'Prüfe Zugang …')));
+  const access = await checkAccess(user.uid);
+  if (access !== 'ok' && !(await accessGate(user, access))) return;
   if (bootedUid === user.uid) return;
   bootedUid = user.uid;
   ui.localOnly = false;
@@ -3323,7 +3358,7 @@ async function handleUser(user) {
       setTimeout(() => {
         const o = sheet('Kurzer Hinweis', [
           h('p', {}, 'Der Betreiber dieser Jelly-Version kann in einer Übersicht dein Konto und deine Inhalte lesen (Lernzettel, Aufgaben, Vokabeln, Stundenplan, hochgeladene Dateien). Ändern kann er nichts, deine KI-Schlüssel sieht er nicht.'),
-          h('p', { class: 'muted small' }, 'Details unter Mehr → Datenschutz. Ohne Konto bleibt alles nur auf deinem Gerät.'),
+          h('p', { class: 'muted small' }, 'Details unter Mehr → Datenschutz.'),
           h('button', { class: 'btn primary block', onclick: () => { try { localStorage.setItem(k, '1'); } catch {} o.remove(); } }, 'Verstanden')]);
       }, 1500);
     }
@@ -3361,7 +3396,8 @@ async function openAccountSetup() {
     // Offline beim Start: zuletzt angemeldetes Konto auf diesem Gerät öffnen
     let last = null;
     try { last = localStorage.getItem('lernki-last-uid'); } catch {}
-    if (last) { bootedUid = last; await useAccount(last); await boot(null); toast('Offline – du bist mit deinem letzten Konto angemeldet.'); }
+    if (last && ['need-code', 'revoked'].includes(cachedAccess(last))) app.replaceChildren(h('div', { class: 'boot' }, mascot(90), h('p', {}, 'Für die Freischaltung brauchst du Internet.'), h('button', { class: 'btn primary', onclick: () => location.reload() }, 'Nochmal versuchen')));
+    else if (last) { bootedUid = last; await useAccount(last); await boot(null); toast('Offline – du bist mit deinem letzten Konto angemeldet.'); }
     else app.replaceChildren(h('div', { class: 'boot' }, mascot(90), h('p', {}, 'Für die erste Anmeldung brauchst du Internet.'), h('button', { class: 'btn primary', onclick: () => location.reload() }, 'Nochmal versuchen')));
   }
 })();
