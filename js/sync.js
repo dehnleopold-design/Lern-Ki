@@ -59,6 +59,9 @@ function putKeys(next, keys) {
   return next;
 }
 const chunkRef = (i) => fs.doc(db, 'users', uid, 'state', `c${i}`);
+// Sicherheitskopie des Cloud-Stands, bevor er überschrieben wird (users/{uid}/backup/…)
+const backupMetaRef = () => fs.doc(db, 'users', uid, 'backup', 'meta');
+const backupChunkRef = (i) => fs.doc(db, 'users', uid, 'backup', `c${i}`);
 const blobRef = (id, i) => fs.doc(db, 'users', uid, 'blobs', `${id}_${i}`);
 const jobRef = (examId) => fs.doc(db, 'users', uid, 'bgjobs', examId);
 const resultsCol = () => fs.collection(db, 'users', uid, 'bgresults');
@@ -183,6 +186,59 @@ function schedulePush() {
   pushTimer = setTimeout(() => push().catch(() => {}), 4000);
 }
 
+// Ein Stand ohne eigene Inhalte (z. B. frisch eingerichtet) darf nie einen Cloud-Stand ersetzen, ohne dass vorher gesichert wird.
+export function nearlyEmpty(st) {
+  return !st.exams?.length && !st.subjects?.length && !(st.vocab?.sets || []).length && !Object.keys(st.files || {}).length
+    && !(st.notebooks || []).length && !(st.solved || []).length && !(st.todos || []).length;
+}
+
+// Kopiert den aktuellen Cloud-Stand nach backup/. Eine vorhandene Sicherung wird nur durch eine
+// mindestens halb so große ersetzt – so überschreibt ein leerer Stand nie eine gute Sicherung.
+async function backupRemote(remote) {
+  if (!remote?.n) return;
+  try {
+    const parts = [];
+    for (let i = 0; i < remote.n; i++) { const c = await fs.getDoc(chunkRef(i)); if (!c.exists()) return; parts.push(c.data().d); }
+    const size = parts.reduce((a, x) => a + x.length, 0);
+    const old = await fs.getDoc(backupMetaRef());
+    const o = old.exists() ? old.data() : null;
+    if (o && size < o.size * 0.5 && Date.now() - o.savedAt < 60 * 86400000) return;
+    for (let i = 0; i < parts.length; i++) await fs.setDoc(backupChunkRef(i), { d: parts[i] });
+    await fs.setDoc(backupMetaRef(), { savedAt: Date.now(), size, n: parts.length, updatedAt: remote.updatedAt, blobs: remote.blobs || {} });
+  } catch (e) { console.warn('Sicherung fehlgeschlagen', e); }
+}
+
+export async function cloudBackupInfo() {
+  if (!db) return null;
+  try { const m = await fs.getDoc(backupMetaRef()); return m.exists() ? m.data() : null; } catch { return null; }
+}
+
+export async function cloudInfo() {
+  if (!db) return null;
+  try { const m = await fs.getDoc(metaRef()); return m.exists() ? m.data() : null; } catch { return null; }
+}
+
+// Cloud-Stand neu laden (ersetzt den Stand auf diesem Gerät)
+export async function reloadFromCloud() {
+  if (!db) throw new Error('Keine Verbindung zum Online-Speicher.');
+  const snap = await fs.getDoc(metaRef());
+  if (!snap.exists()) throw new Error('In der Cloud liegt für dieses Konto nichts.');
+  await pull(snap.data());
+}
+
+// Sicherung zurückspielen: wird zum aktuellen Stand und in die Cloud geschrieben (der jetzige Cloud-Stand wird vorher gesichert)
+export async function restoreCloudBackup() {
+  if (!db) throw new Error('Keine Verbindung zum Online-Speicher.');
+  const m = (await fs.getDoc(backupMetaRef())).data();
+  if (!m) throw new Error('Keine Sicherung vorhanden.');
+  const parts = [];
+  for (let i = 0; i < m.n; i++) parts.push((await fs.getDoc(backupChunkRef(i))).data()?.d || '');
+  const next = putKeys(JSON.parse(parts.join('')), await readKeys());
+  await applyRemoteState(next);
+  local = { ...local, base: 0, dirty: true, dirtyAt: Date.now() };
+  await push(true, true);
+}
+
 // Prüft beide Seiten und gleicht ab: Neueres gewinnt.
 export async function syncNow(first = false) {
   if (!db) return;
@@ -197,6 +253,8 @@ export async function syncNow(first = false) {
       return;
     }
     // Erste Verbindung dieses Geräts, aber hier UND im Konto liegen schon Daten → nachfragen statt überschreiben
+    // Hier ist nur ein frisch eingerichteter, leerer Stand → ohne Nachfrage den Cloud-Stand nehmen
+    if (!local.base && hasLocal && nearlyEmpty(state)) { await pull(remote); return; }
     if (!local.base && hasLocal && onConflict) {
       const choice = await onConflict(remote);
       if (choice === 'local') { await push(true, true); return; }
@@ -257,6 +315,8 @@ export async function push(force = false, overwrite = false) {
       await pull(remote);
       return;
     }
+    // Bevor ein fremder oder größerer Stand überschrieben wird: Sicherheitskopie in der Cloud
+    if (remote && (overwrite || nearlyEmpty(state) || remote.device !== deviceId())) await backupRemote(remote);
     const json = JSON.stringify(withoutKeys(state));
     const keys = keysOf(state);
     if (JSON.stringify(keys) !== local.keys) { await fs.setDoc(secretRef(), keys); local.keys = JSON.stringify(keys); }
@@ -300,7 +360,7 @@ export async function deleteCloudData() {
   try { await fs.deleteDoc(fs.doc(db, 'userIndex', uid)); } catch {}
   try { await fs.deleteDoc(secretRef()); } catch {}
   indexUser = null;
-  for (const name of ['bgjobs', 'bgresults', 'bgpresence']) {
+  for (const name of ['bgjobs', 'bgresults', 'bgpresence', 'backup']) {
     const all = await fs.getDocs(fs.collection(db, 'users', uid, name));
     for (const d of all.docs) await fs.deleteDoc(d.ref);
   }

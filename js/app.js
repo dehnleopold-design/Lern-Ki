@@ -1,5 +1,5 @@
-import { state, loadState, save, replaceState, clearAll, allBlobs, putBlob, uid, useAccount, hasLocalProfile } from './store.js';
-import { startSync, syncNow, syncStatus, onSyncStatus, deleteCloudData, push, requestJob, backgroundAvailable } from './sync.js';
+import { state, loadState, save, replaceState, clearAll, allBlobs, putBlob, uid, useAccount, hasLocalProfile, listLocalStores, importLocalStore } from './store.js';
+import { startSync, syncNow, syncStatus, onSyncStatus, deleteCloudData, push, requestJob, backgroundAvailable, cloudInfo, cloudBackupInfo, reloadFromCloud, restoreCloudBackup } from './sync.js';
 import { deleteAccount } from './auth.js';
 import { authEnabled, initAuth, signInGoogle, signInEmail, registerEmail, resetPassword, signOutUser, currentUser, authErrorText } from './auth.js';
 import { generate, aiReady, listGeminiModels, pickDefaultModel, AIError, onAIStatus, FALLBACK_PRESETS, listOpenAIModels, pickFallbackModel, fallbackReady } from './ai.js';
@@ -17,7 +17,7 @@ setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.47 (11.11.)';
+const APP_VERSION = '2.48 (11.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -218,7 +218,9 @@ function viewOnboarding() {
   const steps = [
     {
       q: editing ? 'Lass uns dein Profil aktualisieren.' : 'Hi! Ich bin Jelly. Bevor wir loslegen, stelle ich dir ein paar Fragen – damit dein Lernplan wirklich zu dir passt.',
-      body: () => h('div', { class: 'stack center' }, h('p', { class: 'muted' }, 'Dauert ca. 2 Minuten. Alles bleibt auf deinem Gerät.')),
+      body: () => h('div', { class: 'stack center' }, h('p', { class: 'muted' }, 'Dauert ca. 2 Minuten. Alles bleibt auf deinem Gerät.'),
+        editing ? null : h('button', { class: 'link-small', onclick: () => rescueSheet() }, 'Du hattest Jelly schon benutzt und alles ist weg? Daten retten'),
+        editing || !bootedUid ? null : h('button', { class: 'link-small', onclick: () => signOutUser() }, `Abmelden (${currentUser()?.email || 'Konto'}) – falsches Konto?`)),
       ok: () => true,
     },
     {
@@ -3125,9 +3127,10 @@ function viewSettings() {
         menuRow('notebook', 'Notizen', 'Notizbücher mit Apple Pencil und Tastatur', () => openNotes('settings')),
         menuRow('chat', 'Tutor-Chat', 'Fragen zum Stoff deiner Klausur', () => go('tutor')),
         menuRow('folder', 'Hochgeladene Dateien', `${Object.keys(state.files || {}).length} Dateien`, () => go('files')),
+        menuRow('refresh', 'Daten retten', 'Verschwundene Lernsachen wiederfinden', () => rescueSheet()),
         menuRow('save', 'Datensicherung', 'Backup speichern oder einspielen', () => {
           sheet('Datensicherung', [
-            h('p', { class: 'muted small' }, 'Alles liegt nur auf diesem Gerät. Wenn Safari-Daten gelöscht werden, ist es weg – mach ab und zu ein Backup. Der API-Schlüssel wird nicht mitgesichert.'),
+            h('p', { class: 'muted small' }, bootedUid ? 'Mit Konto liegt dein Stand zusätzlich in der Cloud. Ein Backup als Datei schadet trotzdem nicht. Der API-Schlüssel wird nicht mitgesichert.' : 'Alles liegt nur auf diesem Gerät. Wenn Safari-Daten gelöscht werden, ist es weg – mach ab und zu ein Backup. Der API-Schlüssel wird nicht mitgesichert.'),
             h('button', { class: 'btn primary block', onclick: exportBackup }, 'Backup herunterladen'),
             h('button', { class: 'btn ghost block', onclick: importBackup }, 'Backup einspielen')]);
         })),
@@ -3150,6 +3153,44 @@ function viewFiles() {
       groups.map(([k, list]) => h('section', { class: 'files-group' },
         h('div', { class: 'label' }, `${k === 'other' ? 'Sonstiges' : fileKindLabel(k)} (${list.filter((f) => isGroupLead(f.id)).length})`),
         h('div', { class: 'menu' }, list.filter((f) => isGroupLead(f.id)).map((f) => menuRow(f.mime?.startsWith('image/') ? 'image' : 'file', f.digest?.titel || f.name, [sub(f), groupOf(f.id).length > 1 ? pagesLabel(f.id) : ''].filter(Boolean).join(' · '), () => openFile(f.id))))))));
+}
+
+// Sucht verschwundene Daten: Cloud-Stand, automatische Cloud-Sicherung und andere Speicher auf diesem Gerät
+async function rescueSheet() {
+  const box = h('div', { class: 'stack' }, h('p', { class: 'muted' }, 'Suche …'));
+  const o = sheet('Daten retten', [box]);
+  const count = (x) => [x.subjects && `${x.subjects} Fächer`, x.exams && `${x.exams} Klausuren`, x.vocab && `${x.vocab} Vokabellisten`, x.notebooks && `${x.notebooks} Notizbücher`, x.files && `${x.files} Dateien`].filter(Boolean).join(', ') || 'kaum Inhalte';
+  const here = { subjects: state.subjects.length, exams: state.exams.length, vocab: (state.vocab?.sets || []).length, notebooks: (state.notebooks || []).length, files: Object.keys(state.files || {}).length };
+  const run = async (btn, fn, ok) => {
+    btn.disabled = true; const t = btn.textContent; btn.textContent = 'Einen Moment …';
+    try { await fn(); await loadState(); o.remove(); toast(ok, 'ok'); route = { name: state.profile ? 'plan' : 'onboarding', params: {} }; render(); }
+    catch (e) { toast(errorMsg(e), 'error'); btn.disabled = false; btn.textContent = t; }
+  };
+  const items = [h('p', { class: 'muted small' }, `Gerade geöffnet: ${count(here)}.`)];
+  if (bootedUid) {
+    const [cloud, backup] = await Promise.all([cloudInfo(), cloudBackupInfo()]);
+    items.push(h('div', { class: 'label' }, 'In der Cloud'));
+    if (cloud) {
+      const b1 = h('button', { class: 'btn block', onclick: () => confirmDialog('Den Stand aus der Cloud auf dieses Gerät laden? Was nur hier liegt, wird ersetzt.', 'Laden', 'Abbrechen', 'primary').then((y) => y && run(b1, reloadFromCloud, 'Cloud-Stand geladen.')) },
+        icon('download', 18), `Cloud-Stand laden (vom ${new Date(cloud.updatedAt).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' })})`);
+      items.push(b1);
+    } else items.push(h('p', { class: 'muted small' }, 'In der Cloud liegt für dieses Konto noch nichts.'));
+    if (backup) {
+      const b2 = h('button', { class: 'btn block', onclick: () => confirmDialog('Die automatische Sicherung zurückholen? Sie wird zum aktuellen Stand auf allen Geräten. Der jetzige Cloud-Stand wird vorher gesichert.', 'Zurückholen', 'Abbrechen', 'primary').then((y) => y && run(b2, restoreCloudBackup, 'Sicherung zurückgeholt.')) },
+        icon('refresh', 18), `Automatische Sicherung vom ${new Date(backup.savedAt).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' })} zurückholen`);
+      items.push(b2, h('p', { class: 'muted small' }, 'Jelly sichert den Cloud-Stand automatisch, bevor er von einem anderen Gerät oder einem leeren Stand überschrieben wird.'));
+    }
+  }
+  const stores = await listLocalStores().catch(() => []);
+  items.push(h('div', { class: 'label' }, 'Auf diesem Gerät gefunden'));
+  if (!stores.length) items.push(h('p', { class: 'muted small' }, 'Keine weiteren Jelly-Daten auf diesem Gerät.'));
+  for (const x of stores) {
+    const who = !x.uid ? 'Ohne Konto' : x.uid === (() => { try { return localStorage.getItem('lernki-last-uid'); } catch { return null; } })() ? 'Dieses Konto (alter Speicher)' : `Anderes Konto (…${x.uid.slice(-5)})`;
+    const b = h('button', { class: 'btn block', onclick: () => confirmDialog(`Diese Daten (${x.profile || 'Profil'}: ${count(x)}) in dein jetziges ${bootedUid ? 'Konto' : 'Jelly'} übernehmen? Der gerade geöffnete Stand wird ersetzt${bootedUid ? ', der Cloud-Stand vorher automatisch gesichert' : ''}.`, 'Übernehmen', 'Abbrechen', 'primary').then((y) => y && run(b, () => importLocalStore(x.name), 'Daten übernommen.')) }, 'Übernehmen');
+    items.push(h('div', { class: 'card' }, h('div', { class: 'strong' }, `${who} · ${x.profile || 'ohne Namen'}`), h('div', { class: 'muted small' }, count(x)), b));
+  }
+  items.push(h('p', { class: 'muted small' }, 'Tipp: Verschwunden ist oft nichts – man ist nur mit einem anderen Konto angemeldet (z. B. Google statt E-Mail). Dann ab- und mit dem alten Konto anmelden.'));
+  box.replaceChildren(...items);
 }
 
 function privacySheet() {
@@ -3323,8 +3364,8 @@ async function handleUser(user) {
     const box = h('div', { class: 'boot' }, mascot(80),
       h('h2', { class: 'display' }, 'Welche Daten behalten?'),
       h('p', { class: 'muted', style: { maxWidth: '420px' } }, `Auf diesem Gerät gibt es schon Daten (${state.profile?.name || 'Profil'}, ${state.exams.length} Klausuren). In deinem Konto liegen andere Daten (zuletzt gespeichert ${when}). Was soll ab jetzt überall gelten?`),
-      h('button', { class: 'btn primary', onclick: () => resolve('remote') }, 'Daten aus dem Konto nehmen'),
-      h('button', { class: 'btn', onclick: () => resolve('local') }, 'Daten von diesem Gerät nehmen'),
+      h('button', { class: 'btn primary', onclick: () => resolve('remote') }, 'Daten aus dem Konto nehmen (empfohlen)'),
+      h('button', { class: 'btn', onclick: async () => { if (await confirmDialog('Wirklich die Daten von diesem Gerät nehmen? Der Stand im Konto wird ersetzt (eine Sicherung wird vorher angelegt).', 'Gerät nehmen', 'Abbrechen')) resolve('local'); } }, 'Daten von diesem Gerät nehmen'),
       h('p', { class: 'muted small', style: { maxWidth: '420px' } }, 'Tipp: Mach vorher unter Mehr → Datensicherung ein Backup, wenn du unsicher bist.'));
     app.replaceChildren(box);
   }), onRemoteApplied: async () => {

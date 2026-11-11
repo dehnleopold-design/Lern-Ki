@@ -76,6 +76,43 @@ export async function useAccount(uid) {
   state = defaultState();
 }
 
+// ---------- Daten retten: alle Jelly-Speicher auf diesem Gerät finden (ohne Konto, andere Konten)
+export const currentStoreName = () => DB_NAME;
+
+export async function listLocalStores() {
+  if (!indexedDB.databases) return [];
+  const names = (await indexedDB.databases()).map((d) => d.name).filter((n) => n && /^lernki(-u-.+)?$/.test(n) && n !== DB_NAME);
+  const out = [];
+  for (const name of names) {
+    try {
+      const db = await openNamed(name);
+      const kv = Object.fromEntries(await readAll(db, 'kv'));
+      const blobs = (await readAll(db, 'blobs')).length;
+      db.close();
+      const st = kv.state;
+      if (!st?.profile) continue;
+      out.push({ name, uid: name.startsWith('lernki-u-') ? name.slice(9) : null, profile: st.profile.name || '', exams: (st.exams || []).length, subjects: (st.subjects || []).length,
+        vocab: (st.vocab?.sets || []).length, notebooks: (st.notebooks || []).length, files: Object.keys(st.files || {}).length, blobs });
+    } catch {}
+  }
+  return out;
+}
+
+// Stand + Dateien aus einem anderen Speicher in den aktuellen übernehmen (KI-Schlüssel bleiben die aktuellen, falls vorhanden)
+export async function importLocalStore(name) {
+  const src = await openNamed(name);
+  const kv = Object.fromEntries(await readAll(src, 'kv'));
+  const blobs = await readAll(src, 'blobs');
+  src.close();
+  if (!kv.state?.profile) throw new Error('Dort liegen keine Daten.');
+  const target = await openDB();
+  await writeAll(target, 'blobs', blobs);
+  const keep = state.settings || {};
+  const next = kv.state;
+  if (keep.apiKey || keep.oaKey) next.settings = { ...(next.settings || {}), ...Object.fromEntries(Object.entries(keep).filter(([k]) => /key|provider|model|baseUrl/i.test(k))) };
+  replaceState(next);
+}
+
 function openDB() {
   if (!dbPromise) {
     dbPromise = new Promise((resolve, reject) => {
