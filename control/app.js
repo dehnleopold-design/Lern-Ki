@@ -77,13 +77,18 @@ function viewLogin(err = '') {
       err ? h('p', { class: 'small', style: 'color: var(--bad)' }, err) : null)));
 }
 
-// Admins = dieses Konto + eingetragene Partner (auch lokal gemerkt, falls control/admins noch nicht lesbar ist)
-function adminList(uid) {
+// Admin = dieses Konto. Partner (nur Codes erstellen) stehen in control/admins und sind lokal gemerkt.
+function partnerList() {
   let saved = [];
   try { saved = JSON.parse(localStorage.getItem('control-partners') || '[]'); } catch {}
-  return [uid, ...partners, ...saved];
+  return [...new Set([...partners, ...saved])];
 }
-const rulesText = (uid) => buildRules(adminList(uid));
+const rulesText = (uid) => buildRules([uid], partnerList().filter((p) => p !== uid));
+const savePartners = async (list) => {
+  partners = list;
+  try { localStorage.setItem('control-partners', JSON.stringify(list)); } catch {}
+  await F.setDoc(F.doc(db, 'control', 'admins'), { partners: list });
+};
 
 function viewSetup(user, update = false) {
   const text = rulesText(user.uid);
@@ -91,7 +96,7 @@ function viewSetup(user, update = false) {
     h('div', { class: 'logo big' }),
     h('h1', {}, update ? 'Regeln ergänzen' : 'Noch eine Freigabe'),
     h('p', { class: 'muted' }, update ? 'Für den Code-Schutz, Partner und das Ansehen von Inhalten brauchen die Firestore-Regeln eine Aktualisierung. Bestehende Konten bleiben freigeschaltet.' : `Angemeldet als ${user.email || user.uid}. Damit nur du die Übersicht sehen kannst, müssen die Firestore-Regeln einmal ergänzt werden.`),
-    !update ? h('p', { class: 'muted small' }, 'Du bist Partner? Dann musst du nichts einfügen – schick einfach deine Konto-ID an den Haupt-Admin: ',
+    !update ? h('p', { class: 'muted small' }, 'Du bist Partner? Dann musst du nichts einfügen. Der Admin trägt dich ein (deine Konto-ID, auch „UID“ genannt): ',
       h('button', { class: 'chip', onclick: async () => { try { await navigator.clipboard.writeText(user.uid); toast('ID kopiert'); } catch { toast(user.uid); } } }, user.uid)) : null,
     h('ol', { class: 'steps' },
       h('li', {}, 'Regeln unten kopieren.'),
@@ -193,7 +198,7 @@ function listen(user) {
     redraw();
   }, () => {}));
   unsubs.push(F.onSnapshot(F.doc(db, 'control', 'admins'), (d) => {
-    partners = d.data()?.uids || [];
+    partners = d.data()?.partners || d.data()?.uids || [];
     try { localStorage.setItem('control-partners', JSON.stringify(partners)); } catch {}
     redraw();
   }, () => {}));
@@ -202,7 +207,7 @@ function listen(user) {
     users.loaded = true;
     redraw();
   }, (e) => {
-    if (e.code === 'permission-denied') viewSetup(user);
+    if (e.code === 'permission-denied') tryPartner(user);
     else root.replaceChildren(h('div', { class: 'center-screen' }, h('div', { class: 'logo big' }), h('p', {}, `Fehler: ${e.message}`), h('button', { class: 'btn', onclick: () => listen(user) }, 'Nochmal')));
   });
 }
@@ -366,9 +371,11 @@ function protectSection(user) {
   const used = invites.filter((i) => i.usedBy);
   const nameOf = (uid) => { const u = users.find((x) => x.uid === uid); return u ? (u.name || u.email) : null; };
   const row = (i) => h('div', { class: 'code-row' },
-    h('div', { class: 'txt' }, h('div', { class: 'code-val' }, i.code), h('div', { class: 'sub' }, i.usedBy ? `eingelöst von ${nameOf(i.usedBy) || i.usedEmail || 'Konto'} · ${fmt(i.usedAt)}` : [i.note, `erstellt ${fmt(i.createdAt)}`].filter(Boolean).join(' · '))),
+    h('div', { class: 'txt' }, h('div', { class: 'code-val' }, i.code), h('div', { class: 'sub' }, [i.usedBy ? `eingelöst von ${nameOf(i.usedBy) || i.usedEmail || 'Konto'} · ${fmt(i.usedAt)}` : [i.note, `erstellt ${fmt(i.createdAt)}`].filter(Boolean).join(' · '), i.createdBy && i.createdBy !== user.uid ? `von ${nameOf(i.createdBy) || i.createdByName || 'Partner'}` : ''].filter(Boolean).join(' · '))),
     i.usedBy ? null : h('button', { class: 'iconbtn', 'aria-label': 'Teilen', title: 'Teilen / kopieren', onclick: () => shareCode(i.code, i.note) }, icon('share')),
-    i.usedBy ? null : h('button', { class: 'iconbtn', 'aria-label': 'Löschen', title: 'Code löschen', onclick: async () => { if (confirm(`Code ${i.code} löschen?`)) await F.deleteDoc(F.doc(db, 'invites', i.code)).catch(() => toast('Löschen fehlgeschlagen.')); } }, icon('trash')));
+    h('button', { class: 'iconbtn', 'aria-label': 'Löschen', title: 'Code löschen', onclick: async () => {
+      if (confirm(i.usedBy ? `Eingelösten Code ${i.code} löschen? Die Person behält ihren Zugang – nur der Eintrag verschwindet.` : `Code ${i.code} löschen? Er funktioniert dann nicht mehr.`)) await F.deleteDoc(F.doc(db, 'invites', i.code)).catch(() => toast('Löschen fehlgeschlagen.'));
+    } }, icon('trash')));
   return h('section', { class: 'protect' },
     h('div', { class: 'protect-head' }, icon('key'), h('b', { style: 'flex:1' }, 'Zugangscodes'), h('span', { class: 'chip' }, 'Schutz aktiv')),
     h('p', { class: 'muted small' }, 'Neue Konten brauchen einen Code. Jeder Code klappt genau einmal und ist danach an das Konto gebunden.'),
@@ -377,29 +384,26 @@ function protectSection(user) {
       if (note === null) return;
       const code = newCode();
       try {
-        await F.setDoc(F.doc(db, 'invites', code), { usedBy: null, createdAt: Date.now(), createdBy: user.uid, note: note.trim() });
+        await F.setDoc(F.doc(db, 'invites', code), { usedBy: null, createdAt: Date.now(), createdBy: user.uid, createdByName: user.displayName || user.email || '', note: note.trim() });
         shareCode(code, note);
       } catch { toast('Code konnte nicht erstellt werden.'); }
     } }, '+ Neuer Code'),
     open.length ? [h('div', { class: 'label' }, `Offen (${open.length})`), h('div', { class: 'list' }, open.map(row))] : null,
-    used.length ? h('details', {}, h('summary', { class: 'label' }, `Eingelöst (${used.length})`), h('div', { class: 'list' }, used.map(row))) : null,
-    h('details', { class: 'partners' }, h('summary', { class: 'label' }, `Partner mit Control-Zugriff (${partners.length})`),
-      h('p', { class: 'muted small' }, 'Der Partner öffnet Control, meldet sich an und schickt dir die angezeigte Konto-ID. Danach die Regeln einmal aktualisieren.'),
+    used.length ? h('details', {}, h('summary', { class: 'label' }, `Eingelöst (${used.length})`), h('div', { class: 'list' }, used.map(row)),
+      h('button', { class: 'btn block', style: 'margin-top:8px', onclick: async () => {
+        if (!confirm(`Alle ${used.length} eingelösten Codes löschen? Die Konten behalten ihren Zugang.`)) return;
+        for (const i of used) await F.deleteDoc(F.doc(db, 'invites', i.code)).catch(() => {});
+        toast('Aufgeräumt');
+      } }, 'Alle eingelösten löschen')) : null,
+    h('details', { class: 'partners' }, h('summary', { class: 'label' }, `Partner (${partners.length}) – dürfen nur Codes erstellen`),
+      h('p', { class: 'muted small' }, 'Ein Partner meldet sich in Control mit seinem Jelly-Konto an und kann dort nur Codes erstellen, seine eigenen Codes sehen und unbenutzte löschen. Konten, Inhalte und Sperren sieht er nicht. Seine Codes siehst du hier mit „von …“. Nach dem Hinzufügen oder Entfernen die Regeln einmal aktualisieren.'),
       partners.map((p) => h('div', { class: 'code-row' }, h('div', { class: 'txt' }, h('div', { class: 'sub' }, nameOf(p) || p)),
         h('button', { class: 'iconbtn', 'aria-label': 'Entfernen', onclick: async () => {
           if (!confirm('Partner entfernen? Danach die Regeln aktualisieren.')) return;
-          await F.setDoc(F.doc(db, 'control', 'admins'), { uids: partners.filter((x) => x !== p) });
+          await savePartners(partners.filter((x) => x !== p)).catch(() => {});
           viewSetup(user, true);
         } }, icon('trash')))),
-      h('button', { class: 'btn block', onclick: async () => {
-        const id = (prompt('Konto-ID des Partners:') || '').trim();
-        if (!/^[A-Za-z0-9]{20,40}$/.test(id)) { if (id) toast('Das sieht nicht wie eine Konto-ID aus.'); return; }
-        const next = [...new Set([...partners, id])];
-        try { await F.setDoc(F.doc(db, 'control', 'admins'), { uids: next }); } catch {}
-        partners = next;
-        try { localStorage.setItem('control-partners', JSON.stringify(next)); } catch {}
-        viewSetup(user, true);
-      } }, 'Partner hinzufügen')));
+      h('button', { class: 'btn block', onclick: () => pickPartner(user) }, 'Partner hinzufügen')));
 }
 
 // Zugang eines Kontos im Detailblatt
@@ -425,4 +429,64 @@ function accessBlock(u, close) {
     }).catch(() => { status.textContent = 'unbekannt'; });
   }
   return h('div', { class: 'access' }, h('div', { class: 'label' }, 'Zugang'), h('div', { style: 'margin:4px 0 8px;font-weight:600' }, status), btns);
+}
+
+// Partner aus der Kontoliste wählen (er hat ja schon ein Jelly-Konto) – oder UID von Hand
+function pickPartner(user) {
+  const close = () => ov.remove();
+  const add = async (id) => {
+    if (!/^[A-Za-z0-9]{20,40}$/.test(id)) { toast('Das sieht nicht wie eine Konto-ID (UID) aus.'); return; }
+    close();
+    await savePartners([...new Set([...partners, id])]).catch(() => {});
+    viewSetup(user, true);
+  };
+  const q = h('input', { class: 'input', type: 'search', placeholder: 'Name oder E-Mail', oninput: () => draw() });
+  const list = h('div', { class: 'list', style: 'margin-top:10px' });
+  const draw = () => {
+    const t = q.value.trim().toLowerCase();
+    list.replaceChildren(...users.filter((u) => u.uid !== user.uid && !partners.includes(u.uid) && (!t || `${u.name} ${u.email}`.toLowerCase().includes(t))).slice(0, 30).map((u) =>
+      h('button', { class: 'user', onclick: () => confirm(`${u.name || u.email} als Partner eintragen?`) && add(u.uid) },
+        h('div', { class: 'avatar' }, ((u.name || u.email || '?')[0]).toUpperCase()), h('div', { class: 'txt' }, h('div', { class: 'name' }, u.name || u.email), h('div', { class: 'sub' }, u.email || '')))));
+  };
+  draw();
+  const ov = h('div', { class: 'overlay', onclick: (e) => { if (e.target === ov) close(); } },
+    h('div', { class: 'sheet' },
+      h('div', { class: 'sheet-head' }, h('div', { style: 'flex:1;font-weight:800' }, 'Partner wählen'), h('button', { class: 'iconbtn', 'aria-label': 'Schließen', onclick: close }, icon('close'))),
+      q, list,
+      h('button', { class: 'btn block', style: 'margin-top:12px', onclick: () => { const id = (prompt('Konto-ID (UID) des Partners:') || '').trim(); if (id) add(id); } }, 'UID von Hand eingeben')));
+  document.body.append(ov);
+}
+
+// ---------- Partner-Ansicht: nur eigene Codes
+function tryPartner(user) {
+  unsubs.push(F.onSnapshot(F.query(F.collection(db, 'invites'), F.where('createdBy', '==', user.uid)), (snap) => {
+    invites = snap.docs.map((d) => ({ code: d.id, ...d.data() })).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    if (!document.querySelector('.overlay')) viewPartner(user);
+  }, () => viewSetup(user)));
+}
+
+function viewPartner(user) {
+  const open = invites.filter((i) => !i.usedBy);
+  const used = invites.filter((i) => i.usedBy);
+  const row = (i) => h('div', { class: 'code-row' },
+    h('div', { class: 'txt' }, h('div', { class: 'code-val' }, i.code), h('div', { class: 'sub' }, i.usedBy ? `eingelöst${i.usedEmail ? ` von ${i.usedEmail}` : ''} · ${fmt(i.usedAt)}` : [i.note, `erstellt ${fmt(i.createdAt)}`].filter(Boolean).join(' · '))),
+    i.usedBy ? null : h('button', { class: 'iconbtn', 'aria-label': 'Teilen', onclick: () => shareCode(i.code) }, icon('share')),
+    i.usedBy ? null : h('button', { class: 'iconbtn', 'aria-label': 'Löschen', onclick: async () => { if (confirm(`Code ${i.code} löschen?`)) await F.deleteDoc(F.doc(db, 'invites', i.code)).catch(() => toast('Löschen fehlgeschlagen.')); } }, icon('trash')));
+  root.replaceChildren(h('div', { class: 'wrap' },
+    h('header', { class: 'top' }, h('div', { class: 'logo' }), h('div', { style: 'flex:1' }, h('h1', {}, 'Control'), h('div', { class: 'who' }, `Partner · ${user.email || ''}`)),
+      h('button', { class: 'iconbtn', 'aria-label': 'Abmelden', onclick: () => A.signOut(auth) }, icon('out'))),
+    h('section', { class: 'protect' },
+      h('div', { class: 'protect-head' }, icon('key'), h('b', {}, 'Deine Zugangscodes')),
+      h('p', { class: 'muted small' }, 'Jeder Code funktioniert genau einmal und gehört danach zu dem Konto, das ihn eingelöst hat.'),
+      h('button', { class: 'btn primary block', onclick: async () => {
+        const note = prompt('Für wen ist der Code? (optional)') ?? null;
+        if (note === null) return;
+        const code = newCode();
+        try {
+          await F.setDoc(F.doc(db, 'invites', code), { usedBy: null, createdAt: Date.now(), createdBy: user.uid, createdByName: user.displayName || user.email || '', note: note.trim() });
+          shareCode(code);
+        } catch { toast('Code konnte nicht erstellt werden.'); }
+      } }, '+ Neuer Code'),
+      open.length ? [h('div', { class: 'label' }, `Offen (${open.length})`), h('div', { class: 'list' }, open.map(row))] : null,
+      used.length ? [h('div', { class: 'label' }, `Eingelöst (${used.length})`), h('div', { class: 'list' }, used.map(row))] : null)));
 }

@@ -117,6 +117,7 @@ Konten, die schon vor dem Schutz Daten in der Cloud hatten, sind automatisch fre
 
 - Durchgesetzt wird das von den Firestore-Regeln (`control/rules.js`), nicht von der App – die Regeln müssen
   einmal in der Firebase-Konsole veröffentlicht werden (Control zeigt sie unter „Regeln aktualisieren“).
-- In Control kann man Konten sperren, entsperren oder ohne Code freischalten und Partner als weitere Admins eintragen.
+- In Control kann man Konten sperren, entsperren oder ohne Code freischalten und eingelöste Codes löschen (der Zugang bleibt).
+- Partner (aus der Kontoliste gewählt) dürfen in Control nur Codes erstellen, ihre eigenen Codes sehen und unbenutzte löschen.
 - Grenzen: Der Quellcode ist öffentlich; wer ihn selbst hostet oder verändert, kommt an der Code-Abfrage vorbei,
   aber nicht an die Cloud-Synchronisierung dieses Projekts. Wer seine Anmeldedaten weitergibt, gibt auch alle seine Daten weiter.

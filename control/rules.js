@@ -7,13 +7,17 @@
 // Einmal-Codes (invites/{code}) erstellt nur Control. Ein Code lässt sich genau einmal einlösen und ist dann
 // an dieses Konto gebunden – Weitergeben bringt nichts.
 
-export function rulesText(admins) {
-  const list = [...new Set(admins.filter(Boolean))].map((u) => `'${u}'`).join(', ');
+// admins: volle Rechte (Übersicht, Inhalte, Sperren). partners: dürfen nur eigene Codes erstellen, sehen und löschen.
+export function rulesText(admins, partners = []) {
+  const q = (arr) => [...new Set(arr.filter(Boolean))].map((u) => `'${u}'`).join(', ');
+  const list = q(admins);
+  const plist = q(partners.filter((p) => !admins.includes(p)));
   return `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() { return request.auth != null; }
     function isAdmin() { return signedIn() && request.auth.uid in [${list}]; }
+    function isPartner() { return signedIn() && request.auth.uid in [${plist}]; }
     function licPath(uid) { return /databases/$(database)/documents/licenses/$(uid); }
     function hasLic(uid) { return exists(licPath(uid)); }
     function revoked(uid) { return get(licPath(uid)).data.get('revoked', false) == true; }
@@ -39,11 +43,16 @@ service cloud.firestore {
       allow write: if signedIn() && request.auth.uid == uid;
       allow read, delete: if isAdmin();
     }
-    // Einmal-Codes: nur Control erstellt/listet/löscht. Einlösen = usedBy einmalig auf das eigene Konto setzen,
-    // zusammen mit der eigenen Freischaltung (gleicher Schreibvorgang).
+    // Einmal-Codes: Admin darf alles, Partner nur eigene Codes erstellen, sehen und (unbenutzt) löschen.
+    // Einlösen = usedBy einmalig auf das eigene Konto setzen, zusammen mit der eigenen Freischaltung.
     match /invites/{code} {
       allow get: if signedIn();
-      allow list, create, delete: if isAdmin();
+      allow list: if isAdmin() || (isPartner() && resource.data.createdBy == request.auth.uid);
+      allow create: if isAdmin() || (isPartner()
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.usedBy == null
+        && request.resource.data.keys().hasOnly(['usedBy', 'createdAt', 'createdBy', 'note', 'createdByName']));
+      allow delete: if isAdmin() || (isPartner() && resource.data.createdBy == request.auth.uid && resource.data.usedBy == null);
       allow update: if isAdmin() || (signedIn()
         && resource.data.usedBy == null
         && request.resource.data.usedBy == request.auth.uid
@@ -59,7 +68,7 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/invites/$(request.resource.data.code)).data.usedBy == null
         && getAfter(/databases/$(database)/documents/invites/$(request.resource.data.code)).data.usedBy == uid);
     }
-    // Weitere Control-Konten (z. B. Partner)
+    // Liste der Partner (nur der Admin pflegt sie)
     match /control/{doc} {
       allow read, write: if isAdmin();
     }
