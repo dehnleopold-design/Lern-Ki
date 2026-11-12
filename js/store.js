@@ -76,6 +76,16 @@ export async function useAccount(uid) {
   state = defaultState();
 }
 
+// Stand eines Kontos nur lesen (für Jelly Voice: KI-Einstellungen), ohne Übernahme alter Daten
+export async function peekState(uid) {
+  try {
+    const db = await openNamed(`lernki-u-${uid}`);
+    const st = await new Promise((res) => { const r = db.transaction('kv', 'readonly').objectStore('kv').get('state'); r.onsuccess = () => res(r.result); r.onerror = () => res(null); });
+    db.close();
+    return st || null;
+  } catch { return null; }
+}
+
 // ---------- Daten retten: alle Jelly-Speicher auf diesem Gerät finden (ohne Konto, andere Konten)
 export const currentStoreName = () => DB_NAME;
 
@@ -174,7 +184,11 @@ let saveTimer = null;
 let changeListener = null;
 // Die Synchronisierung hört hier mit, wann sich etwas geändert hat.
 export function onChange(fn) { changeListener = fn; }
+// Andere Apps (Jelly Voice) lesen den Stand nur (z. B. für die KI-Schlüssel) und dürfen ihn nie überschreiben.
+let readOnly = false;
+export function setReadOnly(v) { readOnly = v; }
 export function save() {
+  if (readOnly) return;
   try { changeListener?.(); } catch {}
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
@@ -187,7 +201,7 @@ export function save() {
 
 // Sofort speichern, wenn die App in den Hintergrund geht oder geschlossen wird.
 function flush() {
-  if (!saveTimer) return;
+  if (!saveTimer || readOnly) return;
   clearTimeout(saveTimer);
   saveTimer = null;
   tx('kv', 'readwrite', (s) => s.put(JSON.parse(JSON.stringify(state)), 'state')).catch(() => {});

@@ -99,11 +99,13 @@ const ROUND_WAIT = [0, 10000, 25000, 45000]; // Pausen zwischen den Runden durch
  * Modell probiert. Sind alle überlastet, wird in bis zu 4 Runden mit Pausen erneut probiert.
  */
 // web: true → Gemini darf die Links im Text selbst abrufen (URL context). Ersatz-Anbieter können das nicht.
-export async function generate({ system, parts, history = [], json = false, temperature = 0.4, web = false }) {
+export async function generate({ system, parts, history = [], json = false, temperature = 0.4, web = false, timeout = 150000 }) {
   if (!aiReady()) throw new AIError('Die KI ist noch nicht eingerichtet. Gehe zu Einstellungen → KI.');
   const s = state.settings;
-  const args = { system, parts, history, json, temperature, web };
+  const args = { system, parts, history, json, temperature, web, timeout };
+  const audio = parts.some((p) => p.fileUri);
   if (web && s.provider === 'openai') throw new AIError('Links kann nur Gemini öffnen. Mach stattdessen Screenshots der Seite und lade sie hoch.');
+  if (audio && s.provider === 'openai') throw new AIError('Aufnahmen kann nur Gemini auswerten. Richte unter KI-Verbindung einen Gemini-Schlüssel ein.');
   if (s.provider === 'openai') {
     const text = await callOpenAI(args);
     return json ? parseJSON(text) : text;
@@ -119,7 +121,7 @@ export async function generate({ system, parts, history = [], json = false, temp
   const fb = async () => {
     try { return await tryFallback(args); } catch (e) { log.set(FALLBACK_PRESETS[s.fb?.preset]?.label || 'Ersatz', why(e)); if (!e.pdf) lastErr = e; return undefined; }
   };
-  const canFallback = fallbackReady() && !web; // der Ersatz kann keine Webseiten öffnen
+  const canFallback = fallbackReady() && !web && !audio; // der Ersatz kann keine Webseiten öffnen und kein Audio hören
   // Sind gerade alle Gemini-Modelle als überlastet bekannt? Dann direkt den Ersatz fragen.
   if (canFallback && all.length && all.every(cooling)) {
     fallbackTried = true;
@@ -167,10 +169,11 @@ export async function generate({ system, parts, history = [], json = false, temp
   throw fail(lastErr);
 }
 
-async function callGemini({ system, parts, history, json, temperature, web }, model) {
+async function callGemini({ system, parts, history, json, temperature, web, timeout = 150000 }, model) {
   const s = state.settings;
   const toParts = (ps) => ps.map((p) => (p.file
     ? { inline_data: { mime_type: p.file.mime, data: p.file.data } }
+    : p.fileUri ? { file_data: { mime_type: p.mime, file_uri: p.fileUri } }
     : { text: p.text }));
   const contents = [
     ...history.map((m) => ({ role: m.role === 'model' ? 'model' : 'user', parts: [{ text: m.text }] })),
@@ -185,7 +188,7 @@ async function callGemini({ system, parts, history, json, temperature, web }, mo
   let res;
   try {
     res = await fetch(`${GEMINI}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(s.apiKey)}`, {
-      signal: AbortSignal.timeout(150000),
+      signal: AbortSignal.timeout(timeout),
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),

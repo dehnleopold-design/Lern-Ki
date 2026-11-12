@@ -17,7 +17,7 @@ setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.48 (11.11.)';
+const APP_VERSION = '2.49 (12.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -3087,7 +3087,8 @@ function viewSettings() {
       h('div', { class: 'menu' },
         menuRow('sparkles', 'KI-Verbindung', aiSub, () => sheet('KI-Verbindung', [aiSetupBlock(false)])),
         menuRow(st.waitMode === 'chess' ? 'target' : 'video', 'Wartebereich', `${st.waitMode === 'chess' ? 'Schach gegen Bots' : (st.waitVideo ?? DEFAULT_WAIT_VIDEO) ? 'Video' : 'Aus'} · ${st.waitConfirm ? 'mit Haken bestätigen' : 'automatisch weiter'}`, () => waitAreaSheet()),
-        menuRow('play', 'Schach & Video', 'Jederzeit spielen oder schauen – auch ohne Warten', () => go('play'))),
+        menuRow('play', 'Schach & Video', 'Jederzeit spielen oder schauen – auch ohne Warten', () => go('play')),
+        menuRow('mic', 'Jelly Voice', 'Unterricht aufnehmen – Notizen & Lernzettel daraus', () => { location.href = 'voice/'; })),
       authEnabled && !bootedUid ? h('div', { class: 'menu' },
         menuRow('key', 'Konto & Sync einrichten', 'Anmelden – dann hast du alles auf iPad und Handy', () => openAccountSetup())) : null,
       authEnabled && bootedUid ? h('div', { class: 'menu' },

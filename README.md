@@ -121,3 +121,11 @@ Konten, die schon vor dem Schutz Daten in der Cloud hatten, sind automatisch fre
 - Partner (aus der Kontoliste gewählt) dürfen in Control nur Codes erstellen, ihre eigenen Codes sehen und unbenutzte löschen.
 - Grenzen: Der Quellcode ist öffentlich; wer ihn selbst hostet oder verändert, kommt an der Code-Abfrage vorbei,
   aber nicht an die Cloud-Synchronisierung dieses Projekts. Wer seine Anmeldedaten weitergibt, gibt auch alle seine Daten weiter.
+
+## Jelly Voice (`/voice/`)
+
+Eigene App für Unterrichtsaufnahmen (wie Coconote): Sprachmemo importieren oder direkt aufnehmen →
+Gemini hört zu (Datei-Upload über die Gemini File API mit dem eigenen Schlüssel) → Transkript mit Zeitmarken,
+Notizen/Lernzettel, Begriffe, Hausaufgaben/Termine, Fragen-Chat. Ordner links, gleiches Konto und gleicher
+Zugangscode wie Jelly. Notizen liegen unter `users/{uid}/voice/…` (Control sieht sie nicht), die Aufnahme nur
+auf dem Gerät; bei Google wird sie nach dem Auswerten gelöscht.

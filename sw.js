@@ -1,5 +1,5 @@
 // Offline-Cache für die App-Dateien. KI-Anfragen gehen immer ins Netz.
-const CACHE = 'lernki-v60';
+const CACHE = 'lernki-v61';
 const SHELL = ['./', 'index.html', 'styles.css', 'manifest.webmanifest', 'assets/icon.svg', 'assets/fonts.css',
   'js/app.js', 'js/gen.js', 'js/viewer.js', 'js/notes.js', 'js/chess.js', 'js/chess-engine.js', 'js/license.js', 'js/ai.js', 'js/store.js', 'js/files.js', 'js/prompts.js', 'js/ui.js', 'js/grades.js', 'js/pdf.js', 'js/auth.js', 'js/firebase-config.js', 'js/sync.js'];
 
@@ -19,6 +19,6 @@ self.addEventListener('fetch', (e) => {
   e.respondWith(
     fetch(e.request, { cache: 'no-cache' })
       .then((res) => { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(e.request, copy)); return res; })
-      .catch(() => caches.match(e.request).then((r) => r || caches.match('index.html')))
+      .catch(() => caches.match(e.request).then((r) => r || caches.match(url.pathname.includes('/voice/') ? 'voice/index.html' : 'index.html')))
   );
 });
