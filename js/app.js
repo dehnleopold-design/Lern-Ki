@@ -15,9 +15,9 @@ import { initNotes, viewNotes, viewNotebook } from './notes.js';
 
 setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
-import { h, add, md, mdEl, mascot, speech, icon, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
+import { h, add, md, mdEl, mascot, speech, icon, JELLY_STYLES, setJellyStyle, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.49 (12.11.)';
+const APP_VERSION = '2.50 (15.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -73,6 +73,7 @@ function inkFor(hex) {
   return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.45 ? '#111111' : '#ffffff';
 }
 function applyTheme() {
+  setJellyStyle(state.settings?.jelly);
   const t = state.settings?.theme;
   const a = isHex(t?.a) ? t.a : THEMES[0].a;
   const b = isHex(t?.b) ? t.b : THEMES[0].b;
@@ -107,6 +108,24 @@ function designSheet() {
   };
   draw();
   sheet('Design', [body]);
+}
+
+// ---------- Aussehen der Qualle (Mehr → Qualle)
+function jellySheet() {
+  const body = h('div');
+  const draw = () => {
+    const cur = state.settings.jelly || 'klassisch';
+    body.replaceChildren(
+      h('p', { class: 'muted small' }, 'So sieht Jelly überall in der App aus – beim Laden, im Chat, im Kalender …'),
+      h('div', { class: 'jelly-preview' }, mascot(120, 'normal', cur)),
+      h('div', { class: 'jelly-grid' }, JELLY_STYLES.map((x) => h('button', {
+        class: `jelly-opt ${cur === x.id ? 'on' : ''}`,
+        onclick: () => { if (x.id === 'klassisch') delete state.settings.jelly; else state.settings.jelly = x.id; save(); render(); draw(); },
+      }, mascot(56, 'normal', x.id), h('span', {}, x.name)))),
+      cur === 'design' ? h('p', { class: 'muted small' }, 'Die Qualle nimmt die Farben aus Mehr → Design.') : null);
+  };
+  draw();
+  sheet('Qualle', [body]);
 }
 
 function render() {
@@ -3125,6 +3144,7 @@ function viewSettings() {
             h('button', { class: 'btn primary block', onclick: () => { o.remove(); draft = null; go('onboarding'); } }, 'Fragebogen neu ausfüllen')]);
         }),
         menuRow('sparkles', 'Design', `Farben: ${THEMES.find((x) => x.id === state.settings.theme?.id)?.name || (state.settings.theme ? 'Eigene' : 'Lila')}`, () => designSheet()),
+        menuRow('waves', 'Qualle', `Aussehen: ${JELLY_STYLES.find((x) => x.id === state.settings.jelly)?.name || 'Klassisch'}`, () => jellySheet()),
         menuRow('notebook', 'Notizen', 'Notizbücher mit Apple Pencil und Tastatur', () => openNotes('settings')),
         menuRow('chat', 'Tutor-Chat', 'Fragen zum Stoff deiner Klausur', () => go('tutor')),
         menuRow('folder', 'Hochgeladene Dateien', `${Object.keys(state.files || {}).length} Dateien`, () => go('files')),

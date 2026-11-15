@@ -165,34 +165,120 @@ export function md(src) {
 
 export const mdEl = (text, cls = 'md') => h('div', { class: cls, html: md(text) });
 
-// Eigenes Maskottchen "Jelly": eine kleine lila Qualle.
-let jellyN = 0;
-export function mascot(size = 88, mood = 'normal') {
-  const id = `jg${++jellyN}`;
+// Eigenes Maskottchen "Jelly": eine kleine Qualle – in mehreren Looks (Mehr → Qualle).
+export const JELLY_STYLES = [
+  { id: 'klassisch', name: 'Klassisch' },
+  { id: 'pixel', name: 'Pixel' },
+  { id: 'streber', name: 'Streber' },
+  { id: 'neon', name: 'Neon' },
+  { id: 'regenbogen', name: 'Regenbogen' },
+  { id: 'design', name: 'Designfarbe' },
+];
+let jellyStyle = 'klassisch';
+export function setJellyStyle(s) { jellyStyle = JELLY_STYLES.some((x) => x.id === s) ? s : 'klassisch'; }
+export const getJellyStyle = () => jellyStyle;
+
+// Pixel-Qualle: 16×16 Raster. o Umriss, h Glanz, b Körper, B Körper dunkel, e/w Auge, c Wange, m Mund, t Tentakel
+const PIXEL_BODY = [
+  '......oooo......',
+  '....oohhbboo....',
+  '...ohhbbbbbbo...',
+  '..ohbbbbbbbbbo..',
+  '..obbbbbbbbbbo..',
+  '.obbbwebbwebbbo.',
+  '.obbbeebbeebbbo.',
+  '.obccbbmmbbccbo.',
+  '.oBBBBBBBBBBBBo.',
+  '..oo.oo..oo.oo..',
+];
+const PIXEL_TENT = [
+  '...t..t..t..t...',
+  '...t..t..t..t...',
+  '..t...t..t...t..',
+  '..t..t....t..t..',
+  '...t.t....t.t...',
+  '...t..t..t..t...',
+];
+const PIXEL_COL = { o: '#3b2470', h: '#f3ebff', b: '#c4a7ff', B: '#9b6bff', e: '#1a1030', w: '#ffffff', c: '#ff8fc8', m: '#1a1030', t: '#b996ff' };
+function pixelRects(rows, y0, mood) {
+  let out = '';
+  rows.forEach((row, y) => {
+    [...row].forEach((ch, x) => {
+      let c = ch;
+      if (y0 === 0 && (y === 5 || y === 6) && 'ew'.includes(c)) {
+        if (mood === 'think') c = y === 6 ? 'e' : 'b'; // Augen zu: nur ein Strich
+        else if (mood === 'side' && c === 'w') c = 'e'; // Blick zur Seite: Glanz wandert
+        else if (mood === 'side' && y === 5 && row[x - 1] === 'w') c = 'w';
+      }
+      if (PIXEL_COL[c]) out += `<rect x="${x}" y="${y + y0}" width="1.02" height="1.02" fill="${PIXEL_COL[c]}"/>`;
+    });
+  });
+  return out;
+}
+function pixelSvg(mood) {
+  return `<svg viewBox="-1.5 -1.5 19 19" width="100%" height="100%" shape-rendering="crispEdges" aria-hidden="true">
+    <g class="tentacles">${pixelRects(PIXEL_TENT, 10, mood)}</g>${pixelRects(PIXEL_BODY, 0, mood)}</svg>`;
+}
+
+const BODY_PATH = 'M16 56 C16 30 31 14 50 14 C69 14 84 30 84 56 Q78 63 72 57 Q66 64 60 57 Q55 64 50 57 Q45 64 40 57 Q34 64 28 57 Q22 63 16 56 Z';
+const TENTACLES = ['M30 60 q-5 9 0 17 q5 8 -1 16', 'M42 61 q4 8 0 15 q-4 8 1 15', 'M58 61 q-4 8 0 15 q4 8 -1 15', 'M70 60 q5 9 0 17 q-5 8 1 16'];
+
+function smoothSvg(style, mood, id) {
+  const neon = style === 'neon';
+  const ink = neon ? '#5eead4' : '#1a1030';
+  // Farben je Look; "design" nimmt die Farben aus Mehr → Design
+  const stops = {
+    klassisch: [['0', '#d9c4ff'], ['1', '#9b6bff']],
+    streber: [['0', '#d9c4ff'], ['1', '#9b6bff']],
+    neon: [['0', '#2a1a4a'], ['1', '#120a24']],
+    regenbogen: [['0', '#ff8fa3'], ['.25', '#ffc46b'], ['.5', '#8ee59b'], ['.75', '#7cc4ff'], ['1', '#b58cff']],
+    design: [['0', 'var(--accent-2, #d9c4ff)'], ['1', 'var(--accent, #9b6bff)']],
+  }[style];
+  const tentColors = style === 'regenbogen' ? ['#ff8fa3', '#ffc46b', '#7cc4ff', '#b58cff']
+    : neon ? ['#e879f9', '#5eead4', '#5eead4', '#e879f9']
+    : style === 'design' ? Array(4).fill('var(--accent-2, #b996ff)') : Array(4).fill('#b996ff');
   const eyes = mood === 'think'
-    ? '<path d="M35 43 q4 3 8 0 M57 43 q4 3 8 0" stroke="#1a1030" stroke-width="2.6" fill="none" stroke-linecap="round"/>'
-    : `<ellipse cx="39" cy="42" rx="5.2" ry="6.4" fill="#1a1030"/><ellipse cx="61" cy="42" rx="5.2" ry="6.4" fill="#1a1030"/>
+    ? `<path d="M35 43 q4 3 8 0 M57 43 q4 3 8 0" style="stroke:${ink}" stroke-width="2.6" fill="none" stroke-linecap="round"/>`
+    : `<ellipse cx="39" cy="42" rx="5.2" ry="6.4" style="fill:${ink}"/><ellipse cx="61" cy="42" rx="5.2" ry="6.4" style="fill:${ink}"/>
        <circle cx="${mood === 'side' ? 41.5 : 40.5}" cy="40" r="1.9" fill="#fff"/><circle cx="${mood === 'side' ? 63.5 : 62.5}" cy="40" r="1.9" fill="#fff"/>`;
-  return h('div', {
-    class: 'mascot jelly',
-    style: { width: `${size}px`, height: `${size}px` },
-    html: `<svg viewBox="0 0 100 100" width="100%" height="100%" aria-hidden="true">
+  const glow = neon ? `filter="url(#${id}g)"` : '';
+  const glasses = style === 'streber' ? `
+      <g fill="#fff" fill-opacity=".18" stroke="#1a1030" stroke-width="2.4">
+        <circle cx="39" cy="42" r="10"/><circle cx="61" cy="42" r="10"/></g>
+      <path d="M49 41 q1 -2.5 2 0" stroke="#1a1030" stroke-width="2.4" fill="none"/>
+      <path d="M29 40 l-11 -3 M71 40 l11 -3" stroke="#1a1030" stroke-width="2.2" stroke-linecap="round"/>` : '';
+  const hat = style === 'streber' ? `
+      <path d="M36 18 v7 q14 7 28 0 v-7" fill="#2a1d4a"/>
+      <path d="M50 4 L78 13 L50 22 L22 13 Z" fill="#1a1030"/>
+      <path d="M50 13 L74 15 V27" stroke="#fbbf24" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+      <circle cx="74" cy="28.5" r="2.6" fill="#fbbf24"/>` : '';
+  return `<svg viewBox="0 0 100 100" width="100%" height="100%" aria-hidden="true">
       <defs>
-        <linearGradient id="${id}b" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#d9c4ff"/><stop offset="1" stop-color="#9b6bff"/></linearGradient>
+        <linearGradient id="${id}b" x1="0" y1="0" x2="${style === 'regenbogen' ? 1 : 0}" y2="1">${stops.map(([o, c]) => `<stop offset="${o}" style="stop-color:${c}"/>`).join('')}</linearGradient>
+        ${neon ? `<filter id="${id}g" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="2.2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>` : ''}
       </defs>
-      <g class="tentacles" stroke="#b996ff" stroke-width="3.2" fill="none" stroke-linecap="round">
-        <path d="M30 60 q-5 9 0 17 q5 8 -1 16"/><path d="M42 61 q4 8 0 15 q-4 8 1 15"/>
-        <path d="M58 61 q-4 8 0 15 q4 8 -1 15"/><path d="M70 60 q5 9 0 17 q-5 8 1 16"/>
+      <g class="tentacles" stroke-width="3.2" fill="none" stroke-linecap="round" ${glow}>
+        ${TENTACLES.map((d, i) => `<path d="${d}" style="stroke:${tentColors[i]}"/>`).join('')}
       </g>
-      <g stroke="#e4d4ff" stroke-width="2" fill="none" stroke-linecap="round" opacity=".8">
+      ${neon ? '' : `<g stroke="#ffffff" stroke-width="2" fill="none" stroke-linecap="round" opacity=".5">
         <path d="M36 61 q2 6 -1 11"/><path d="M50 62 q-2 7 0 13"/><path d="M64 61 q-2 6 1 11"/>
-      </g>
-      <path d="M16 56 C16 30 31 14 50 14 C69 14 84 30 84 56 Q78 63 72 57 Q66 64 60 57 Q55 64 50 57 Q45 64 40 57 Q34 64 28 57 Q22 63 16 56 Z" fill="url(#${id}b)"/>
-      <ellipse cx="34" cy="27" rx="9" ry="5" fill="#fff" opacity=".35" transform="rotate(-25 34 27)"/>
+      </g>`}
+      <path d="${BODY_PATH}" fill="url(#${id}b)" ${neon ? `stroke="#c084fc" stroke-width="2.4" stroke-linejoin="round" ${glow}` : ''}/>
+      <ellipse cx="34" cy="27" rx="9" ry="5" fill="#fff" opacity="${neon ? '.12' : '.35'}" transform="rotate(-25 34 27)"/>
       ${eyes}
       <ellipse cx="31" cy="50" rx="4.5" ry="2.6" fill="#ff8fc8" opacity=".55"/><ellipse cx="69" cy="50" rx="4.5" ry="2.6" fill="#ff8fc8" opacity=".55"/>
-      <path d="M45 50 Q50 54.5 55 50" stroke="#1a1030" stroke-width="2.6" fill="none" stroke-linecap="round"/>
-    </svg>`,
+      <path d="M45 50 Q50 54.5 55 50" style="stroke:${ink}" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+      ${glasses}${hat}
+    </svg>`;
+}
+
+let jellyN = 0;
+export function mascot(size = 88, mood = 'normal', style = jellyStyle) {
+  const id = `jg${++jellyN}`;
+  return h('div', {
+    class: `mascot jelly jelly-${style}`,
+    style: { width: `${size}px`, height: `${size}px` },
+    html: style === 'pixel' ? pixelSvg(mood) : smoothSvg(style, mood, id),
   });
 }
 

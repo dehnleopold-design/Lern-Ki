@@ -414,7 +414,16 @@ ul { margin: 4px 0; padding-left: 22px; }
 .mascot.jelly .tentacles { transform-origin: 50% 58%; animation: jelly-sway 2.6s ease-in-out infinite; }
 @keyframes jelly-float { 50% { transform: translateY(-5px); } }
 @keyframes jelly-sway { 0%, 100% { transform: skewX(-4deg); } 50% { transform: skewX(4deg); } }
+.mascot.jelly-pixel { animation: jelly-float-px 1.6s steps(1) infinite; }
+.mascot.jelly-pixel .tentacles { animation: jelly-sway-px 1s steps(1) infinite; }
+@keyframes jelly-float-px { 50% { transform: translateY(-4px); } }
+@keyframes jelly-sway-px { 50% { transform: translateX(.5px); } }
 @media (prefers-reduced-motion: reduce) { .mascot.jelly, .mascot.jelly .tentacles { animation: none; } }
+/* Mehr → Qualle */
+.jelly-preview { display: flex; justify-content: center; padding: 8px 0 4px; }
+.jelly-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 10px; margin-bottom: 8px; }
+.jelly-opt { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 4px 10px; border-radius: 16px; border: 1px solid var(--line); background: var(--surface); color: var(--text); font-size: .8rem; font-weight: 600; }
+.jelly-opt.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
 
 /* ---------- Vokabeln ---------- */
 .vtiles { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
