@@ -177,6 +177,15 @@ export const JELLY_STYLES = [
 let jellyStyle = 'klassisch';
 export function setJellyStyle(s) { jellyStyle = JELLY_STYLES.some((x) => x.id === s) ? s : 'klassisch'; }
 export const getJellyStyle = () => jellyStyle;
+// Jahreszeiten-Hut (seasons.js): 'weihnachten' | 'halloween' | 'silvester' | 'ostern' | null
+let jellyHat = null;
+export function setJellyHat(h) { jellyHat = h || null; }
+const SEASON_HATS = {
+  weihnachten: '<path d="M30 25 C33 10 52 1 75 7 C69 12 67 18 70 25 Z" fill="#e11d48"/><ellipse cx="50" cy="25" rx="22" ry="5.5" fill="#fff"/><circle cx="76" cy="8" r="5.2" fill="#fff"/>',
+  halloween: '<path d="M37 21 L53 1 L64 21 Z" fill="#2a1747"/><path d="M38.5 17 L62.5 17 L64 21 L37 21 Z" fill="#f97316"/><ellipse cx="50" cy="21.5" rx="27" ry="4.5" fill="#1f1235"/>',
+  silvester: '<g transform="rotate(12 52 20)"><path d="M42 22 L52 0 L62 22 Z" fill="#f472b6"/><path d="M45.5 14 L58.5 14 M48 8 L56 8" stroke="#fde047" stroke-width="2.4"/><circle cx="52" cy="1" r="3.6" fill="#fbbf24"/></g>',
+  ostern: '<g><ellipse cx="39" cy="6" rx="5.5" ry="13" transform="rotate(-14 39 6)" fill="#fff" stroke="#e9d5ff" stroke-width="1.2"/><ellipse cx="39" cy="7" rx="2.6" ry="9" transform="rotate(-14 39 7)" fill="#fbcfe8"/><ellipse cx="61" cy="6" rx="5.5" ry="13" transform="rotate(14 61 6)" fill="#fff" stroke="#e9d5ff" stroke-width="1.2"/><ellipse cx="61" cy="7" rx="2.6" ry="9" transform="rotate(14 61 7)" fill="#fbcfe8"/></g>',
+};
 
 // Pixel-Qualle: 16×16 Raster. o Umriss, h Glanz, b Körper, B Körper dunkel, e/w Auge, c Wange, m Mund, t Tentakel
 const PIXEL_BODY = [
@@ -252,7 +261,7 @@ function smoothSvg(style, mood, id) {
       <path d="M50 4 L78 13 L50 22 L22 13 Z" fill="#1a1030"/>
       <path d="M50 13 L74 15 V27" stroke="#fbbf24" stroke-width="1.8" fill="none" stroke-linecap="round"/>
       <circle cx="74" cy="28.5" r="2.6" fill="#fbbf24"/>` : '';
-  return `<svg viewBox="0 0 100 100" width="100%" height="100%" aria-hidden="true">
+  return `<svg viewBox="0 0 100 100" width="100%" height="100%" overflow="visible" aria-hidden="true">
       <defs>
         <linearGradient id="${id}b" x1="0" y1="0" x2="${style === 'regenbogen' ? 1 : 0}" y2="1">${stops.map(([o, c]) => `<stop offset="${o}" style="stop-color:${c}"/>`).join('')}</linearGradient>
         ${neon ? `<filter id="${id}g" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="2.2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>` : ''}
@@ -268,7 +277,7 @@ function smoothSvg(style, mood, id) {
       ${eyes}
       <ellipse cx="31" cy="50" rx="4.5" ry="2.6" fill="#ff8fc8" opacity=".55"/><ellipse cx="69" cy="50" rx="4.5" ry="2.6" fill="#ff8fc8" opacity=".55"/>
       <path d="M45 50 Q50 54.5 55 50" style="stroke:${ink}" stroke-width="2.6" fill="none" stroke-linecap="round"/>
-      ${glasses}${hat}
+      ${glasses}${hat}${style !== 'streber' && jellyHat ? SEASON_HATS[jellyHat] || '' : ''}
     </svg>`;
 }
 

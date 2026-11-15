@@ -62,10 +62,60 @@ export const SHEET_CSS = `
 .sheet-doc th, .sheet-doc td { border: 1px solid var(--line); padding: 5px 7px; vertical-align: top; }
 .sheet-doc tr { break-inside: avoid; }
 .sheet-doc blockquote { border-left: 3px solid var(--line); margin: 6px 0; padding-left: 10px; color: var(--muted); }
+
+/* ---- Lernzettel-Stile (Mehr → Design → Extras). Standard = oben. ---- */
+/* Kariert: Schulheft mit rotem Rand */
+.sheet-doc.ls-kariert { --blue: #1d4ed8; --blue-soft: #eef3ff; background-color: #fff; background-image: linear-gradient(90deg, transparent 0 26px, #f2a7a7 26px 28px, transparent 28px), linear-gradient(#dde6f7 1px, transparent 1px), linear-gradient(90deg, #dde6f7 1px, transparent 1px); background-size: auto, 18px 18px, 18px 18px; padding-left: 40px; }
+.sheet-doc.ls-kariert .doc-title, .sheet-doc.ls-kariert h2, .sheet-doc.ls-kariert h3 { font-family: 'Marker Felt', 'Noteworthy', 'Chalkboard SE', 'Comic Sans MS', cursive; text-transform: none; letter-spacing: 0; }
+.sheet-doc.ls-kariert .doc-title { color: var(--blue); }
+.sheet-doc.ls-kariert h2 { background: none; border-left: 0; padding: 0 0 2px; color: var(--blue); border-bottom: 2px solid var(--blue); display: inline-block; }
+.sheet-doc.ls-kariert .callout { background: rgba(255,255,255,.85); }
+/* Papier: altmodisch, Serifenschrift */
+.sheet-doc.ls-papier { --ink: #33240f; --muted: #6f5a3e; --blue: #7a3b12; --blue-soft: #f6ecd8; --line: #d9c7a5; background: #fbf5e6; font-family: Georgia, 'Times New Roman', serif; }
+.sheet-doc.ls-papier .doc-title { font-family: 'Didot', 'Bodoni 72', Georgia, serif; text-transform: none; font-style: italic; color: #2b1d0b; }
+.sheet-doc.ls-papier .doc-head { border-bottom: 3px double var(--blue); }
+.sheet-doc.ls-papier h2 { background: none; border-left: 0; border-bottom: 1px solid var(--line); padding: 0 0 3px; font-variant: small-caps; text-transform: none; letter-spacing: .04em; color: #2b1d0b; }
+.sheet-doc.ls-papier .callout, .sheet-doc.ls-papier .cols.cards .col { border-radius: 0; background: #f6ecd8; border-color: var(--line); }
+.sheet-doc.ls-papier th, .sheet-doc.ls-papier code { background: #f1e5c9; }
+/* Pastell: weich und rund */
+.sheet-doc.ls-pastell { --blue: #c0267a; --blue-soft: #fdeef6; --line: #f3d3e4; --green-soft: #ecfbf3; --amber-soft: #fff8e6; }
+.sheet-doc.ls-pastell .doc-head { border-bottom: 0; background: linear-gradient(90deg, #fde7f3, #ede9fe); border-radius: 14px; padding: 12px 14px; }
+.sheet-doc.ls-pastell h2 { background: #fdeef6; border-left: 0; border-radius: 12px; color: #8a1c58; }
+.sheet-doc.ls-pastell .callout, .sheet-doc.ls-pastell .cols.cards .col { border-radius: 14px; }
+/* Modern: schwarz-weiß, klar */
+.sheet-doc.ls-modern { --blue: #111; --blue-soft: #f4f4f4; --line: #d4d4d4; }
+.sheet-doc.ls-modern .doc-title { font-size: 26pt; letter-spacing: -.03em; }
+.sheet-doc.ls-modern .doc-head { border-bottom: 4px solid #111; }
+.sheet-doc.ls-modern h2 { background: #111; color: #fff; border-left: 0; }
+.sheet-doc.ls-modern .callout { border: 2px solid #111; border-radius: 0; background: #fff; }
+.sheet-doc.ls-modern .c-label { background: #111; color: #fff; }
+/* Designfarbe: Akzent aus der App (wird beim Erzeugen gesetzt) */
+.sheet-doc.ls-app h2 { border-left-color: var(--blue); }
 `;
 
-export function sheetHTML({ title, subtitle, meta = [] }, markdown) {
-  return `<div class="sheet-doc"><div class="doc-head"><div><h1 class="doc-title">${esc(title)}</h1>${subtitle ? `<div class="doc-sub">${esc(subtitle)}</div>` : ''}</div>${meta.length ? `<div class="doc-meta">${meta.map(esc).join('<br>')}</div>` : ''}</div>${md(markdown)}</div>`;
+export const SHEET_STYLES = [
+  { id: 'standard', name: 'Standard', sub: 'Klar mit blauen Akzenten' },
+  { id: 'kariert', name: 'Kariert', sub: 'Wie im Schulheft' },
+  { id: 'papier', name: 'Papier', sub: 'Altmodisch mit Serifen' },
+  { id: 'pastell', name: 'Pastell', sub: 'Weich und rund' },
+  { id: 'modern', name: 'Modern', sub: 'Schwarz-weiß, klar' },
+  { id: 'app', name: 'Designfarbe', sub: 'In der Farbe deiner App' },
+];
+
+/** look: { style, accent } – accent nur für den Stil „Designfarbe“ (Hex-Farbe) */
+function lookAttrs(look) {
+  const st = SHEET_STYLES.some((x) => x.id === look?.style) ? look.style : 'standard';
+  let vars = '';
+  if (st === 'app' && /^#[0-9a-f]{6}$/i.test(look?.accent || '')) {
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(look.accent.slice(i, i + 2), 16));
+    vars = ` style="--blue:${look.accent};--blue-soft:rgba(${r},${g},${b},.08)"`;
+  }
+  return { cls: st === 'standard' ? 'sheet-doc' : `sheet-doc ls-${st}`, vars };
+}
+
+export function sheetHTML({ title, subtitle, meta = [] }, markdown, look) {
+  const { cls, vars } = lookAttrs(look);
+  return `<div class="${cls}"${vars}><div class="doc-head"><div><h1 class="doc-title">${esc(title)}</h1>${subtitle ? `<div class="doc-sub">${esc(subtitle)}</div>` : ''}</div>${meta.length ? `<div class="doc-meta">${meta.map(esc).join('<br>')}</div>` : ''}</div>${md(markdown)}</div>`;
 }
 
 const safeName = (s) => String(s).replace(/[^\wäöüÄÖÜß -]+/g, '').trim().replace(/\s+/g, '_').slice(0, 60) || 'Lernzettel';
@@ -83,8 +133,8 @@ async function shareOrDownload(blob, filename) {
 }
 
 /** head: { title, subtitle, meta: [..], footer } */
-export async function downloadLernzettel(head, markdown) {
-  const html = `<style>${SHEET_CSS}</style>${sheetHTML(head, markdown)}`;
+export async function downloadLernzettel(head, markdown, look) {
+  const html = `<style>${SHEET_CSS}</style>${sheetHTML(head, markdown, look)}`;
   const filename = `${safeName(head.title)}.pdf`;
   try {
     const html2pdf = await loadLib();

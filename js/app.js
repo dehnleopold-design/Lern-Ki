@@ -1,4 +1,4 @@
-import { state, loadState, save, replaceState, clearAll, allBlobs, putBlob, uid, useAccount, hasLocalProfile, listLocalStores, importLocalStore } from './store.js';
+import { state, loadState, save, replaceState, clearAll, allBlobs, putBlob, uid, useAccount, hasLocalProfile, listLocalStores, importLocalStore, kvGet, kvPut } from './store.js';
 import { startSync, syncNow, syncStatus, onSyncStatus, deleteCloudData, push, requestJob, backgroundAvailable, cloudInfo, cloudBackupInfo, reloadFromCloud, restoreCloudBackup } from './sync.js';
 import { deleteAccount } from './auth.js';
 import { authEnabled, initAuth, signInGoogle, signInEmail, registerEmail, resetPassword, signOutUser, currentUser, authErrorText } from './auth.js';
@@ -7,7 +7,10 @@ import { addFile, removeFile, filePart, thumbURL, pickFiles } from './files.js';
 import * as P from './prompts.js';
 import { allUnits, hasContent, lernzettelText, missingPhases, genLernzettel, genQuiz, genAufgaben, generateUnit, mixOptions, setPartLoader, digestFile, groupOf, isGroupLead, resetGroup, buildTeacherProfile, examFileIds, examNeedsProfile, createPlan, buildVocabPlan, buildVocabSet, buildVocabTestProfile, solveSheet, pendingJobs } from './gen.js';
 import { gradeLabel, gradeOptions, percentToGrade, reachesTarget, scale } from './grades.js';
-import { downloadLernzettel, sheetHTML, SHEET_CSS } from './pdf.js';
+import { downloadLernzettel, sheetHTML, SHEET_CSS, SHEET_STYLES } from './pdf.js';
+import { stats, streak, isUnlocked, unlockInfo, recordActivity } from './rewards.js';
+import { celebrate } from './celebrate.js';
+import { SEASONS, applySeason, activeSeason, seasonName } from './seasons.js';
 import { openFile, fileKindLabel } from './viewer.js';
 import { chessPanel } from './chess.js';
 import { checkAccess, redeemCode, cachedAccess, normalizeCode } from './license.js';
@@ -19,7 +22,7 @@ setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, JELLY_STYLES, setJellyStyle, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.54 (15.11.)';
+const APP_VERSION = '2.55 (15.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -88,8 +91,74 @@ const SKINS = [
   { id: 'schulheft', name: 'Schulheft', sub: 'Kariert mit Kuli', bg: '#fbfbf6' },
 ];
 const skinOf = () => SKINS.find((x) => x.id === state.settings?.skin) || SKINS[0];
+
+// ---------- Eigenes Hintergrundbild (nur auf diesem Gerät gespeichert)
+let userBgLoaded = false;
+let userBg = null;
+function applyUserBgVars() {
+  const html = document.documentElement;
+  html.classList.toggle('has-userbg', !!userBg);
+  if (!userBg) { html.style.removeProperty('--user-bg'); return; }
+  html.style.setProperty('--bg-dim', `${state.settings?.bgDim ?? 70}%`);
+  html.style.setProperty('--bg-blur', `${state.settings?.bgBlur ? 8 : 0}px`);
+}
+async function loadUserBg() {
+  try { userBg = (await kvGet('userbg')) || null; } catch { userBg = null; }
+  if (userBg) document.documentElement.style.setProperty('--user-bg', `url("${userBg}")`);
+  applyUserBgVars();
+}
+async function setUserBg(file) {
+  let dataUrl = null;
+  if (file) {
+    const bmp = await createImageBitmap(file);
+    const scale = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+    const c = document.createElement('canvas');
+    c.width = Math.round(bmp.width * scale); c.height = Math.round(bmp.height * scale);
+    c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+    dataUrl = c.toDataURL('image/jpeg', 0.82);
+  }
+  await kvPut('userbg', dataUrl);
+  userBg = dataUrl;
+  if (dataUrl) document.documentElement.style.setProperty('--user-bg', `url("${dataUrl}")`);
+  applyUserBgVars();
+}
+
+// ---------- Belohnungen: Feier zeigen, Freischaltungen melden
+function reward(type, opts) {
+  let events = [];
+  try { events = recordActivity(type, opts); } catch (e) { console.warn(e); return; }
+  const shows = [];
+  const unlocks = events.filter((e) => e.type === 'unlock');
+  const perfect = events.find((e) => e.type === 'perfect');
+  const st = events.find((e) => e.type === 'streak');
+  if (perfect) shows.push({ title: '100 %!', sub: 'Alles richtig – stark!' });
+  else if (st) shows.push({ title: `${st.days} Tage am Stück 🔥`, sub: 'Deine Lernserie wächst' });
+  else if (events.some((e) => e.type === 'unit')) shows.push({ title: 'Geschafft!', sub: 'Lerneinheit erledigt' });
+  if (perfect && st) shows.push({ title: `${st.days} Tage am Stück 🔥`, sub: 'Deine Lernserie wächst' });
+  for (const e of unlocks) {
+    const name = e.unlock.kind === 'skin' ? `Stil „${SKINS.find((x) => x.id === e.unlock.id)?.name}“` : `Qualle „${JELLY_STYLES.find((x) => x.id === e.unlock.id)?.name}“`;
+    shows.push({ title: 'Neu freigeschaltet!', sub: `${name} – unter Mehr → Design` });
+  }
+  shows.forEach((x, i) => setTimeout(() => celebrate(x), i * 3200));
+}
+
+// Aussehen der Lernzettel (Mehr → Design → Extras)
+function sheetLook() {
+  const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+  return { style: state.settings?.sheetStyle || 'standard', accent: /^#[0-9a-f]{6}$/i.test(accent) ? darkenForPaper(accent) : '#1576b8' };
+}
+// Helle Akzentfarben (z. B. Gold) auf weißem Papier etwas abdunkeln, damit sie lesbar bleiben
+function darkenForPaper(hex) {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+  const k = lum > 0.55 ? 0.55 / lum : 1;
+  return `#${[r, g, b].map((c) => Math.round(c * k).toString(16).padStart(2, '0')).join('')}`;
+}
 function applyTheme() {
   setJellyStyle(state.settings?.jelly);
+  try { applySeason(state.settings?.season || 'auto'); } catch (e) { console.warn(e); }
+  applyUserBgVars();
+  if (!userBgLoaded) { userBgLoaded = true; loadUserBg(); }
   const skin = skinOf();
   const html = document.documentElement;
   if (html.dataset.skin !== skin.id) {
@@ -111,22 +180,27 @@ let designTab = 'stil';
 function designSheet(tab = designTab) {
   designTab = tab;
   const body = h('div');
-  const seg = () => h('div', { class: 'seg design-tabs' }, [['stil', 'Stil'], ['farben', 'Farben'], ['qualle', 'Qualle']].map(([k, l]) =>
+  const seg = () => h('div', { class: 'seg design-tabs' }, [['stil', 'Stil'], ['farben', 'Farben'], ['qualle', 'Qualle'], ['extras', 'Extras']].map(([k, l]) =>
     h('button', { class: `seg-btn ${designTab === k ? 'active' : ''}`, onclick: () => { designTab = k; draw(); } }, l)));
-  const draw = () => body.replaceChildren(seg(), ...(designTab === 'stil' ? skinPane() : designTab === 'farben' ? colorPane() : jellyPane()));
+  const draw = () => body.replaceChildren(seg(), ...(designTab === 'stil' ? skinPane() : designTab === 'farben' ? colorPane() : designTab === 'qualle' ? jellyPane() : extrasPane()));
+  const lockBadge = (info) => h('span', { class: 'lock-badge' }, '🔒', `${info.have}/${info.need}`);
+  const statRow = () => { const st = stats(); return h('div', { class: 'stat-row' }, h('div', {}, h('b', {}, `${streak()} 🔥`), 'Tage am Stück'), h('div', {}, h('b', {}, String(st.units)), 'Einheiten'), h('div', {}, h('b', {}, String(st.quizzes)), 'Quizze'), h('div', {}, h('b', {}, String(st.perfect)), 'mit 100 %')); };
   const redraw = () => { render(); draw(); };
 
   const skinPane = () => [
-    h('p', { class: 'muted small' }, 'Verändert das ganze Aussehen der App: Hintergrund, Schriften, Formen und Farben.'),
-    h('div', { class: 'skin-grid' }, SKINS.map((x) => h('button', { class: `skin-opt ${skinOf().id === x.id ? 'on' : ''}`, onclick: () => {
+    h('p', { class: 'muted small' }, 'Verändert das ganze Aussehen der App: Hintergrund, Schriften, Formen und Farben. Manche Stile schaltest du durch Lernen frei.'),
+    statRow(),
+    h('div', { class: 'skin-grid' }, SKINS.map((x) => { const lock = unlockInfo('skin', x.id); return h('button', { class: `skin-opt ${skinOf().id === x.id ? 'on' : ''} ${lock ? 'locked' : ''}`, onclick: () => {
+      if (lock) { toast(`🔒 ${x.name}: ${lock.label} (${lock.have}/${lock.need})`); return; }
       if (x.id === 'standard') delete state.settings.skin; else state.settings.skin = x.id;
       const hadColors = !!state.settings.theme;
       delete state.settings.theme; // Farben des Stils zeigen; eigene Farben lassen sich danach wieder wählen
       save(); redraw();
       if (hadColors) toast('Eigene Farben zurückgesetzt – unter „Farben“ kannst du sie wieder anpassen.');
     } },
+      lock ? lockBadge(lock) : null,
       h('div', { class: 'skin-prev', 'data-skin': x.id }, h('div', { class: 'sp-title' }, 'Jelly'), h('div', { class: 'sp-card' }, 'Bio · in 5 Tagen'), h('div', { class: 'sp-btn' }, 'Lernen')),
-      h('div', { class: 'skin-name' }, x.name, h('small', {}, x.sub))))),
+      h('div', { class: 'skin-name' }, x.name, h('small', {}, lock ? `🔒 ${lock.label}` : x.sub))); })),
   ];
 
   const colorPane = () => {
@@ -153,13 +227,42 @@ function designSheet(tab = designTab) {
     return [
       h('p', { class: 'muted small' }, 'So sieht Jelly überall in der App aus – beim Laden, im Chat, im Kalender …'),
       h('div', { class: 'jelly-preview' }, mascot(120, 'normal', cur)),
-      h('div', { class: 'jelly-grid' }, JELLY_STYLES.map((x) => h('button', {
-        class: `jelly-opt ${cur === x.id ? 'on' : ''}`,
-        onclick: () => { if (x.id === 'klassisch') delete state.settings.jelly; else state.settings.jelly = x.id; save(); redraw(); },
-      }, mascot(56, 'normal', x.id), h('span', {}, x.name)))),
+      h('div', { class: 'jelly-grid' }, JELLY_STYLES.map((x) => { const lock = unlockInfo('jelly', x.id); return h('button', {
+        class: `jelly-opt ${cur === x.id ? 'on' : ''} ${lock ? 'locked' : ''}`,
+        onclick: () => { if (lock) { toast(`🔒 ${x.name}: ${lock.label} (${lock.have}/${lock.need})`); return; } if (x.id === 'klassisch') delete state.settings.jelly; else state.settings.jelly = x.id; save(); redraw(); },
+      }, lock ? lockBadge(lock) : null, mascot(56, 'normal', x.id), h('span', {}, x.name), lock ? h('span', { class: 'lock-need' }, lock.label) : null); })),
       cur === 'design' ? h('p', { class: 'muted small' }, 'Die Qualle nimmt die Farben aus Stil und Farben.') : null,
     ];
   };
+  const extrasPane = () => {
+    const season = state.settings.season || 'auto';
+    const now = activeSeason(season);
+    const sample = '## Photosynthese\n- Pflanzen bilden **Glucose** aus CO₂ und Wasser\n- Ort: Chloroplasten';
+    return [
+      h('div', { class: 'extra-block' },
+        h('div', { class: 'label' }, 'Jahreszeiten-Deko'),
+        h('p', { class: 'muted small' }, 'Schnee und Mütze im Dezember, Feuerwerk an Silvester, Hexenhut an Halloween, Hasenohren an Ostern.'),
+        h('div', { class: 'seg seg-wrap' }, SEASONS.map((x) => h('button', { class: `seg-btn ${season === x.id ? 'active' : ''}`, onclick: () => { state.settings.season = x.id; if (x.id === 'auto') delete state.settings.season; save(); redraw(); } }, x.name))),
+        h('p', { class: 'muted small' }, season === 'auto' ? (now ? `Gerade aktiv: ${seasonName(now)}` : 'Gerade ist keine Feiertagszeit – die Deko kommt von selbst.') : season === 'aus' ? 'Keine Deko.' : `Fest eingestellt: ${seasonName(season)}`)),
+      h('div', { class: 'extra-block' },
+        h('div', { class: 'label' }, 'Eigenes Hintergrundbild'),
+        h('p', { class: 'muted small' }, 'Ein Foto als Hintergrund der App. Wird abgedunkelt, damit alles lesbar bleibt. Bleibt nur auf diesem Gerät.'),
+        userBg ? h('div', { class: 'bg-thumb', style: { backgroundImage: `url("${userBg}")` } }) : null,
+        h('div', { class: 'row gap wrap' },
+          h('button', { class: 'btn', onclick: async () => { const [f] = await pickFiles({ accept: 'image/*', multiple: false }); if (!f) return; try { await setUserBg(f); toast('Hintergrund gesetzt.', 'ok'); } catch (e) { toast(errorMsg(e), 'error'); } draw(); } }, icon('image', 18), userBg ? 'Anderes Bild' : 'Bild wählen'),
+          userBg ? h('button', { class: 'btn ghost danger-text', onclick: async () => { await setUserBg(null); draw(); } }, 'Entfernen') : null),
+        userBg ? h('label', { class: 'stack' }, h('span', { class: 'muted small' }, `Abdunkeln: ${state.settings.bgDim ?? 70} %`),
+          h('input', { type: 'range', min: 30, max: 92, step: 2, value: state.settings.bgDim ?? 70, oninput: (e) => { state.settings.bgDim = +e.target.value; applyUserBgVars(); e.target.previousSibling.textContent = `Abdunkeln: ${e.target.value} %`; }, onchange: () => save() })) : null,
+        userBg ? h('label', { class: 'check-row' }, h('input', { type: 'checkbox', checked: !!state.settings.bgBlur, onchange: (e) => { state.settings.bgBlur = e.target.checked; save(); applyUserBgVars(); } }), h('span', {}, 'Weichzeichnen')) : null),
+      h('div', { class: 'extra-block' },
+        h('div', { class: 'label' }, 'Aussehen der Lernzettel'),
+        h('p', { class: 'muted small' }, 'Gilt in der App und beim PDF-Download.'),
+        h('div', { class: 'ls-grid' }, SHEET_STYLES.map((x) => h('button', { class: `ls-opt ${(state.settings.sheetStyle || 'standard') === x.id ? 'on' : ''}`, onclick: () => { if (x.id === 'standard') delete state.settings.sheetStyle; else state.settings.sheetStyle = x.id; save(); draw(); } },
+          h('div', { class: 'ls-prev', html: sheetHTML({ title: 'Biologie', subtitle: 'Lernzettel' }, sample, { ...sheetLook(), style: x.id }) }),
+          h('div', { class: 'skin-name' }, x.name, h('small', {}, x.sub)))))),
+    ];
+  };
+  if (!document.getElementById('sheet-css')) add(document.head, h('style', { id: 'sheet-css', html: SHEET_CSS }));
   draw();
   sheet('Design', [body]);
 }
@@ -1466,12 +1569,14 @@ function resultSummary(exam, unit, sess) {
 }
 
 function markDone(exam, unitId, sess, keepOpen = false) {
+  let fresh = false;
   for (const sec of exam.plan?.abschnitte || []) for (const u of sec.einheiten) if (u.id === unitId) {
     if (sess?.grading) u.score = sess.grading.percent;
-    if (!keepOpen) u.status = 'done';
+    if (!keepOpen && u.status !== 'done') { u.status = 'done'; fresh = u.typ !== 'quiz'; }
   }
   ui.selectedUnit = null;
   save();
+  if (fresh) reward('unit');
 }
 
 // ================================================================ LERNZETTEL & QUIZ
@@ -1544,12 +1649,12 @@ function viewLernzettel(main, exam, unit) {
   const head = sheetHead(exam, subject, overall ? null : topic || { titel: unit.titel });
   const dl = h('button', { class: 'btn', onclick: async () => {
     dl.disabled = true; const old = dl.textContent; dl.textContent = 'Erstelle PDF …';
-    try { await downloadLernzettel(head, sess.lernzettel); } catch (e) { toast(errorMsg(e), 'error'); }
+    try { await downloadLernzettel(head, sess.lernzettel, sheetLook()); } catch (e) { toast(errorMsg(e), 'error'); }
     dl.disabled = false; dl.textContent = old;
   } }, icon('download', 18), 'Als PDF speichern');
   const next = nextOpenUnit(exam, unit.id);
   add(main,
-    h('article', { class: 'lernzettel', html: sheetHTML(head, sess.lernzettel) }),
+    h('article', { class: 'lernzettel', html: sheetHTML(head, sess.lernzettel, sheetLook()) }),
     h('div', { class: 'row gap wrap center' }, dl,
       h('button', { class: 'btn ghost', onclick: async () => { if (await confirmDialog('Lernzettel neu schreiben lassen?', 'Neu schreiben')) { delete state.sessions[unit.id]; save(); render(); } } }, icon('refresh', 18), 'Neu schreiben')),
     h('button', { class: 'btn primary block', onclick: () => {
@@ -1598,6 +1703,7 @@ function runQuiz(main, sess, opts = {}) {
     const right = qs.filter((_, i) => sess.antworten[i]?.correct).length;
     const pct = Math.round((right / total) * 100);
     const wrong = qs.map((q, i) => ({ q, a: sess.antworten[i] })).filter((x) => !x.a?.correct);
+    if (!sess.rewarded) { sess.rewarded = true; save(); setTimeout(() => reward('quiz', { perfect: pct === 100 }), 250); }
     add(main,
       h('section', { class: `card summary ${pct >= 75 ? 'good' : 'bad'}` },
         h('div', { class: 'row between' }, h('div', {}, h('div', { class: 'big-num' }, `${right}/${total}`), h('div', { class: 'muted small' }, 'richtig')), h('div', { class: 'big-num' }, `${pct} %`)),
@@ -2074,7 +2180,7 @@ function viewSolved({ id }) {
   const head = { title: `Lösungen: ${subject?.name || 'Arbeitsblatt'}`, subtitle: `${item.ersteAufgabe || ''}`, meta: [`Klasse ${state.profile?.grade || '?'}`, new Date(item.createdAt).toLocaleDateString('de-DE')], footer: `${subject?.name || ''} – Lösungen Arbeitsblatt` };
   const dl = h('button', { class: 'btn', onclick: async () => {
     dl.disabled = true; const old = dl.textContent; dl.textContent = 'Erstelle PDF …';
-    try { await downloadLernzettel(head, item.loesung); } catch (e) { toast(errorMsg(e), 'error'); }
+    try { await downloadLernzettel(head, item.loesung, sheetLook()); } catch (e) { toast(errorMsg(e), 'error'); }
     dl.disabled = false; dl.textContent = old;
   } }, icon('download', 18), 'PDF');
 
