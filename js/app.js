@@ -18,7 +18,7 @@ setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, JELLY_STYLES, setJellyStyle, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.51 (15.11.)';
+const APP_VERSION = '2.52 (15.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -1918,6 +1918,92 @@ function annotatedPage(fid, entries, show) {
   return wrap;
 }
 
+// ---------- Gelöstes Blatt als echtes Bild (Foto + Lösungen), zum Kopieren und Sichern
+const solvedPng = new Map(); // "fid:AnzahlEinträge" → Promise<Blob>
+function solvedImage(fid, entries) {
+  const key = `${fid}:${entries.length}`;
+  if (!solvedPng.has(key)) solvedPng.set(key, renderSolvedImage(fid, entries).catch((e) => { solvedPng.delete(key); throw e; }));
+  return solvedPng.get(key);
+}
+
+async function renderSolvedImage(fid, entries) {
+  const url = await thumbURL(fid);
+  if (!url) throw new Error('Das Foto liegt nicht auf diesem Gerät.');
+  const img = new Image();
+  await new Promise((res, rej) => { img.onload = res; img.onerror = () => rej(new Error('Foto konnte nicht geladen werden.')); img.src = url; });
+  try { await document.fonts?.load('700 20px Inter'); } catch {}
+  const scale = Math.min(1, 2600 / Math.max(img.naturalWidth, img.naturalHeight));
+  const W = Math.round(img.naturalWidth * scale), H = Math.round(img.naturalHeight * scale);
+  const cv = document.createElement('canvas');
+  cv.width = W; cv.height = H;
+  const c = cv.getContext('2d');
+  c.drawImage(img, 0, 0, W, H);
+  const INK = '#4b2bd6', RED = '#c62828', GREEN = '#1f9d55';
+  const box = (b) => ({ x: (b[1] / 1000) * W, y: (b[0] / 1000) * H, w: ((b[3] - b[1]) / 1000) * W, h: ((b[2] - b[0]) / 1000) * H });
+  const lw = Math.max(2, W * 0.0028);
+  c.lineCap = 'round'; c.lineJoin = 'round';
+  // Text wie in der Ansicht: klein und gleichmäßig, bricht an der Feldbreite um, weißer Rand für Lesbarkeit
+  const text = (str, r, color, boxH) => {
+    const size = Math.max(W * 0.006, Math.min(W * 0.0105, boxH * 0.75));
+    c.font = `700 ${size}px Inter, system-ui, sans-serif`;
+    c.textBaseline = 'top';
+    const lines = [];
+    for (const para of String(str).split(/\n/)) {
+      let line = '';
+      for (const word of para.split(/\s+/)) {
+        const test = line ? `${line} ${word}` : word;
+        if (line && c.measureText(test).width > Math.max(r.w, size * 4)) { lines.push(line); line = word; } else line = test;
+      }
+      lines.push(line);
+    }
+    lines.forEach((ln, i) => {
+      const y = r.y + i * size * 1.2;
+      c.lineWidth = size * 0.32; c.strokeStyle = 'rgba(255,255,255,.92)'; c.strokeText(ln, r.x, y);
+      c.fillStyle = color; c.fillText(ln, r.x, y);
+    });
+  };
+  const cross = (r, color, w = lw) => { c.strokeStyle = color; c.lineWidth = w; c.beginPath(); c.moveTo(r.x + r.w * 0.15, r.y + r.h * 0.15); c.lineTo(r.x + r.w * 0.85, r.y + r.h * 0.85); c.moveTo(r.x + r.w * 0.85, r.y + r.h * 0.15); c.lineTo(r.x + r.w * 0.15, r.y + r.h * 0.85); c.stroke(); };
+  for (const e of entries) {
+    if (!Array.isArray(e.box)) continue;
+    const r = box(e.box);
+    if (e.art === 'text') text(cleanText(e.text || ''), r, INK, r.h);
+    else if (e.art === 'kreuz') cross(r, INK);
+    else if (e.art === 'markieren') { c.save(); c.globalCompositeOperation = 'multiply'; c.fillStyle = 'rgba(255, 221, 0, .45)'; c.fillRect(r.x, r.y, r.w, r.h); c.restore(); }
+    else if (e.art === 'kreis') { c.strokeStyle = INK; c.lineWidth = lw; c.beginPath(); c.ellipse(r.x + r.w / 2, r.y + r.h / 2, r.w / 2 + lw * 2, r.h / 2 + lw * 2, 0, 0, Math.PI * 2); c.stroke(); }
+    else if (e.art === 'pruefen') {
+      const sz = Math.min(r.h, W * 0.06);
+      const m = { x: Math.min(0.97 * W, (e.box[3] / 1000) * W), y: r.y + (r.h - sz) / 2, w: sz, h: sz };
+      if (e.ok) { c.strokeStyle = GREEN; c.lineWidth = lw * 1.2; c.beginPath(); c.moveTo(m.x + m.w * 0.15, m.y + m.h * 0.55); c.lineTo(m.x + m.w * 0.4, m.y + m.h * 0.8); c.lineTo(m.x + m.w * 0.88, m.y + m.h * 0.2); c.stroke(); }
+      else { cross(m, RED, lw * 1.2); if (e.text) text(cleanText(e.text), { ...r, y: (e.box[2] / 1000) * H }, RED, r.h); }
+    }
+  }
+  return new Promise((res, rej) => cv.toBlob((b) => (b ? res(b) : rej(new Error('Bild konnte nicht erstellt werden.'))), 'image/png'));
+}
+
+const solvedFileName = (item, i, n) => `${(subjectById(item.subjectId)?.name || 'Blatt').replace(/[^\wäöüÄÖÜß -]+/g, '')}-Lösung${n > 1 ? `-Seite-${i + 1}` : ''}.png`;
+
+// Teilen-Menü von iOS: „Bild sichern“ (Mediathek), „In Dateien sichern“, AirDrop … – sonst Download
+async function saveSolvedImages(item, fids) {
+  try {
+    const files = await Promise.all(fids.map(async (fid, i) => new File([await solvedImage(fid, item.annot[fid])], solvedFileName(item, item.fileIds.indexOf(fid), item.fileIds.length), { type: 'image/png' })));
+    if (navigator.canShare?.({ files })) {
+      try { await navigator.share({ files }); } catch (e) { if (e?.name !== 'AbortError') throw e; }
+      return;
+    }
+    for (const f of files) { const a = h('a', { href: URL.createObjectURL(f), download: f.name }); document.body.append(a); a.click(); a.remove(); }
+    toast('Bild gespeichert.', 'ok');
+  } catch (e) { toast(errorMsg(e), 'error'); }
+}
+
+async function copySolvedImage(item, fid) {
+  try {
+    if (!navigator.clipboard?.write || !window.ClipboardItem) throw new Error('Kopieren wird hier nicht unterstützt – nutze „Sichern“.');
+    // Safari verlangt, dass das Bild als Versprechen übergeben wird (sonst geht die Nutzer-Geste verloren)
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': solvedImage(fid, item.annot[fid]) })]);
+    toast('Bild mit Lösungen kopiert.', 'ok');
+  } catch (e) { toast(e?.name === 'NotAllowedError' ? 'Kopieren wurde nicht erlaubt.' : errorMsg(e), 'error'); }
+}
+
 // Jede "## Aufgabe …" wird ein eigener Block; die Lösung ist zum Selbsttesten erst zugeklappt.
 function solvedSheet(item, openAll) {
   const lines = item.loesung.split(/\r?\n/);
@@ -2015,12 +2101,22 @@ function viewSolved({ id }) {
           return [seg,
             h('div', { class: 'row gap center' }, h('button', { class: 'btn small', onclick: () => { ui.inkShow = !ui.inkShow; render(); } }, ui.inkShow ? 'Lösungen ausblenden' : 'Lösungen einblenden')),
             h('p', { class: 'muted small center' }, 'Die Position der Einträge ist geschätzt – bei schrägen Fotos kann sie etwas verrutschen. Alles Wichtige steht unter „Ausführlich“.'),
-            ...imgs.filter((fid) => item.annot?.[fid]).map((fid) => {
-              const page = annotatedPage(fid, item.annot[fid], ui.inkShow);
-              const box = h('div', { class: `annot-scroll ${ui.inkZoom ? 'zoomed' : ''}` }, page);
-              const zoomBtn = h('button', { class: 'zoom-btn', 'aria-label': 'Vergrößern', onclick: () => { ui.inkZoom = !ui.inkZoom; box.classList.toggle('zoomed', ui.inkZoom); zoomBtn.replaceChildren(icon(ui.inkZoom ? 'minus' : 'plus', 20)); } }, icon(ui.inkZoom ? 'minus' : 'plus', 20));
-              return h('div', { class: 'annot-holder' }, box, zoomBtn);
-            })];
+            ...(() => {
+              const pages = imgs.filter((fid) => item.annot?.[fid]);
+              const out = pages.map((fid) => {
+                const page = annotatedPage(fid, item.annot[fid], ui.inkShow);
+                const box = h('div', { class: `annot-scroll ${ui.inkZoom ? 'zoomed' : ''}` }, page);
+                const zoomBtn = h('button', { class: 'zoom-btn', 'aria-label': 'Vergrößern', onclick: () => { ui.inkZoom = !ui.inkZoom; box.classList.toggle('zoomed', ui.inkZoom); zoomBtn.replaceChildren(icon(ui.inkZoom ? 'minus' : 'plus', 20)); } }, icon(ui.inkZoom ? 'minus' : 'plus', 20));
+                solvedImage(fid, item.annot[fid]).catch(() => {}); // schon vorbereiten, damit Kopieren/Sichern sofort klappt
+                return h('div', { class: 'annot-holder' }, box, zoomBtn,
+                  h('div', { class: 'annot-actions' },
+                    h('button', { class: 'btn small', onclick: () => copySolvedImage(item, fid) }, icon('layers', 16), 'Kopieren'),
+                    h('button', { class: 'btn small', onclick: () => saveSolvedImages(item, [fid]) }, icon('download', 16), 'Sichern / Teilen')));
+              });
+              if (pages.length > 1) out.push(h('button', { class: 'btn block', onclick: () => saveSolvedImages(item, pages) }, icon('download', 18), `Alle ${pages.length} Seiten sichern`));
+              out.push(h('p', { class: 'muted small center' }, '„Sichern / Teilen“ öffnet das Teilen-Menü: „Bild sichern“ legt es in die Mediathek, „In Dateien sichern“ in die Dateien-App. Das Bild enthält die Lösungen.'));
+              return out;
+            })()];
         }
         return [seg, h('p', { class: 'muted small center' }, 'Versuch jede Aufgabe erst selbst, dann aufdecken. Die KI kann sich irren – bei Zweifeln nachfragen.'),
           h('article', { class: 'lernzettel solve' }, solvedSheet(item, ui.solveOpen))];

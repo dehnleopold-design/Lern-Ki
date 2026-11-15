@@ -880,3 +880,4 @@ html, body { overflow-x: hidden; }
 .gn-name { display: flex; align-items: center; gap: 8px; font-weight: 600; word-break: break-word; }
 .gn-select { width: 100%; }
 .gn-status { color: var(--accent); font-weight: 600; font-size: .9rem; }
+.annot-actions { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 10px; }
