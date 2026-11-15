@@ -892,7 +892,8 @@ html, body { overflow-x: hidden; }
    Schriften und Formen; [data-skin] steht auf <html> und auf Vorschau-Kacheln.
    ===================================================================== */
 [data-skin] { --skin-bg-image: none; }
-html[data-skin]:not([data-skin="standard"]) body { background: transparent; }
+/* Body durchsichtig: Hintergrund malt body::before; Deko-Ebenen liegen dazwischen (hinter allen Inhalten) */
+html[data-skin] body { background: transparent; }
 html[data-skin] body::before { content: ''; position: fixed; inset: 0; z-index: -1; pointer-events: none; background: var(--skin-bg-image), var(--bg); }
 
 /* 2 · Hell */
@@ -999,6 +1000,9 @@ html[data-skin] body::before { content: ''; position: fixed; inset: 0; z-index: 
 
 /* ---------- Feier-Animationen (celebrate.js) ---------- */
 .fx-layer { position: fixed; inset: 0; z-index: 400; pointer-events: none; }
+/* Konfetti & Co. der Feiern: hinter allen Inhalten, nur die Nachricht liegt oben */
+.fx-back { position: fixed; inset: 0; z-index: -1; pointer-events: none; overflow: hidden; transition: opacity .45s; }
+.fx-back.fx-out { opacity: 0; }
 .fx { position: absolute; inset: 0; pointer-events: auto; overflow: hidden; transition: opacity .45s; }
 .fx.fx-out { opacity: 0; }
 .fx-p { position: absolute; left: var(--x0); bottom: -20px; display: block; animation: fx-pop ease-out both; }
@@ -1024,7 +1028,7 @@ html[data-skin] body::before { content: ''; position: fixed; inset: 0; z-index: 
 .fx-badge-galaxis .fx-badge-t { color: var(--accent); text-transform: uppercase; letter-spacing: .12em; }
 
 /* ---------- Jahreszeiten (seasons.js) ---------- */
-.season { position: fixed; inset: 0; z-index: 35; pointer-events: none; overflow: hidden; }
+.season { position: fixed; inset: 0; z-index: -1; pointer-events: none; overflow: hidden; }
 .season .snow { position: absolute; top: -12px; border-radius: 50%; background: #fff; box-shadow: 0 0 6px rgba(255,255,255,.8); animation: snow linear infinite; }
 @keyframes snow { to { transform: translate(var(--drift), 105vh); } }
 [data-skin="hell"] .season .snow, [data-skin="pastell"] .season .snow, [data-skin="schulheft"] .season .snow, [data-skin="altmodisch"] .season .snow { background: #b9cbe6; box-shadow: none; }
@@ -1037,7 +1041,7 @@ html[data-skin] body::before { content: ''; position: fixed; inset: 0; z-index: 
   100% { opacity: 0; box-shadow: 0 -40px 0 -2px currentColor, 28px -28px 0 -2px currentColor, 40px 0 0 -2px currentColor, 28px 28px 0 -2px currentColor, 0 40px 0 -2px currentColor, -28px 28px 0 -2px currentColor, -40px 0 0 -2px currentColor, -28px -28px 0 -2px currentColor; transform: scale(1.4); } }
 .season .egg { position: absolute; bottom: calc(96px + env(safe-area-inset-bottom)); font-size: 22px; opacity: .55; animation: egg 3s ease-in-out infinite; }
 @keyframes egg { 50% { transform: translateY(-6px) rotate(6deg); } }
-@media (prefers-reduced-motion: reduce) { .season *, .fx * { animation: none !important; } }
+@media (prefers-reduced-motion: reduce) { .season *, .fx *, .fx-back * { animation: none !important; } }
 
 /* ---------- Eigenes Hintergrundbild ---------- */
 html.has-userbg[data-skin] body { background: transparent; }

@@ -112,16 +112,21 @@ export function celebrate({ title, sub = '' }) {
   const host = document.createElement('div');
   host.className = `fx fx-${skin}`;
   stage().append(host);
+  // Effekte kommen in eine Ebene hinter den Inhalten – nichts verdeckt Texte
+  const back = document.createElement('div');
+  back.className = `fx-back fx-${skin}`;
+  document.body.append(back);
   if (!reduced()) {
-    if (skin === 'pixel') pixels(host);
-    else if (skin === 'galaxis') stars(host);
-    else if (skin === 'futuristisch') { rings(host); confetti(host, ['#00e5ff', '#7df9ff', '#a855f7'], 30, false); }
-    else if (skin === 'terminal') glyphs(host);
-    else confetti(host, PALETTES[skin] || PALETTES.standard);
+    if (skin === 'pixel') pixels(back);
+    else if (skin === 'galaxis') stars(back);
+    else if (skin === 'futuristisch') { rings(back); confetti(back, ['#00e5ff', '#7df9ff', '#a855f7'], 30, false); }
+    else if (skin === 'terminal') glyphs(back);
+    else confetti(back, PALETTES[skin] || PALETTES.standard);
   }
   badge(host, skin === 'terminal' ? `> ${title}` : title, sub, skin);
   try { navigator.vibrate?.(30); } catch {}
-  host.addEventListener('click', () => host.remove());
-  setTimeout(() => host.classList.add('fx-out'), 2600);
-  setTimeout(() => host.remove(), 3100);
+  const end = () => { host.remove(); back.remove(); };
+  host.addEventListener('click', end);
+  setTimeout(() => { host.classList.add('fx-out'); back.classList.add('fx-out'); }, 2600);
+  setTimeout(end, 3100);
 }
