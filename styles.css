@@ -1069,3 +1069,25 @@ html.has-userbg[data-skin] body::before { inset: calc(var(--bg-blur, 0px) * -2);
 .ls-prev .sheet-doc { transform: scale(.42); transform-origin: top left; width: 238%; padding: 14px; pointer-events: none; }
 .ls-opt .skin-name { padding: 0 8px 8px; }
 .lernzettel:has(> .ls-papier) { background: #fbf5e6; }
+
+/* ---------- Beim Warten: Spiele-Auswahl & Spiele (games.js) ---------- */
+.game-pick { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; }
+.game-pick button { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 4px; border-radius: 16px; background: var(--surface-2); border: 2px solid transparent; font-size: .78rem; font-weight: 600; color: var(--text); }
+.game-pick button.on { border-color: var(--accent); background: var(--accent-soft); }
+.gp-emoji { font-size: 1.6rem; line-height: 1; }
+.gm { display: flex; flex-direction: column; align-items: center; gap: 10px; width: 100%; }
+.gm-hud { display: flex; justify-content: space-between; width: 100%; max-width: 520px; font-weight: 700; font-size: .9rem; color: var(--muted); }
+.gm-stage { position: relative; border-radius: 18px; overflow: hidden; border: 1px solid var(--line); box-shadow: 0 10px 30px rgba(0,0,0,.3); }
+.gm-canvas { display: block; touch-action: none; user-select: none; -webkit-user-select: none; }
+.gm-overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 20px; text-align: center; background: color-mix(in srgb, var(--bg) 72%, transparent); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); }
+.gm-overlay[hidden] { display: none; }
+.gm-ov-t { font-family: var(--display); font-weight: 800; font-size: 1.6rem; }
+.gm-ov-s { color: var(--muted); max-width: 300px; }
+.gm-pad { display: grid; grid-template-columns: repeat(3, 64px); gap: 8px; }
+.gm-key { height: 52px; border-radius: 14px; background: var(--surface-2); border: 1px solid var(--line); font-size: 1.2rem; color: var(--text); }
+.gm-key:active { background: var(--accent-soft); }
+.mem-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; width: 100%; max-width: 420px; }
+.mem-card { aspect-ratio: 1; border-radius: 14px; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; transition: background .2s; }
+.mem-card span { font-size: 1.9rem; line-height: 1; }
+.mem-card.open { background: var(--surface-2); }
+.mem-card.done { opacity: .55; }

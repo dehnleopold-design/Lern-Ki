@@ -13,6 +13,7 @@ import { celebrate } from './celebrate.js';
 import { SEASONS, applySeason, activeSeason, seasonName } from './seasons.js';
 import { openFile, fileKindLabel } from './viewer.js';
 import { chessPanel } from './chess.js';
+import { GAMES, isGame, gamePanel } from './games.js';
 import { checkAccess, redeemCode, cachedAccess, normalizeCode } from './license.js';
 import { initNotes, viewNotes, viewNotebook } from './notes.js';
 import { splitNotebook, guessSubject, baseName } from './goodnotes.js';
@@ -22,7 +23,7 @@ setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, JELLY_STYLES, setJellyStyle, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.56 (15.11.)';
+const APP_VERSION = '2.57 (15.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -1051,7 +1052,7 @@ function waitPanel(title) {
     bar.style.width = `${Math.max(3, Math.round(((done + running) / Math.max(1, steps.length)) * 100))}%`;
   };
   const el = h('div', { class: 'wait' },
-    state.settings.waitMode === 'chess' ? chessPanel() : waitVideo(),
+    waitContent(state.settings.waitMode),
     h('div', { class: 'wait-card' },
       h('div', { class: 'row gap' }, mascot(52, 'think'), h('div', { class: 'wait-title' }, title)),
       h('div', { class: 'progress' }, bar),
@@ -3441,29 +3442,41 @@ function viewTutor() {
 }
 
 // ================================================================ EINSTELLUNGEN
-// Was beim Warten auf die KI oben läuft: Schach gegen Bots oder ein YouTube-Video
+// Was beim Warten auf die KI oben läuft: Schach, ein Spiel oder ein YouTube-Video
+const WAIT_OPTIONS = [
+  { id: 'chess', name: 'Schach', emoji: '♟️' },
+  ...GAMES.map((g) => ({ id: g.id, name: g.name, emoji: g.emoji })),
+  { id: 'video', name: 'Video', emoji: '📺' },
+];
+const waitModeOf = () => (WAIT_OPTIONS.some((x) => x.id === state.settings.waitMode) ? state.settings.waitMode : 'video');
+const waitName = (id) => WAIT_OPTIONS.find((x) => x.id === id)?.name || 'Video';
+function waitContent(mode) {
+  if (mode === 'chess') return chessPanel();
+  if (isGame(mode)) return gamePanel(mode);
+  return waitVideo();
+}
 function waitAreaSheet() {
   const st = state.settings;
-  const o = sheet('Wartebereich', [
+  const mode = waitModeOf();
+  const reopen = () => { o.remove(); render(); waitAreaSheet(); };
+  const o = sheet('Beim Warten – Einstellungen', [
     h('p', { class: 'muted small' }, 'Läuft oben im Warte-Bildschirm, während Jelly arbeitet.'),
-    h('div', { class: 'wait-mode' },
-      h('button', { class: st.waitMode === 'chess' ? 'on' : '', onclick: () => { st.waitMode = 'chess'; save(); o.remove(); render(); waitAreaSheet(); } }, icon('target', 26), 'Schach spielen'),
-      h('button', { class: st.waitMode !== 'chess' ? 'on' : '', onclick: () => { st.waitMode = 'video'; save(); o.remove(); render(); waitAreaSheet(); } }, icon('video', 26), 'Video beim Warten')),
-    st.waitMode === 'chess'
+    h('div', { class: 'game-pick' }, WAIT_OPTIONS.map((x) => h('button', { class: mode === x.id ? 'on' : '', onclick: () => { st.waitMode = x.id; save(); reopen(); } }, h('span', { class: 'gp-emoji' }, x.emoji), x.name))),
+    mode === 'chess'
       ? h('p', { class: 'muted small' }, 'Gegen Bots von 400 bis 2000 Elo (Stärke grob geschätzt). Die Partie bleibt gespeichert und geht beim nächsten Warten weiter – nur auf diesem Gerät.')
-      : h('div', { class: 'stack' },
+      : mode === 'video' ? h('div', { class: 'stack' },
         h('div', { class: 'label' }, 'YouTube-Link (leer = kein Video)'),
         h('input', { class: 'input', placeholder: 'https://youtu.be/…', value: st.waitVideo ?? DEFAULT_WAIT_VIDEO, onchange: (e) => {
           const v = e.target.value.trim();
           if (v && !youtubeId(v)) { toast('Das ist kein gültiger YouTube-Link.', 'error'); return; }
           st.waitVideo = v; save(); toast(v ? 'Video gespeichert.' : 'Video ausgeschaltet.', 'ok'); o.remove(); render();
-        } })),
+        } }))
+      : h('p', { class: 'muted small' }, `${GAMES.find((g) => g.id === mode).desc}. Dein Rekord wird gespeichert.`),
     h('div', { class: 'label' }, 'Wenn Jelly fertig ist'),
     h('div', { class: 'wait-mode' },
-      h('button', { class: st.waitConfirm ? '' : 'on', onclick: () => { st.waitConfirm = false; save(); o.remove(); render(); waitAreaSheet(); } }, icon('zap', 24), 'Automatisch weiter'),
-      h('button', { class: st.waitConfirm ? 'on' : '', onclick: () => { st.waitConfirm = true; save(); o.remove(); render(); waitAreaSheet(); } }, icon('checkc', 24), 'Mit Haken bestätigen')),
-    h('p', { class: 'muted small' }, st.waitConfirm ? 'Du bleibst im Wartebereich, bis du „Fertig – ansehen“ drückst – so kannst du dein Video oder die Partie zu Ende bringen.' : 'Sobald alles fertig ist, springt Jelly direkt zum Ergebnis.'),
-    h('button', { class: 'btn ghost block', onclick: () => { o.remove(); go('play'); } }, icon('play', 18), 'Jetzt öffnen'),
+      h('button', { class: st.waitConfirm ? '' : 'on', onclick: () => { st.waitConfirm = false; save(); reopen(); } }, icon('zap', 24), 'Automatisch weiter'),
+      h('button', { class: st.waitConfirm ? 'on' : '', onclick: () => { st.waitConfirm = true; save(); reopen(); } }, icon('checkc', 24), 'Mit Haken bestätigen')),
+    h('p', { class: 'muted small' }, st.waitConfirm ? 'Du bleibst im Wartebereich, bis du „Fertig – ansehen“ drückst – so kannst du dein Spiel, Video oder die Partie zu Ende bringen.' : 'Sobald alles fertig ist, springt Jelly direkt zum Ergebnis.'),
   ]);
 }
 
@@ -3510,15 +3523,16 @@ function offlineSheet() {
   if (note) toast(note);
 }
 
-// Schach & Video jederzeit, unabhängig vom Warten
+// „Beim Warten“: Spiele, Schach & Video jederzeit, auch ohne Warten
 let playTab = null;
 function viewPlay() {
-  const tab = playTab || (state.settings.waitMode === 'chess' ? 'chess' : 'video');
-  const seg = (k, label) => h('button', { class: `seg-btn${tab === k ? ' active' : ''}`, onclick: () => { playTab = k; render(); } }, label);
-  return h('div', { class: 'screen' }, topbar({ back: () => go('settings'), title: 'Schach & Video' }),
+  const tab = playTab || waitModeOf();
+  const content = tab === 'video' ? (waitVideo() || h('div', { class: 'card muted' }, 'Kein Video eingestellt – oben rechts beim Zahnrad einen YouTube-Link eintragen.')) : waitContent(tab);
+  return h('div', { class: 'screen' },
+    h('header', { class: 'topbar' }, h('button', { class: 'iconbtn', 'aria-label': 'Zurück', onclick: () => go('settings') }, icon('back')), h('div', { class: 'topbar-title' }, 'Beim Warten'), h('button', { class: 'iconbtn', 'aria-label': 'Einstellungen', onclick: () => waitAreaSheet() }, icon('gear'))),
     h('main', { class: 'content narrow' },
-      h('div', { class: 'seg play-seg' }, seg('chess', 'Schach'), seg('video', 'Video')),
-      h('div', { class: 'wait' }, tab === 'chess' ? chessPanel() : (waitVideo() || h('div', { class: 'card muted' }, 'Kein Video eingestellt – unter Mehr → Wartebereich einen YouTube-Link eintragen.')))));
+      h('div', { class: 'game-pick' }, WAIT_OPTIONS.map((x) => h('button', { class: tab === x.id ? 'on' : '', onclick: () => { playTab = x.id; render(); } }, h('span', { class: 'gp-emoji' }, x.emoji), x.name))),
+      h('div', { class: 'wait' }, content)));
 }
 
 function viewSettings() {
@@ -3530,8 +3544,7 @@ function viewSettings() {
     h('main', { class: 'content narrow' },
       h('div', { class: 'menu' },
         menuRow('sparkles', 'KI-Verbindung', aiSub, () => sheet('KI-Verbindung', [aiSetupBlock(false)])),
-        menuRow(st.waitMode === 'chess' ? 'target' : 'video', 'Wartebereich', `${st.waitMode === 'chess' ? 'Schach gegen Bots' : (st.waitVideo ?? DEFAULT_WAIT_VIDEO) ? 'Video' : 'Aus'} · ${st.waitConfirm ? 'mit Haken bestätigen' : 'automatisch weiter'}`, () => waitAreaSheet()),
-        menuRow('play', 'Schach & Video', 'Jederzeit spielen oder schauen – auch ohne Warten', () => go('play')),
+        menuRow('play', 'Beim Warten', `Spiele, Schach & Video · beim Warten läuft: ${waitName(waitModeOf())}`, () => go('play')),
         menuRow('zap', 'Offline-Tutor', 'KI direkt auf dem Gerät – auch ohne Internet', () => offlineSheet()),
         menuRow('mic', 'Jelly Voice', 'Unterricht aufnehmen – Notizen & Lernzettel daraus', () => { location.href = 'voice/'; })),
       authEnabled && !bootedUid ? h('div', { class: 'menu' },
