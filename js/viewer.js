@@ -7,7 +7,7 @@ const PDFJS = 'assets/vendor/pdfjs/pdf.min.mjs';
 const PDFJS_WORKER = 'assets/vendor/pdfjs/pdf.worker.min.mjs';
 let pdfjsPromise = null;
 
-function loadPdfJs() {
+export function loadPdfJs() {
   if (!pdfjsPromise) {
     pdfjsPromise = import(new URL(PDFJS, document.baseURI).href).then((lib) => {
       lib.GlobalWorkerOptions.workerSrc = new URL(PDFJS_WORKER, document.baseURI).href;
@@ -18,7 +18,7 @@ function loadPdfJs() {
 }
 
 export const fileKindLabel = (kind) => ({
-  material: 'Unterrichtsmaterial', archive: 'Alte Klausuren', sheet: 'Arbeitsblätter', vocab: 'Vokabelseiten', vtest: 'Vokabeltests', answer: 'Deine Antwort-Fotos', timetable: 'Stundenplan', examplan: 'Klassenarbeitsplan',
+  material: 'Unterrichtsmaterial', goodnotes: 'GoodNotes-Mitschriften', archive: 'Alte Klausuren', sheet: 'Arbeitsblätter', vocab: 'Vokabelseiten', vtest: 'Vokabeltests', answer: 'Deine Antwort-Fotos', timetable: 'Stundenplan', examplan: 'Klassenarbeitsplan',
 }[kind] || 'Datei');
 
 const b64ToBytes = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));

@@ -5,6 +5,7 @@ import { state } from './store.js';
 import { gradeLabel, scaleLabel } from './grades.js';
 
 const MAX_CONTEXT_CHARS = 160000;
+const MAX_NOTES_CHARS = 70000;
 
 export function subjectOf(exam) {
   return state.subjects.find((s) => s.id === exam.subjectId);
@@ -101,7 +102,7 @@ function fileDigestText(id) {
   if (d.teil) return ''; // weitere Seite eines Dokuments – steht schon bei der ersten Seite
   const list = (x) => (Array.isArray(x) && x.length ? x.map((v) => `- ${typeof v === 'string' ? v : JSON.stringify(v)}`).join('\n') : '');
   return [
-    `### ${f.kind === 'archive' ? 'ALTE KLAUSUR' : 'MATERIAL'}: ${d.titel || f.name}${d.art ? ` (${d.art})` : ''}`,
+    `### ${f.kind === 'archive' ? 'ALTE KLAUSUR' : f.kind === 'goodnotes' ? 'MITSCHRIFT' : 'MATERIAL'}: ${d.titel || f.name}${d.art ? ` (${d.art})` : ''}`,
     d.themen?.length ? `Themen: ${d.themen.join(', ')}` : '',
     d.lehrerSchwerpunkte?.length ? `Schwerpunkte der Lehrkraft:\n${list(d.lehrerSchwerpunkte)}` : '',
     d.aufgabenAufAB?.length ? `Aufgaben auf dem Blatt:\n${list(d.aufgabenAufAB)}` : '',
@@ -138,6 +139,12 @@ export function examContext(exam) {
   const book = ids.filter(isBook).map(fileDigestText).filter(Boolean);
   if (abs.length) parts.push(`## ARBEITSBLÄTTER & HEFTEINTRÄGE DER LEHRKRAFT (Hauptquelle: Schwerpunkte, Begriffe, Formulierungen)\n${abs.join('\n\n')}`);
   if (book.length) parts.push(`## BUCHSEITEN (Ergänzung: Fakten übernehmen, Gewichtung nach den Arbeitsblättern)\n${book.join('\n\n')}`);
+  if (exam.useNotes !== false && subject) {
+    // GoodNotes-Mitschriften des Fachs: neueste zuerst, gedeckelt, damit alte Klausuren noch Platz haben
+    let notes = [...(subject.goodnotes || [])].filter((id) => state.files[id]).sort((a, b) => (state.files[b].addedAt || 0) - (state.files[a].addedAt || 0)).map(fileDigestText).filter(Boolean).join('\n\n');
+    if (notes.length > MAX_NOTES_CHARS) notes = notes.slice(0, MAX_NOTES_CHARS) + '\n[… weitere Mitschriften gekürzt]';
+    if (notes) parts.push(`## MITSCHRIFTEN DES SCHÜLERS AUS GOODNOTES (was im Unterricht tatsächlich drankam – nutze sie, um Themen, Begriffe, Beispiele und Schwerpunkte der Lehrkraft zu treffen; Inhalte, die zu den Themen der Klausur passen, haben Vorrang)\n${notes}`);
+  }
   if (exam.useArchive !== false && subject) {
     const arch = (subject.archive || []).map(fileDigestText).filter(Boolean);
     if (arch.length) parts.push(`## ALTE KLAUSUREN DIESER LEHRKRAFT\n${arch.join('\n\n')}`);
@@ -166,11 +173,14 @@ Gib NUR JSON zurück:
 }
 Unleserliches als [unleserlich] kennzeichnen. Nichts erfinden.`;
   }
-  return `Das ist UNTERRICHTSMATERIAL (Arbeitsblatt, Lernzettel, Hefteintrag, Buchseite …). Lies es vollständig und sehr genau, inklusive Handschrift, Markierungen, Tabellen, Grafiken.${multi}
+  const intro = kind === 'goodnotes'
+    ? 'Das sind MITSCHRIFTEN DES SCHÜLERS AUS GOODNOTES (handschriftliche Hefteinträge aus dem Unterricht, evtl. mit eingefügten Arbeitsblättern, Fotos und Markierungen). Lies sie vollständig und sehr genau – auch schwer lesbare Handschrift, Pfeile, Farben, Kästen und Randnotizen. Übernimm Datumsangaben und Überschriften, wenn vorhanden, damit klar ist, wann welches Thema dran war.'
+    : 'Das ist UNTERRICHTSMATERIAL (Arbeitsblatt, Lernzettel, Hefteintrag, Buchseite …). Lies es vollständig und sehr genau, inklusive Handschrift, Markierungen, Tabellen, Grafiken.';
+  return `${intro}${multi}
 Gib NUR JSON zurück:
 {
  "titel": "kurzer Titel",
- "art": "Arbeitsblatt | Lernzettel | Hefteintrag | Buchseite | Sonstiges",
+ "art": "${kind === 'goodnotes' ? 'Mitschrift' : 'Arbeitsblatt | Lernzettel | Hefteintrag | Buchseite | Sonstiges'}",
  "themen": ["..."],
  "inhalt": "Vollständige, sachlich exakte Wiedergabe ALLER prüfungsrelevanten Inhalte: Definitionen, Fakten, Regeln, Formeln, Vokabeln, Beispiele, Grafikinhalte (in Worten). Lieber zu viel als zu wenig.",
  "aufgabenAufAB": ["Aufgabenstellungen auf dem Blatt, wörtlich, mit Operator"],

@@ -126,6 +126,7 @@ export function examFileIds(exam) {
   const subject = subjectById(exam.subjectId);
   const ids = [...(exam.materialIds || [])];
   if (exam.useArchive !== false && subject) ids.push(...(subject.archive || []));
+  if (exam.useNotes !== false && subject) ids.push(...(subject.goodnotes || []));
   return ids.filter((id) => state.files[id]);
 }
 

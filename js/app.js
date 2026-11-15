@@ -12,12 +12,13 @@ import { openFile, fileKindLabel } from './viewer.js';
 import { chessPanel } from './chess.js';
 import { checkAccess, redeemCode, cachedAccess, normalizeCode } from './license.js';
 import { initNotes, viewNotes, viewNotebook } from './notes.js';
+import { splitNotebook, guessSubject, baseName } from './goodnotes.js';
 
 setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, JELLY_STYLES, setJellyStyle, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.50 (15.11.)';
+const APP_VERSION = '2.51 (15.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -206,6 +207,93 @@ async function removeGroup(id) {
 }
 
 const archiveCountOf = (s) => (s.archive || []).filter((fid) => state.files[fid] && isGroupLead(fid)).length;
+const notesCountOf = (s) => (s.goodnotes || []).filter((fid) => state.files[fid] && isGroupLead(fid)).length;
+
+// ---------- GoodNotes-Mitschriften (Mehr → GoodNotes-Import, oder im Fach)
+function goodnotesHelp() {
+  sheet('So holst du deine GoodNotes-Hefte', [
+    h('p', {}, h('strong', {}, 'Einmalig, Auto-Backup einschalten (empfohlen):')),
+    h('p', { class: 'muted small' }, 'In GoodNotes: Einstellungen → Auto-Backup → einschalten, Speicherort iCloud Drive (oder Google Drive/Dropbox/OneDrive) wählen, Format „PDF“. Dann liegen alle Notizbücher immer aktuell als PDF in der Dateien-App.'),
+    h('p', {}, h('strong', {}, 'Oder einzeln exportieren:')),
+    h('p', { class: 'muted small' }, 'Notizbuch öffnen → Teilen-Symbol → „Exportieren“ (alle Seiten) → PDF → „In Dateien sichern“.'),
+    h('p', {}, h('strong', {}, 'Dann hier:')),
+    h('p', { class: 'muted small' }, 'Mehr → GoodNotes-Import → die PDFs auswählen (auch mehrere auf einmal). Heißt ein Notizbuch wie ein Fach („Mathe“, „Bio 9b“ …), ordne ich es automatisch zu. Importierst du ein Heft später nochmal, ersetze ich die alte Version – so bleibt alles aktuell.'),
+    h('p', { class: 'muted small' }, 'Große Hefte zerlege ich in Teile zu 15 Seiten, damit die KI jede Seite gründlich liest.')]);
+}
+
+// Liest alle noch ungelesenen Mitschriften (eines Fachs oder aller Fächer)
+async function readNotes(subjects, onStep) {
+  if (!aiReady()) { toast('Bitte zuerst die KI einrichten (Einstellungen).', 'error'); return false; }
+  const ids = subjects.flatMap((s) => (s.goodnotes || []).filter((fid) => state.files[fid] && isGroupLead(fid) && !state.files[fid].digest));
+  let n = 0;
+  for (const fid of ids) {
+    ui.busy[fid] = true; onStep?.(n, ids.length);
+    try { await digestFile(fid); save(); } catch (e) { toast(errorMsg(e), 'error'); delete ui.busy[fid]; onStep?.(n, ids.length); return false; }
+    delete ui.busy[fid]; onStep?.(++n, ids.length);
+  }
+  return true;
+}
+
+async function importGoodNotes(subjectId = null) {
+  if (!state.subjects.length) { toast('Leg zuerst deine Fächer an.', 'error'); return; }
+  const files = await pickFiles({ accept: 'application/pdf,.pdf' });
+  if (!files.length) return;
+  const rows = files.map((f) => ({ file: f, subjectId: subjectId || guessSubject(f.name) }));
+  const body = h('div', { class: 'stack' });
+  let busy = false;
+  let o = null;
+  const draw = (status = '') => {
+    body.replaceChildren(
+      h('p', { class: 'muted small' }, subjectId ? `Die Hefte kommen zu ${subjectById(subjectId)?.name}.` : 'Prüf kurz, ob jedes Heft beim richtigen Fach landet.'),
+      ...rows.map((r) => h('div', { class: 'gn-row' },
+        h('span', { class: 'gn-name' }, icon('notebook', 18), h('span', {}, baseName(r.file.name), h('span', { class: 'muted small' }, ` · ${(r.file.size / 1048576).toFixed(1)} MB`))),
+        h('select', { class: 'input gn-select', disabled: busy, onchange: (e) => { r.subjectId = e.target.value || null; draw(); } },
+          h('option', { value: '', selected: !r.subjectId }, '– nicht importieren –'),
+          state.subjects.map((s) => h('option', { value: s.id, selected: r.subjectId === s.id }, s.name))))),
+      status ? h('p', { class: 'gn-status' }, status) : null,
+      h('button', { class: 'btn primary block', disabled: busy || !rows.some((r) => r.subjectId), onclick: run }, busy ? 'Bitte warten …' : 'Importieren & lesen'),
+      busy ? null : h('button', { class: 'link-small', onclick: goodnotesHelp }, 'Wie bekomme ich die PDFs aus GoodNotes?'));
+  };
+  const run = async () => {
+    busy = true;
+    const touched = new Set();
+    let replaced = 0;
+    try {
+      for (const r of rows.filter((x) => x.subjectId)) {
+        const s = subjectById(r.subjectId);
+        const base = baseName(r.file.name);
+        draw(`${base}: wird vorbereitet …`);
+        const parts = await splitNotebook(r.file, (p, n) => draw(`${base}: Seite ${p} von ${n} …`));
+        // Gleiches Heft schon da? Dann alte Version ersetzen.
+        const old = (s.goodnotes ||= []).filter((fid) => state.files[fid]?.src === base);
+        if (old.length) {
+          replaced++;
+          for (const fid of old) await removeFile(fid);
+          s.goodnotes = s.goodnotes.filter((fid) => !old.includes(fid));
+        }
+        for (const part of parts) {
+          draw(`${part.label}: wird gespeichert …`);
+          const ids = await uploadPages(part.files, { kind: 'goodnotes', subjectId: s.id, together: part.files.length > 1 });
+          for (const id of ids) state.files[id].src = base;
+          s.goodnotes.push(...ids);
+        }
+        touched.add(s);
+        save();
+      }
+      const ok = await readNotes([...touched], (n, total) => draw(`Jelly liest deine Mitschriften … (${n}/${total})`));
+      o?.remove();
+      toast(ok ? `Fertig! ${replaced ? `${replaced} Heft${replaced > 1 ? 'e' : ''} aktualisiert. ` : ''}Deine Mitschriften fließen jetzt in Lernpläne, Lernzettel und den Tutor ein.` : 'Importiert – das Lesen geht weiter, sobald du eine Klausur anlegst.', ok ? 'ok' : undefined);
+    } catch (e) {
+      toast(errorMsg(e), 'error');
+      busy = false; draw();
+      return;
+    }
+    render();
+  };
+  draw();
+  o = sheet('GoodNotes-Import', [body]);
+}
+
 const pagesLabel = (id) => { const n = groupOf(id).length; return n > 1 ? `${n} Seiten` : '1 Seite'; };
 
 function errorMsg(e) {
@@ -864,12 +952,12 @@ function finishWait(panel, cb) {
 let nx = null;
 
 function startNewExam(subjectId = null, date = undefined, extra = {}) {
-  nx = { step: subjectId ? (date ? 2 : 1) : 0, subjectId, date, targetGrade: scale() === '0-15' ? 13 : 1, materialIds: [], topicsText: extra.topicsText || '', useArchive: true, customDate: false, planItem: extra.planItem || null };
+  nx = { step: subjectId ? (date ? 2 : 1) : 0, subjectId, date, targetGrade: scale() === '0-15' ? 13 : 1, materialIds: [], topicsText: extra.topicsText || '', useArchive: true, useNotes: true, customDate: false, planItem: extra.planItem || null };
   go('newExam');
 }
 
 function editExamMaterial(exam) {
-  nx = { step: 4, editId: exam.id, subjectId: exam.subjectId, date: exam.date, targetGrade: exam.targetGrade, materialIds: [...(exam.materialIds || [])], topicsText: exam.topicsText || '', useArchive: exam.useArchive !== false };
+  nx = { step: 4, editId: exam.id, subjectId: exam.subjectId, date: exam.date, targetGrade: exam.targetGrade, materialIds: [...(exam.materialIds || [])], topicsText: exam.topicsText || '', useArchive: exam.useArchive !== false, useNotes: exam.useNotes !== false };
   go('newExam');
 }
 
@@ -970,6 +1058,7 @@ function viewNewExam() {
     };
     drawGrid();
     const archiveCount = subject ? archiveCountOf(subject) : 0;
+    const notesCount = subject ? notesCountOf(subject) : 0;
     return h('div', { class: 'screen' }, bar(3),
       h('main', { class: 'content narrow' },
         speech(`Welche Themen kommen in deiner ${subject?.name}-Klausur dran?`),
@@ -982,10 +1071,14 @@ function viewNewExam() {
         h('label', { class: 'check-row' },
           h('input', { type: 'checkbox', checked: nx.useArchive, onchange: (e) => { nx.useArchive = e.target.checked; } }),
           h('span', {}, `Alte Klausuren aus dem ${subject?.name}-Archiv nutzen (${archiveCount} vorhanden)`)),
-        archiveCount === 0 ? h('p', { class: 'muted small' }, 'Tipp: Unter „Fächer“ kannst du alte Klausuren hochladen. Dann lerne ich den Stil deiner Lehrkraft.') : null),
+        archiveCount === 0 ? h('p', { class: 'muted small' }, 'Tipp: Unter „Fächer“ kannst du alte Klausuren hochladen. Dann lerne ich den Stil deiner Lehrkraft.') : null,
+        notesCount ? h('label', { class: 'check-row' },
+          h('input', { type: 'checkbox', checked: nx.useNotes, onchange: (e) => { nx.useNotes = e.target.checked; } }),
+          h('span', {}, `GoodNotes-Mitschriften aus ${subject?.name} nutzen (${notesCount} vorhanden)`))
+          : h('p', { class: 'muted small' }, 'Tipp: Unter Mehr → GoodNotes-Import holst du deine Mitschriften dazu. Dann weiß ich, was im Unterricht wirklich dran war.')),
       h('footer', { class: 'footer' }, h('button', { class: 'btn primary block', onclick: () => {
         if (!aiReady()) { toast('Bitte zuerst die KI einrichten (Einstellungen).', 'error'); return; }
-        if (!nx.materialIds.length && !nx.topicsText.trim() && !archiveCount) { toast('Lade Material hoch oder nenne zumindest die Themen.'); return; }
+        if (!nx.materialIds.length && !nx.topicsText.trim() && !archiveCount && !(nx.useNotes && notesCount)) { toast('Lade Material hoch oder nenne zumindest die Themen.'); return; }
         nx.step = 5; render();
       } }, nx.editId ? 'Speichern & Plan aktualisieren' : 'Weiter')));
   }
@@ -1009,7 +1102,7 @@ function startExamBuild() {
     for (const u of allUnits(exam)) delete state.sessions[u.id];
     exam.plan = null;
   }
-  Object.assign(exam, { date: nx.date ?? null, targetGrade: nx.targetGrade, materialIds: nx.materialIds, topicsText: nx.topicsText, useArchive: nx.useArchive, building: true });
+  Object.assign(exam, { date: nx.date ?? null, targetGrade: nx.targetGrade, materialIds: nx.materialIds, topicsText: nx.topicsText, useArchive: nx.useArchive, useNotes: nx.useNotes, building: true });
   state.activeExamId = exam.id;
   const item = nx.planItem && xp().items.find((it) => it.id === nx.planItem);
   if (item) item.examId = exam.id; // Eintrag im Klassenarbeitsplan ↔ Lernplan
@@ -1646,6 +1739,26 @@ function viewSubject({ id }) {
   };
   drawArchive(); drawProfile();
 
+  const notesList = h('div', { class: 'list' });
+  const drawNotes = () => {
+    const leads = (s.goodnotes || []).filter((fid) => state.files[fid] && isGroupLead(fid));
+    notesList.replaceChildren(...leads.map((fid) => {
+      const f = state.files[fid];
+      const st = ui.busy[fid] ? 'liest …' : f.digest ? '✓ gelesen' : 'noch nicht gelesen';
+      return h('div', { class: 'list-item' },
+        h('button', { class: 'row gap file-open', onclick: () => openFile(fid) }, icon('notebook', 20), h('span', { class: 'stack-tight' }, h('span', {}, f.name), h('span', { class: 'muted small' }, [f.digest?.titel && f.digest.titel !== f.name ? f.digest.titel : '', pagesLabel(fid), st].filter(Boolean).join(' · ')))),
+        h('span', { class: 'row gap' },
+          !f.digest && !ui.busy[fid] ? h('button', { class: 'btn small', onclick: async () => { await readNotes([s], drawNotes); drawNotes(); } }, 'Lesen') : null,
+          h('button', { class: 'iconbtn', 'aria-label': 'Löschen', onclick: async () => {
+            if (!(await confirmDialog(`„${f.name}“ aus den Mitschriften löschen? (In GoodNotes bleibt alles.)`, 'Löschen'))) return;
+            const ids = groupOf(fid);
+            s.goodnotes = s.goodnotes.filter((x) => !ids.includes(x)); await removeGroup(fid); save(); render();
+          } }, icon('trash', 18))));
+    }));
+    if (!leads.length) add(notesList, h('p', { class: 'muted small' }, 'Noch keine Mitschriften.'));
+  };
+  drawNotes();
+
   const upload = async () => {
     const files = await pickFiles();
     if (!files.length) return;
@@ -1669,6 +1782,11 @@ function viewSubject({ id }) {
           h('p', { class: 'muted small' }, 'Am besten korrigierte Klausuren (mit Rotstift & Punkten). Daraus lerne ich den Stil deiner Lehrkraft.'),
           archiveList,
           h('button', { class: 'btn block', onclick: upload }, icon('upload', 18), 'Klausuren hochladen')]),
+        fold('notebook', 'Mitschriften aus GoodNotes', `${notesCountOf(s)} ${notesCountOf(s) === 1 ? 'Heft' : 'Hefte'}`, [
+          h('p', { class: 'muted small' }, 'Deine Hefteinträge aus dem Unterricht. Ich nutze sie für Lernpläne, Lernzettel, Quiz und den Tutor.'),
+          notesList,
+          h('button', { class: 'btn block', onclick: () => importGoodNotes(s.id) }, icon('upload', 18), 'PDFs aus GoodNotes importieren'),
+          h('button', { class: 'link-small', onclick: goodnotesHelp }, 'So exportierst du aus GoodNotes')]),
         fold('checkc', 'Gelöste Arbeitsblätter', `${solvedList().filter((x) => x.subjectId === s.id).length} Blätter`, [
           h('div', { class: 'menu' }, solvedList().filter((x) => x.subjectId === s.id).map((x) => menuRow('file', x.titel, x.ersteAufgabe || '', () => go('solved', { id: x.id })))),
           h('button', { class: 'btn block', onclick: () => startSolve(s.id) }, icon('camera', 18), 'Arbeitsblatt lösen')]),
@@ -1687,7 +1805,7 @@ function viewSubject({ id }) {
           h('button', { class: 'btn ghost block danger-text', onclick: async () => {
             if (state.exams.some((e) => e.subjectId === s.id)) return toast('Lösche zuerst die Klausuren dieses Fachs.', 'error');
             if (!(await confirmDialog(`${s.name} samt Archiv löschen?`, 'Löschen'))) return;
-            for (const fid of s.archive || []) await removeFile(fid);
+            for (const fid of [...(s.archive || []), ...(s.goodnotes || [])]) await removeFile(fid);
             state.subjects = state.subjects.filter((x) => x.id !== s.id); save(); go('subjects');
           } }, 'Fach löschen')]))));
 }
@@ -3147,6 +3265,7 @@ function viewSettings() {
         menuRow('waves', 'Qualle', `Aussehen: ${JELLY_STYLES.find((x) => x.id === state.settings.jelly)?.name || 'Klassisch'}`, () => jellySheet()),
         menuRow('notebook', 'Notizen', 'Notizbücher mit Apple Pencil und Tastatur', () => openNotes('settings')),
         menuRow('chat', 'Tutor-Chat', 'Fragen zum Stoff deiner Klausur', () => go('tutor')),
+        menuRow('upload', 'GoodNotes-Import', (() => { const n = state.subjects.reduce((a, s) => a + notesCountOf(s), 0); return n ? `${n} Hefte · Mitschriften aktualisieren` : 'Mitschriften für deine Fächer holen'; })(), () => importGoodNotes()),
         menuRow('folder', 'Hochgeladene Dateien', `${Object.keys(state.files || {}).length} Dateien`, () => go('files')),
         menuRow('refresh', 'Daten retten', 'Verschwundene Lernsachen wiederfinden', () => rescueSheet()),
         menuRow('save', 'Datensicherung', 'Backup speichern oder einspielen', () => {
@@ -3164,7 +3283,7 @@ function viewSettings() {
 }
 
 function viewFiles() {
-  const order = ['material', 'archive', 'sheet', 'vocab', 'vtest', 'timetable', 'examplan', 'answer'];
+  const order = ['material', 'goodnotes', 'archive', 'sheet', 'vocab', 'vtest', 'timetable', 'examplan', 'answer'];
   const files = Object.values(state.files || {}).sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0));
   const groups = order.map((k) => [k, files.filter((f) => f.kind === k)]).concat([['other', files.filter((f) => !order.includes(f.kind))]]).filter(([, l]) => l.length);
   const sub = (f) => [subjectById(f.subjectId)?.name, f.addedAt ? new Date(f.addedAt).toLocaleDateString('de-DE') : '', f.mime === 'application/pdf' ? 'PDF' : f.mime?.startsWith('image/') ? 'Foto' : 'Text'].filter(Boolean).join(' · ');
