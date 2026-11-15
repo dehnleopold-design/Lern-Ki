@@ -19,7 +19,7 @@ setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, JELLY_STYLES, setJellyStyle, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.53 (15.11.)';
+const APP_VERSION = '2.54 (15.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -74,60 +74,94 @@ function inkFor(hex) {
   const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
   return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.45 ? '#111111' : '#ffffff';
 }
+// App-Stile (Mehr → Design → Stil); das Aussehen steht in styles.css unter [data-skin]
+const SKINS = [
+  { id: 'standard', name: 'Standard', sub: 'Dunkel & lila', bg: '#09080d' },
+  { id: 'hell', name: 'Hell', sub: 'Klar und freundlich', bg: '#f5f4fa' },
+  { id: 'altmodisch', name: 'Altmodisch', sub: 'Papier & Schreibmaschine', bg: '#ece2cb' },
+  { id: 'futuristisch', name: 'Futuristisch', sub: 'Neon, Glas & Raster', bg: '#04060e' },
+  { id: 'galaxis', name: 'Galaxis', sub: 'Sternenhimmel & Gold', bg: '#02010a' },
+  { id: 'pixel', name: 'Retro-Game', sub: 'Pixel & harte Kanten', bg: '#1d1b3f' },
+  { id: 'terminal', name: 'Terminal', sub: 'Hacker-Bildschirm', bg: '#010a03' },
+  { id: 'pastell', name: 'Pastell', sub: 'Süß und rund', bg: '#fff3f9' },
+  { id: 'ozean', name: 'Ozean', sub: 'Tiefsee & Wellen', bg: '#021428' },
+  { id: 'schulheft', name: 'Schulheft', sub: 'Kariert mit Kuli', bg: '#fbfbf6' },
+];
+const skinOf = () => SKINS.find((x) => x.id === state.settings?.skin) || SKINS[0];
 function applyTheme() {
   setJellyStyle(state.settings?.jelly);
+  const skin = skinOf();
+  const html = document.documentElement;
+  if (html.dataset.skin !== skin.id) {
+    html.dataset.skin = skin.id;
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', skin.bg);
+  }
+  // Eigene Farben (Mehr → Design → Farben) gehen vor; sonst gelten die Farben des Stils
   const t = state.settings?.theme;
-  const a = isHex(t?.a) ? t.a : THEMES[0].a;
-  const b = isHex(t?.b) ? t.b : THEMES[0].b;
-  const root = document.documentElement.style;
-  if (root.getPropertyValue('--accent') === a && root.getPropertyValue('--accent-2') === b) return;
-  root.setProperty('--accent', a);
-  root.setProperty('--accent-2', b);
-  root.setProperty('--accent-ink', inkFor(a));
+  const root = html.style;
+  if (!t || !isHex(t.a) || !isHex(t.b)) { ['--accent', '--accent-2', '--accent-ink'].forEach((k) => root.removeProperty(k)); return; }
+  if (root.getPropertyValue('--accent') === t.a && root.getPropertyValue('--accent-2') === t.b) return;
+  root.setProperty('--accent', t.a);
+  root.setProperty('--accent-2', t.b);
+  root.setProperty('--accent-ink', inkFor(t.a));
 }
 
-function designSheet() {
-  const cur = () => state.settings.theme || { id: 'lila', a: THEMES[0].a, b: THEMES[0].b };
+// Mehr → Design: Stil, Farben und Qualle in einem Fenster
+let designTab = 'stil';
+function designSheet(tab = designTab) {
+  designTab = tab;
   const body = h('div');
-  const setTheme = (t) => { state.settings.theme = t; save(); render(); draw(); };
-  const draw = () => {
-    const t = cur();
-    // Beim Ziehen nur anwenden (Farbwähler bleibt offen), beim Loslassen alles neu zeichnen
+  const seg = () => h('div', { class: 'seg design-tabs' }, [['stil', 'Stil'], ['farben', 'Farben'], ['qualle', 'Qualle']].map(([k, l]) =>
+    h('button', { class: `seg-btn ${designTab === k ? 'active' : ''}`, onclick: () => { designTab = k; draw(); } }, l)));
+  const draw = () => body.replaceChildren(seg(), ...(designTab === 'stil' ? skinPane() : designTab === 'farben' ? colorPane() : jellyPane()));
+  const redraw = () => { render(); draw(); };
+
+  const skinPane = () => [
+    h('p', { class: 'muted small' }, 'Verändert das ganze Aussehen der App: Hintergrund, Schriften, Formen und Farben.'),
+    h('div', { class: 'skin-grid' }, SKINS.map((x) => h('button', { class: `skin-opt ${skinOf().id === x.id ? 'on' : ''}`, onclick: () => {
+      if (x.id === 'standard') delete state.settings.skin; else state.settings.skin = x.id;
+      const hadColors = !!state.settings.theme;
+      delete state.settings.theme; // Farben des Stils zeigen; eigene Farben lassen sich danach wieder wählen
+      save(); redraw();
+      if (hadColors) toast('Eigene Farben zurückgesetzt – unter „Farben“ kannst du sie wieder anpassen.');
+    } },
+      h('div', { class: 'skin-prev', 'data-skin': x.id }, h('div', { class: 'sp-title' }, 'Jelly'), h('div', { class: 'sp-card' }, 'Bio · in 5 Tagen'), h('div', { class: 'sp-btn' }, 'Lernen')),
+      h('div', { class: 'skin-name' }, x.name, h('small', {}, x.sub))))),
+  ];
+
+  const colorPane = () => {
+    const t = state.settings.theme || { id: skinOf().id === 'standard' ? 'lila' : 'stil', a: getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || THEMES[0].a, b: getComputedStyle(document.documentElement).getPropertyValue('--accent-2').trim() || THEMES[0].b };
+    const cur = () => state.settings.theme || t;
+    const setTheme = (x) => { state.settings.theme = x; save(); redraw(); };
     const live = (k) => (e) => { state.settings.theme = { ...cur(), id: 'eigen', [k]: e.target.value }; save(); applyTheme(); };
-    const done = () => { render(); draw(); };
-    const a = h('input', { type: 'color', value: t.a, oninput: live('a'), onchange: done });
-    const b = h('input', { type: 'color', value: t.b, oninput: live('b'), onchange: done });
-    body.replaceChildren(
+    const hex = (c) => (isHex(c) ? c : THEMES[0].a);
+    return [
       h('div', { class: 'label' }, 'Farbschema'),
-      h('div', { class: 'theme-grid' }, THEMES.map((x) => h('button', { class: `theme-opt ${t.id === x.id ? 'on' : ''}`, onclick: () => setTheme({ id: x.id, a: x.a, b: x.b }) },
+      h('div', { class: 'theme-grid' }, THEMES.map((x) => h('button', { class: `theme-opt ${state.settings.theme?.id === x.id ? 'on' : ''}`, onclick: () => setTheme({ id: x.id, a: x.a, b: x.b }) },
         h('span', { class: 'theme-dot', style: { background: `linear-gradient(135deg, ${x.a} 50%, ${x.b} 50%)` } }), x.name))),
       h('div', { class: 'label' }, 'Eigene Farben'),
-      h('label', { class: 'color-row' }, a, h('span', {}, h('strong', {}, 'Hauptfarbe'), h('div', { class: 'muted small' }, 'Knöpfe, aktive Reiter, Fortschritt'))),
-      h('label', { class: 'color-row' }, b, h('span', {}, h('strong', {}, 'Zweitfarbe'), h('div', { class: 'muted small' }, 'Hervorhebungen, Schrift auf dunklen Flächen'))),
+      h('label', { class: 'color-row' }, h('input', { type: 'color', value: hex(t.a), oninput: live('a'), onchange: redraw }), h('span', {}, h('strong', {}, 'Hauptfarbe'), h('div', { class: 'muted small' }, 'Knöpfe, aktive Reiter, Fortschritt'))),
+      h('label', { class: 'color-row' }, h('input', { type: 'color', value: hex(t.b), oninput: live('b'), onchange: redraw }), h('span', {}, h('strong', {}, 'Zweitfarbe'), h('div', { class: 'muted small' }, 'Hervorhebungen, Schrift auf dunklen Flächen'))),
       h('div', { class: 'label' }, 'Vorschau'),
       h('div', { class: 'theme-preview' }, h('button', { class: 'btn primary small' }, 'Knopf'), h('span', { class: 'chip active' }, 'Aktiv'), h('span', { class: 'chip-static prep' }, icon('sparkles', 14), 'Hinweis'), progressRing(64, 44)),
-      t.id !== 'lila' ? h('button', { class: 'btn ghost block', onclick: () => { delete state.settings.theme; save(); render(); draw(); } }, 'Zurück zu Lila') : null);
+      state.settings.theme ? h('button', { class: 'btn ghost block', onclick: () => { delete state.settings.theme; save(); redraw(); } }, `Zurück zu den Farben von „${skinOf().name}“`) : null,
+    ];
   };
-  draw();
-  sheet('Design', [body]);
-}
 
-// ---------- Aussehen der Qualle (Mehr → Qualle)
-function jellySheet() {
-  const body = h('div');
-  const draw = () => {
+  const jellyPane = () => {
     const cur = state.settings.jelly || 'klassisch';
-    body.replaceChildren(
+    return [
       h('p', { class: 'muted small' }, 'So sieht Jelly überall in der App aus – beim Laden, im Chat, im Kalender …'),
       h('div', { class: 'jelly-preview' }, mascot(120, 'normal', cur)),
       h('div', { class: 'jelly-grid' }, JELLY_STYLES.map((x) => h('button', {
         class: `jelly-opt ${cur === x.id ? 'on' : ''}`,
-        onclick: () => { if (x.id === 'klassisch') delete state.settings.jelly; else state.settings.jelly = x.id; save(); render(); draw(); },
+        onclick: () => { if (x.id === 'klassisch') delete state.settings.jelly; else state.settings.jelly = x.id; save(); redraw(); },
       }, mascot(56, 'normal', x.id), h('span', {}, x.name)))),
-      cur === 'design' ? h('p', { class: 'muted small' }, 'Die Qualle nimmt die Farben aus Mehr → Design.') : null);
+      cur === 'design' ? h('p', { class: 'muted small' }, 'Die Qualle nimmt die Farben aus Stil und Farben.') : null,
+    ];
   };
   draw();
-  sheet('Qualle', [body]);
+  sheet('Design', [body]);
 }
 
 function render() {
@@ -3429,8 +3463,7 @@ function viewSettings() {
             h('p', { class: 'muted small' }, `${p.minutesPerDay} Min./Tag · Korrektur: ${p.feedbackStyle === 'hart' ? 'schonungslos' : 'ermutigend'} · ${p.gradeScale === '0-15' ? 'Punkte 0–15' : 'Noten 1–6'}`),
             h('button', { class: 'btn primary block', onclick: () => { o.remove(); draft = null; go('onboarding'); } }, 'Fragebogen neu ausfüllen')]);
         }),
-        menuRow('sparkles', 'Design', `Farben: ${THEMES.find((x) => x.id === state.settings.theme?.id)?.name || (state.settings.theme ? 'Eigene' : 'Lila')}`, () => designSheet()),
-        menuRow('waves', 'Qualle', `Aussehen: ${JELLY_STYLES.find((x) => x.id === state.settings.jelly)?.name || 'Klassisch'}`, () => jellySheet()),
+        menuRow('sparkles', 'Design', `Stil: ${skinOf().name} · Farben: ${state.settings.theme ? (THEMES.find((x) => x.id === state.settings.theme.id)?.name || 'Eigene') : 'vom Stil'} · Qualle: ${JELLY_STYLES.find((x) => x.id === state.settings.jelly)?.name || 'Klassisch'}`, () => designSheet()),
         menuRow('notebook', 'Notizen', 'Notizbücher mit Apple Pencil und Tastatur', () => openNotes('settings')),
         menuRow('chat', 'Tutor-Chat', 'Fragen zum Stoff deiner Klausur', () => go('tutor')),
         menuRow('upload', 'GoodNotes-Import', (() => { const n = state.subjects.reduce((a, s) => a + notesCountOf(s), 0); return n ? `${n} Hefte · Mitschriften aktualisieren` : 'Mitschriften für deine Fächer holen'; })(), () => importGoodNotes()),
