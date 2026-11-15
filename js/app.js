@@ -13,12 +13,13 @@ import { chessPanel } from './chess.js';
 import { checkAccess, redeemCode, cachedAccess, normalizeCode } from './license.js';
 import { initNotes, viewNotes, viewNotebook } from './notes.js';
 import { splitNotebook, guessSubject, baseName } from './goodnotes.js';
+import { OFFLINE_MODELS, offlineSupport, offlineDownloaded, offlineLoad, offlineDelete, offlineChat, offlineSystem, offlineSize, setOfflineSize, mathAnswer, pickContext, takeCrashNote } from './offline-ai.js';
 
 setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, JELLY_STYLES, setJellyStyle, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.52 (15.11.)';
+const APP_VERSION = '2.53 (15.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -3245,7 +3246,7 @@ function viewTutor() {
   const draw = () => {
     list.replaceChildren(
       h('div', { class: 'msg model' }, mdEl(`Frag mich alles zur **${subjectById(exam.subjectId)?.name}**-Klausur. Ich kenne dein Material. Oder schreib „Frag mich ab“ – dann bekommst du eine prüfungsnahe Aufgabe.`)),
-      ...msgs.map((m) => h('div', { class: `msg ${m.role}` }, m.role === 'model' ? mdEl(m.text) : m.text)));
+      ...msgs.map((m) => h('div', { class: `msg ${m.role}` }, m.role === 'model' ? mdEl(m.text) : m.text, m.offline ? h('div', { class: 'msg-tag' }, icon('zap', 12), m.offline === 'rechner' ? 'Rechner · offline' : 'Offline-Tutor') : null)));
     setTimeout(() => list.lastChild?.scrollIntoView({ block: 'end' }), 0);
   };
   draw();
@@ -3262,9 +3263,36 @@ function viewTutor() {
     const typing = thinkingBubble();
     add(list, typing);
     typing.scrollIntoView({ block: 'end', behavior: 'smooth' });
+    // Ohne Internet: Rechner für reine Rechenaufgaben, sonst die KI auf dem Gerät
+    const runOffline = async () => {
+      const math = mathAnswer(text);
+      if (math) { msgs.push({ role: 'model', text: math.text, offline: 'rechner' }); return; }
+      if (!(await offlineDownloaded())) {
+        msgs.push({ role: 'model', text: 'Du bist gerade offline, und der **Offline-Tutor** ist noch nicht auf diesem Gerät. Lade ihn mit Internet unter **Mehr → Offline-Tutor** herunter. Reine Rechenaufgaben (z. B. „Wurzel aus 121“) kann ich aber auch so.', offline: true });
+        return;
+      }
+      const label = typing.querySelector('.think-text');
+      const bubble = h('div', { class: 'msg model' });
+      const reply = await offlineChat({
+        system: offlineSystem({ subject: subjectById(exam.subjectId)?.name, grade: state.profile?.grade, material: pickContext(P.examContext(exam), `${text} ${history.at(-1)?.text || ''}`) }),
+        history, text,
+        onProgress: (p) => { if (label) label.textContent = `Offline-Tutor startet … ${Math.round(p * 100)} %`; },
+        onToken: (s) => { if (!bubble.isConnected) typing.replaceWith(bubble); bubble.replaceChildren(mdEl(s)); bubble.scrollIntoView({ block: 'end' }); },
+      });
+      msgs.push({ role: 'model', text: reply || 'Dazu fällt mir offline leider nichts ein.', offline: true });
+    };
+    const isNetErr = (e) => !navigator.onLine || e instanceof TypeError || /network|netzwerk|internet|fetch|offline|verbindung/i.test(e?.message || '');
     try {
-      const reply = await generate({ system: P.tutorSystem(exam), parts: [{ text }], history, temperature: 0.5 });
-      msgs.push({ role: 'model', text: reply });
+      if (!navigator.onLine) await runOffline();
+      else {
+        try {
+          const reply = await generate({ system: P.tutorSystem(exam), parts: [{ text }], history, temperature: 0.5 });
+          msgs.push({ role: 'model', text: reply });
+        } catch (e) {
+          if (isNetErr(e) && (mathAnswer(text) || await offlineDownloaded())) await runOffline();
+          else throw e;
+        }
+      }
     } catch (e) { msgs.pop(); input.value = text; toast(errorMsg(e), 'error'); }
     save(); draw(); send.disabled = false;
   } }, icon('send'));
@@ -3299,6 +3327,49 @@ function waitAreaSheet() {
   ]);
 }
 
+// ---------- Offline-Tutor (Mehr → Offline-Tutor)
+function offlineSheet() {
+  const body = h('div', { class: 'stack' });
+  let busy = false;
+  const draw = async (status = '', pct = null) => {
+    const why = await offlineSupport();
+    const have = !why && !busy ? await offlineDownloaded() : false;
+    const size = offlineSize();
+    body.replaceChildren(
+      h('p', { class: 'muted small' }, 'Wenn du kein Internet hast, antwortet im Tutor eine kleine KI direkt auf deinem Gerät. Sie kennt dein Material, ist aber deutlich einfacher als die Online-KI – gut für kurze Erklärungen, Abfragen und Rechnungen.'),
+      why ? h('div', { class: 'warn small' }, why) : null,
+      h('div', { class: 'label' }, 'Modell'),
+      h('div', { class: 'seg' }, Object.entries(OFFLINE_MODELS).map(([k, m]) => h('button', { class: `seg-btn ${size === k ? 'active' : ''}`, disabled: busy, onclick: () => { setOfflineSize(k); draw(); } }, `${m.name} · ${m.size}`))),
+      h('p', { class: 'muted small' }, size === 'klein' ? 'Klein: schneller und sparsamer, aber ungenauer.' : 'Standard: bessere Antworten. Braucht ein Gerät mit genug Arbeitsspeicher – wenn die App beim Laden abstürzt, stelle ich automatisch auf „Klein“ um.'),
+      h('div', { class: 'label' }, 'Status'),
+      h('p', {}, busy ? status : have ? '✓ Heruntergeladen – der Tutor funktioniert auch offline.' : 'Noch nicht heruntergeladen.'),
+      pct !== null ? h('div', { class: 'offline-bar' }, h('i', { style: { width: `${Math.round(pct * 100)}%` } })) : null,
+      !why && !have && !busy ? h('button', { class: 'btn primary block', onclick: download }, icon('download', 18), `Herunterladen (${OFFLINE_MODELS[size].size}, am besten im WLAN)`) : null,
+      !why && have && !busy ? h('button', { class: 'btn block', onclick: test }, icon('chat', 18), 'Kurz testen') : null,
+      have && !busy ? h('button', { class: 'btn ghost block danger-text', onclick: async () => { if (!(await confirmDialog('Offline-Modell vom Gerät löschen?', 'Löschen'))) return; await offlineDelete(); toast('Gelöscht.', 'ok'); draw(); } }, 'Vom Gerät löschen') : null,
+      h('p', { class: 'muted small' }, 'Rechenaufgaben wie „Wurzel aus 121“ oder „15 % von 80“ rechnet ein eingebauter Rechner – die stimmen immer, auch ohne Modell.'));
+  };
+  const download = async () => {
+    busy = true;
+    try {
+      await offlineLoad((p) => draw(`Lade herunter … ${Math.round(p * 100)} %`, p));
+      busy = false; toast('Offline-Tutor ist bereit.', 'ok');
+    } catch (e) { busy = false; toast(errorMsg(e), 'error'); }
+    draw();
+  };
+  const test = async () => {
+    busy = true; draw('Starte und teste …');
+    try {
+      const out = await offlineChat({ system: offlineSystem({}), text: 'Erkläre in einem Satz, was Photosynthese ist.', onProgress: (p) => draw(`Starte … ${Math.round(p * 100)} %`, p) });
+      busy = false; await draw(); add(body, h('div', { class: 'card' }, h('div', { class: 'label' }, 'Antwort'), mdEl(out)));
+    } catch (e) { busy = false; toast(errorMsg(e), 'error'); draw(); }
+  };
+  draw();
+  sheet('Offline-Tutor', [body]);
+  const note = takeCrashNote();
+  if (note) toast(note);
+}
+
 // Schach & Video jederzeit, unabhängig vom Warten
 let playTab = null;
 function viewPlay() {
@@ -3321,6 +3392,7 @@ function viewSettings() {
         menuRow('sparkles', 'KI-Verbindung', aiSub, () => sheet('KI-Verbindung', [aiSetupBlock(false)])),
         menuRow(st.waitMode === 'chess' ? 'target' : 'video', 'Wartebereich', `${st.waitMode === 'chess' ? 'Schach gegen Bots' : (st.waitVideo ?? DEFAULT_WAIT_VIDEO) ? 'Video' : 'Aus'} · ${st.waitConfirm ? 'mit Haken bestätigen' : 'automatisch weiter'}`, () => waitAreaSheet()),
         menuRow('play', 'Schach & Video', 'Jederzeit spielen oder schauen – auch ohne Warten', () => go('play')),
+        menuRow('zap', 'Offline-Tutor', 'KI direkt auf dem Gerät – auch ohne Internet', () => offlineSheet()),
         menuRow('mic', 'Jelly Voice', 'Unterricht aufnehmen – Notizen & Lernzettel daraus', () => { location.href = 'voice/'; })),
       authEnabled && !bootedUid ? h('div', { class: 'menu' },
         menuRow('key', 'Konto & Sync einrichten', 'Anmelden – dann hast du alles auf iPad und Handy', () => openAccountSetup())) : null,

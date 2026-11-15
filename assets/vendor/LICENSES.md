@@ -6,3 +6,7 @@
 ## pdf.js 4.10.38 (Mozilla)
 Dateien: `pdfjs/pdf.min.mjs`, `pdfjs/pdf.worker.min.mjs` (legacy build aus dem npm-Paket `pdfjs-dist`).
 Lizenz: Apache License 2.0, siehe `pdfjs/LICENSE`. Wird nur zum Anzeigen hochgeladener PDFs geladen.
+
+## WebLLM 0.2.86 (MLC AI)
+Dateien: `web-llm/web-llm.js` (aus dem npm-Paket `@mlc-ai/web-llm`, enthält loglevel – MIT), `web-llm/worker.js` (eigener Code).
+Lizenz: Apache License 2.0, siehe `web-llm/LICENSE`. Wird nur für den Offline-Tutor geladen. Die Modelldateien (Qwen 2.5, Apache 2.0) kommen beim Herunterladen von Hugging Face.
