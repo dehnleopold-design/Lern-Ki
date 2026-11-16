@@ -8,7 +8,8 @@ import * as P from './prompts.js';
 import { allUnits, hasContent, lernzettelText, missingPhases, genLernzettel, genQuiz, genAufgaben, generateUnit, mixOptions, setPartLoader, digestFile, groupOf, isGroupLead, resetGroup, buildTeacherProfile, examFileIds, examNeedsProfile, createPlan, buildVocabPlan, buildVocabSet, buildVocabTestProfile, solveSheet, pendingJobs } from './gen.js';
 import { gradeLabel, gradeOptions, percentToGrade, reachesTarget, scale } from './grades.js';
 import { downloadLernzettel, sheetHTML, SHEET_CSS, SHEET_STYLES } from './pdf.js';
-import { stats, streak, isUnlocked, unlockInfo, recordActivity, setAllUnlocked } from './rewards.js';
+import { stats, streak, isUnlocked, unlockInfo, recordActivity, setAllUnlocked, rankOf, addXp, XP_UNIT, xpForQuiz, xpForTask } from './rewards.js';
+import { placeRankChip, flyXp } from './ranks.js';
 import { celebrate } from './celebrate.js';
 import { SEASONS, applySeason, activeSeason, seasonName } from './seasons.js';
 import { openFile, fileKindLabel } from './viewer.js';
@@ -23,7 +24,7 @@ setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, JELLY_STYLES, setJellyStyle, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.58 (16.11.)';
+const APP_VERSION = '2.59 (16.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -124,10 +125,20 @@ async function setUserBg(file) {
   applyUserBgVars();
 }
 
+// ---------- XP gutschreiben: fliegen zum Rang-Abzeichen oben rechts, bei neuem Rang wird gefeiert
+function gainXp(items, delay = 0) {
+  items = (items || []).filter((x) => x.xp > 0);
+  if (!items.length) return;
+  let res;
+  try { res = addXp(items.reduce((a, x) => a + x.xp, 0)); } catch (e) { console.warn(e); return; }
+  setTimeout(() => flyXp(items, res.before, res.after, (r) => celebrate({ title: `Neuer Rang: ${r.name}!`, sub: 'Tippe oben rechts auf dein Abzeichen' })), delay);
+}
+
 // ---------- Belohnungen: Feier zeigen, Freischaltungen melden
 function reward(type, opts) {
   let events = [];
   try { events = recordActivity(type, opts); } catch (e) { console.warn(e); return; }
+  gainXp([type === 'quiz' ? { xp: xpForQuiz(opts?.pct ?? (opts?.perfect ? 100 : 60)), label: 'Quiz' } : { xp: XP_UNIT, label: 'Lerneinheit' }], 900);
   const shows = [];
   const unlocks = events.filter((e) => e.type === 'unlock');
   const perfect = events.find((e) => e.type === 'perfect');
@@ -277,6 +288,7 @@ function render() {
   const views = { login: viewLogin, onboarding: viewOnboarding, prepare: viewPrepare, plan: viewPlan, pick: viewPick, vocab: viewVocab, solve: viewSolveNew, solved: viewSolved, vnew: viewVocabNew, vset: viewVocabSet, vwords: viewVocabWords, vplan: viewVocabPlan, vquiz: viewVocabQuiz, vtests: viewVocabTests, files: viewFiles, week: viewWeek, wimport: viewWeekImport, todo: viewTodos, notes: viewNotes, notebook: viewNotebook, calendar: viewCalendar, newExam: viewNewExam, session: viewSession, subjects: viewSubjects, subject: viewSubject, tutor: viewTutor, settings: viewSettings, play: viewPlay };
   const v = (views[route.name] || viewPlan)(route.params);
   add(app, v);
+  if (state.profile && !['login', 'onboarding'].includes(route.name)) { try { placeRankChip(app); } catch (e) { console.warn(e); } }
 }
 
 function tabbar(active) {
@@ -1416,7 +1428,14 @@ function viewSession({ examId, unitId }) {
       add(document.body, overlay);
       let graded = false;
       try { await gradeSession(exam, unit, sess); graded = true; } catch (e) { toast(errorMsg(e), 'error'); }
-      const finish = () => { overlay.remove(); render(); };
+      const finish = () => {
+        overlay.remove(); render();
+        // XP je Aufgabe nach erreichten Punkten (nur einmal pro Abgabe)
+        if (graded && !sess.xpGiven) {
+          sess.xpGiven = true; save();
+          gainXp((sess.grading?.ergebnisse || []).map((r) => ({ xp: xpForTask(r.punkte, r.maxPunkte), label: `Aufgabe ${sess.aufgaben.findIndex((a) => a.id === r.id) + 1}` })), 700);
+        }
+      };
       if (graded) finishWait(panel, () => jellyTransition(finish)); else finish();
     } }, 'Abgeben & korrigieren lassen');
     add(main, submit);
@@ -1704,7 +1723,7 @@ function runQuiz(main, sess, opts = {}) {
     const right = qs.filter((_, i) => sess.antworten[i]?.correct).length;
     const pct = Math.round((right / total) * 100);
     const wrong = qs.map((q, i) => ({ q, a: sess.antworten[i] })).filter((x) => !x.a?.correct);
-    if (!sess.rewarded) { sess.rewarded = true; save(); setTimeout(() => reward('quiz', { perfect: pct === 100 }), 250); }
+    if (!sess.rewarded) { sess.rewarded = true; save(); setTimeout(() => reward('quiz', { perfect: pct === 100, pct }), 250); }
     add(main,
       h('section', { class: `card summary ${pct >= 75 ? 'good' : 'bad'}` },
         h('div', { class: 'row between' }, h('div', {}, h('div', { class: 'big-num' }, `${right}/${total}`), h('div', { class: 'muted small' }, 'richtig')), h('div', { class: 'big-num' }, `${pct} %`)),

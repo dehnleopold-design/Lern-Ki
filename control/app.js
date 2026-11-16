@@ -429,8 +429,8 @@ function accessBlock(u, close) {
     }).catch(() => { status.textContent = 'unbekannt'; });
   }
   const all = !!lic?.allDesigns;
-  const design = h('button', { class: 'btn block', style: 'margin-top:8px', onclick: () => set({ allDesigns: !all }, all ? 'Designs wieder nur durch Lernen' : 'Alle Designs freigeschaltet – gilt ab dem nächsten Öffnen von Jelly') },
-    all ? '✓ Alle Designs frei – wieder zurücknehmen' : 'Alle Designs freischalten');
+  const design = h('button', { class: 'btn block', style: 'margin-top:8px', onclick: () => set({ allDesigns: !all }, all ? 'Designs und Rang wieder nur durch Lernen' : 'Alle Designs + höchster Rang freigeschaltet – gilt ab dem nächsten Öffnen von Jelly') },
+    all ? '✓ Alle Designs + höchster Rang frei – zurücknehmen' : 'Alle Designs + höchsten Rang freischalten');
   return h('div', { class: 'access' }, h('div', { class: 'label' }, 'Zugang'), h('div', { style: 'margin:4px 0 8px;font-weight:600' }, status), btns, lic?.revoked ? null : design);
 }
 

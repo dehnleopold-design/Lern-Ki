@@ -46,6 +46,11 @@ export function stats() {
     state.stats.seen = UNLOCKS.filter((u) => reached(u)).map(key);
     save();
   }
+  // XP gab es anfangs nicht: bisherigen Fortschritt anrechnen
+  if (state.stats.xp === undefined) {
+    state.stats.xp = (state.stats.units || 0) * 40 + (state.stats.quizzes || 0) * 30 + (state.stats.perfect || 0) * 20;
+    save();
+  }
   return state.stats;
 }
 
@@ -93,4 +98,42 @@ export function recordActivity(type, { perfect = false } = {}) {
   for (const u of UNLOCKS) if (!s.seen.includes(key(u)) && reached(u)) { s.seen.push(key(u)); events.push({ type: 'unlock', unlock: u }); }
   save();
   return events;
+}
+
+// ---------------------------------------------------------------- Ränge & XP
+// XP gibt es fürs Lernen: Lerneinheit 40, Quiz 20–100 (je nach Ergebnis), jede korrigierte Aufgabe 10–50 (je nach Punkten).
+export const RANKS = [
+  { id: 'bronze', name: 'Bronze', min: 0 },
+  { id: 'silber', name: 'Silber', min: 500 },
+  { id: 'gold', name: 'Gold', min: 1200 },
+  { id: 'diamant', name: 'Diamant', min: 2200 },
+  { id: 'mythisch', name: 'Mythisch', min: 3600 },
+  { id: 'legendaer', name: 'Legendär', min: 5400 },
+  { id: 'meister', name: 'Meister', min: 7800 },
+  { id: 'pro', name: 'Pro', min: 11000 },
+];
+export const XP_UNIT = 40;
+export const xpForQuiz = (pct) => 20 + Math.round(Math.max(0, Math.min(100, pct || 0)) * 0.8);
+export const xpForTask = (got, max) => Math.round(10 + 40 * Math.max(0, Math.min(1, max ? got / max : 0)));
+
+export const xpTotal = () => stats().xp || 0;
+export const hasTopRank = () => allOpen;
+
+// Rang zu einer XP-Zahl: Stufe I–III innerhalb des Rangs, Anteil bis zum nächsten Rang
+export function rankOf(xp = xpTotal()) {
+  if (allOpen) xp = Math.max(xp, RANKS[RANKS.length - 1].min); // von Control freigegeben: höchster Rang
+  let index = 0;
+  for (let i = 0; i < RANKS.length; i++) if (xp >= RANKS[i].min) index = i;
+  const r = RANKS[index], next = RANKS[index + 1] || null;
+  const span = next ? next.min - r.min : 0;
+  const frac = next ? (xp - r.min) / span : 1;
+  return { ...r, index, next, xp, span, frac, step: next ? Math.min(2, Math.floor(frac * 3)) : 0 };
+}
+
+export function addXp(n) {
+  const s = stats();
+  const before = rankOf();
+  s.xp = (s.xp || 0) + Math.max(0, Math.round(n));
+  save();
+  return { before, after: rankOf() };
 }
