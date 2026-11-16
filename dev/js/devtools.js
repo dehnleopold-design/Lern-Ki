@@ -87,7 +87,7 @@ const openNotes = () => notes.filter((n) => !n.done);
 
 function drawPill() {
   const c = openNotes().length;
-  pill.replaceChildren(h('span', { class: 'dev-pill-tag' }, 'DEV'), c ? h('span', { class: 'dev-pill-count' }, String(c)) : null);
+  pill.replaceChildren(...[h('span', { class: 'dev-pill-tag' }, 'DEV'), c ? h('span', { class: 'dev-pill-count' }, String(c)) : null].filter(Boolean));
 }
 
 // ---------- Menü
@@ -96,7 +96,7 @@ function menu() {
     h('p', { class: 'muted small' }, `Version ${opts.version} · eigene Testdaten – dein echtes Jelly bleibt unberührt.`),
     row('edit', 'Etwas markieren', 'Auf eine Stelle tippen und notieren, was nicht passt', () => { o.remove(); markMode(); }),
     row('list', 'Markierungen', `${openNotes().length} offen · ${notes.length - openNotes().length} erledigt`, () => { o.remove(); listSheet(); }),
-    row('download', 'Echte Daten hierher kopieren', 'Stand aus dem echten Jelly auf diesem Gerät holen (nur lesen)', () => { o.remove(); copyReal(); }),
+    row('download', 'Echte Daten hierher kopieren', 'Stand des echten Jelly aus deiner Cloud holen (nur lesen)', () => { o.remove(); copyReal(); }),
     row('back', 'Zum echten Jelly', 'Öffnet die normale App', () => { location.href = '../'; }),
   ]);
 }
@@ -304,24 +304,73 @@ const readStore = (db, store) => new Promise((resolve, reject) => {
   r.onerror = () => reject(r.error);
 });
 
+// Stand des echten Jelly aus der Cloud lesen (users/{uid}/state, blobs, secret) – wird nur gelesen
+async function readRealCloud(u) {
+  if (!db) throw new Error('Keine Verbindung zur Cloud – bitte gleich nochmal.');
+  const ref = (...p) => fs.doc(db, 'users', u.uid, ...p);
+  const meta = await fs.getDoc(ref('state', 'meta'));
+  if (!meta.exists()) return null;
+  const m = meta.data();
+  const parts = [];
+  for (let i = 0; i < m.n; i++) {
+    const c = await fs.getDoc(ref('state', `c${i}`));
+    if (!c.exists()) throw new Error('Der Stand in der Cloud ist unvollständig.');
+    parts.push(c.data().d);
+  }
+  const st = JSON.parse(parts.join(''));
+  try {
+    const k = await fs.getDoc(ref('secret', 'keys'));
+    if (k.exists()) {
+      const keys = k.data();
+      st.settings = { ...(st.settings || {}), apiKey: keys.apiKey || st.settings?.apiKey || '', oaKey: keys.oaKey || st.settings?.oaKey || '' };
+      if (st.settings.fb) st.settings.fb = { ...st.settings.fb, key: keys.fbKey || st.settings.fb.key || '' };
+    }
+  } catch {}
+  const blobs = [];
+  for (const [id, n] of Object.entries(m.blobs || {})) {
+    if (!st.files?.[id]) continue;
+    const pieces = [];
+    let mime = '';
+    for (let i = 0; i < n; i++) {
+      const b = await fs.getDoc(ref('blobs', `${id}_${i}`));
+      if (!b.exists()) { pieces.length = 0; break; }
+      mime = b.data().mime;
+      pieces.push(b.data().d);
+    }
+    if (pieces.length) blobs.push([id, { mime, data: pieces.join('') }]);
+  }
+  return { state: st, blobs };
+}
+
+// Rückfall: Speicher des echten Jelly auf diesem Gerät (geht im Browser, nicht zwischen zwei Home-Bildschirm-Apps)
+async function readRealLocal(u) {
+  const real = await openReal(`lernki-u-${u.uid}`);
+  const kv = Object.fromEntries(await readStore(real, 'kv'));
+  const blobs = await readStore(real, 'blobs');
+  real.close();
+  return kv.state?.profile ? { state: kv.state, blobs } : null;
+}
+
 async function copyReal() {
   const u = opts.user();
   if (!u) { toast('Erst anmelden.', 'error'); return; }
-  if (!(await confirmDialog('Den Stand aus deinem echten Jelly (auf diesem Gerät) hierher kopieren? Was du in Developer bisher getestet hast, wird dabei ersetzt. Dein echtes Jelly wird nur gelesen, nicht verändert.', 'Kopieren', 'Abbrechen', 'primary'))) return;
+  if (!(await confirmDialog('Den Stand aus deinem echten Jelly hierher kopieren? Was du in Developer bisher getestet hast, wird dabei ersetzt. Dein echtes Jelly wird nur gelesen, nicht verändert.', 'Kopieren', 'Abbrechen', 'primary'))) return;
+  const wait = h('div', { class: 'overlay', 'data-devtool': '' }, h('div', { class: 'sheet' }, h('div', { class: 'sheet-title' }, 'Kopiere …'), h('p', { class: 'muted' }, 'Lade deinen Stand und deine Dateien aus der Cloud. Das kann bei vielen Fotos eine Minute dauern.')));
+  add(document.body, wait);
   try {
-    const real = await openReal(`lernki-u-${u.uid}`);
-    const kv = Object.fromEntries(await readStore(real, 'kv'));
-    const blobs = await readStore(real, 'blobs');
-    real.close();
-    if (!kv.state?.profile) throw new Error('Im echten Jelly auf diesem Gerät liegen für dieses Konto keine Daten. Öffne einmal das echte Jelly mit diesem Konto, dann nochmal.');
-    for (const [id, v] of blobs) await putBlob(id, v);
+    for (let i = 0; i < 20 && !db; i++) await new Promise((r) => setTimeout(r, 500));
+    let src = null;
+    try { src = await readRealCloud(u); } catch (e) { console.warn('Cloud', e); }
+    if (!src) { try { src = await readRealLocal(u); } catch {} }
+    if (!src?.state?.profile) throw new Error('Für dieses Konto gibt es noch keinen Stand im echten Jelly (weder in der Cloud noch auf diesem Gerät).');
+    for (const [id, v] of src.blobs) await putBlob(id, v);
     const keep = state.settings || {};
-    const next = kv.state;
-    // KI-Schlüssel, die hier schon eingetragen sind, behalten
+    const next = src.state;
     if (keep.apiKey && !next.settings?.apiKey) next.settings = { ...(next.settings || {}), apiKey: keep.apiKey };
     replaceState(next);
     await push(true, true);
-    toast(`Kopiert (${blobs.length} Datei${blobs.length === 1 ? '' : 'en'}).`, 'ok');
+    wait.remove();
+    toast(`Kopiert (${src.blobs.length} Datei${src.blobs.length === 1 ? '' : 'en'}).`, 'ok');
     setTimeout(() => location.reload(), 700);
-  } catch (e) { toast(e.message || 'Kopieren hat nicht geklappt.', 'error'); }
+  } catch (e) { wait.remove(); toast(e.message || 'Kopieren hat nicht geklappt.', 'error'); }
 }
