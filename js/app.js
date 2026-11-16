@@ -1,6 +1,7 @@
 import { state, loadState, save, replaceState, clearAll, allBlobs, putBlob, uid, useAccount, hasLocalProfile, listLocalStores, importLocalStore, kvGet, kvPut } from './store.js';
 import { startSync, syncNow, syncStatus, onSyncStatus, deleteCloudData, push, requestJob, backgroundAvailable, cloudInfo, cloudBackupInfo, reloadFromCloud, restoreCloudBackup } from './sync.js';
 import { deleteAccount } from './auth.js';
+import { DEV } from './env.js';
 import { authEnabled, initAuth, signInGoogle, signInEmail, registerEmail, resetPassword, signOutUser, currentUser, authErrorText } from './auth.js';
 import { generate, aiReady, listGeminiModels, pickDefaultModel, AIError, onAIStatus, FALLBACK_PRESETS, listOpenAIModels, pickFallbackModel, fallbackReady } from './ai.js';
 import { addFile, removeFile, filePart, thumbURL, pickFiles } from './files.js';
@@ -24,7 +25,7 @@ setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, JELLY_STYLES, setJellyStyle, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.60 (16.11.)';
+const APP_VERSION = '2.61 (16.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -289,6 +290,7 @@ function render() {
   const v = (views[route.name] || viewPlan)(route.params);
   app.replaceChildren(v); // ersetzt alles – auch falls eine Ansicht währenddessen selbst neu gezeichnet hat (sonst doppelte Seiten)
   if (state.profile && !['login', 'onboarding'].includes(route.name)) { try { placeRankChip(app); } catch (e) { console.warn(e); } }
+  document.dispatchEvent(new CustomEvent('jelly:render', { detail: { route: route.name } }));
 }
 
 function tabbar(active) {
@@ -3583,6 +3585,7 @@ function viewSettings() {
             h('button', { class: 'btn block', onclick: () => syncNow() }, icon('refresh', 18), 'Jetzt synchronisieren'),
             h('button', { class: 'btn ghost block danger-text', onclick: async () => { try { await signOutUser(); } catch { try { localStorage.removeItem('lernki-last-uid'); } catch {} location.reload(); } } }, 'Abmelden'),
             h('button', { class: 'link-small danger-text', onclick: async () => {
+              if (DEV) { toast('In Jelly Developer geht das nicht – das Konto würde auch im echten Jelly gelöscht.', 'error'); return; }
               if (!(await confirmDialog('Konto endgültig löschen? Alle Daten in der Cloud UND auf diesem Gerät werden gelöscht. Das lässt sich nicht rückgängig machen. Tipp: vorher Mehr → Datensicherung → Backup.', 'Endgültig löschen'))) return;
               try {
                 await deleteCloudData();
@@ -3968,3 +3971,6 @@ initNotes({ go, render, sheet, menuRow, subjectById, ui });
 
 // Für die Konsole/Tests
 window.__lernki = { state: () => state, md, save, putBlob };
+
+// Jelly Developer: Markier-Werkzeug und Daten-Kopie (nur unter /dev/, im echten Jelly nie geladen)
+if (DEV) import('./devtools.js').then((m) => m.initDevtools({ version: APP_VERSION, sheet, route: () => route.name, user: currentUser })).catch((e) => console.warn('Devtools', e));

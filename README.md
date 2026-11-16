@@ -129,3 +129,18 @@ Gemini hört zu (Datei-Upload über die Gemini File API mit dem eigenen Schlüss
 Notizen/Lernzettel, Begriffe, Hausaufgaben/Termine, Fragen-Chat. Ordner links, gleiches Konto und gleicher
 Zugangscode wie Jelly. Notizen liegen unter `users/{uid}/voice/…` (Control sieht sie nicht), die Aufnahme nur
 auf dem Gerät; bei Google wird sie nach dem Auswerten gelöscht.
+
+## Jelly Developer (/dev/)
+
+Testversion unter `https://dehnleopold-design.github.io/Lern-Ki/dev/`. Gleicher Code wie Jelly, aber:
+
+- **Eigene Daten:** lokal (Präfix `jellydev:` bzw. Datenbanken `dev-…`, siehe `dev/devshim.js`) und in der Cloud (`users/{uid}/dev_state`, `dev_blobs`, …). Das echte Jelly wird nie verändert. Anmeldung und Zugangscode gelten wie im echten Jelly.
+- **Echte Daten kopieren:** DEV-Knopf → „Echte Daten hierher kopieren“ (liest den Stand des echten Jelly auf diesem Gerät, nur lesen).
+- **Markieren:** DEV-Knopf → „Etwas markieren“ → auf die Stelle tippen → Fehler/Idee/Design + Notiz. Die Stelle bekommt eine Nadel. Markierungen liegen in `users/{uid}/devnotes` und lassen sich als Text kopieren.
+- **Konto löschen** ist in Developer gesperrt (würde auch das echte Konto löschen).
+
+Ablauf für Änderungen (`tools/dev.py`):
+
+1. Änderungen nur in `dev/` machen, Developer-Version erhöhen: `python3 tools/dev.py bump "2.62-dev.2"`
+2. Wenn alles funktioniert: `python3 tools/dev.py promote "2.62 (17.11.)"` – überträgt `dev/js`, `dev/styles.css`, `dev/index.html` ins echte Jelly, erhöht Version und Cache.
+3. `promote` bricht ab, wenn das echte Jelly inzwischen direkt geändert wurde (Schutz vor verlorenen Änderungen); `reset` bricht ab, wenn Developer nicht übertragene Änderungen hat.

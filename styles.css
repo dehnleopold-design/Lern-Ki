@@ -1142,3 +1142,22 @@ html.has-userbg[data-skin] body::before { inset: calc(var(--bg-blur, 0px) * -2);
 .rk-dot.have { opacity: .8; filter: none; }
 .rk-dot.on { opacity: 1; background: rgba(0, 0, 0, .35); filter: none; outline: 2px solid rgba(255, 255, 255, .6); }
 .rk-how { margin-top: 10px; font-size: .78rem; font-weight: 600; opacity: .85; text-align: center; max-width: 620px; }
+
+/* ---------- Jelly Developer (nur unter /dev/ sichtbar) */
+.dev-pill { position: fixed; left: calc(env(safe-area-inset-left) + 10px); bottom: calc(env(safe-area-inset-bottom) + 98px); z-index: 90; display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 99px; background: #f97316; color: #1a0d00; font-weight: 800; font-size: .78rem; letter-spacing: .06em; box-shadow: 0 6px 20px rgba(249, 115, 22, .45); }
+.dev-pill-count { min-width: 20px; height: 20px; border-radius: 99px; display: grid; place-items: center; background: #1a0d00; color: #fff; font-size: .72rem; letter-spacing: 0; padding: 0 5px; }
+.dev-row, .dev-item { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 14px; border-radius: 16px; background: var(--surface-2); color: var(--text); text-align: left; }
+.dev-row-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.dev-row-text small { color: var(--muted); }
+.dev-item.is-done b { text-decoration: line-through; opacity: .6; }
+.dev-item-emoji { font-size: 1.3rem; }
+.dev-list { display: flex; flex-direction: column; gap: 8px; max-height: 45dvh; overflow-y: auto; }
+.dev-note-text { white-space: pre-wrap; font-size: 1.05rem; margin: 0; }
+.dev-marklayer { position: fixed; inset: 0; z-index: 9990; cursor: crosshair; background: rgba(249, 115, 22, .06); }
+.dev-hl { position: fixed; z-index: 9991; display: none; pointer-events: none; border: 2px solid #f97316; border-radius: 8px; background: rgba(249, 115, 22, .14); transition: all .08s; }
+.dev-hl.fixed { z-index: 101; background: none; }
+.dev-markbar { position: fixed; left: 50%; transform: translateX(-50%); top: calc(env(safe-area-inset-top) + 10px); z-index: 9992; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center; max-width: calc(100% - 24px); padding: 8px 10px 8px 16px; border-radius: 18px; background: #f97316; color: #1a0d00; font-weight: 700; box-shadow: 0 10px 30px rgba(0, 0, 0, .35); }
+.dev-markbar .btn { background: rgba(255, 255, 255, .85); color: #1a0d00; }
+.dev-pins { position: fixed; inset: 0; pointer-events: none; z-index: 80; }
+.dev-pin { position: absolute; width: 30px; height: 30px; margin: -15px 0 0 -15px; border-radius: 50% 50% 50% 4px; display: grid; place-items: center; font-size: .95rem; background: #fff; border: 2px solid #f97316; box-shadow: 0 4px 12px rgba(0, 0, 0, .35); pointer-events: auto; animation: devPin .3s ease-out; }
+@keyframes devPin { from { transform: scale(.3); opacity: 0; } }

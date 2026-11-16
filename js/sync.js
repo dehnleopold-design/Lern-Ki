@@ -12,6 +12,7 @@ import { state, save, onChange, applyRemoteState, kvGet, kvPut, getBlob, putBlob
 import { allUnits, applyOps } from './gen.js';
 import { firebaseApp } from './auth.js';
 import { backgroundFunctions } from './firebase-config.js';
+import { DEV, cloudName } from './env.js';
 
 const V = '10.12.2';
 const CHUNK = 900000; // Zeichen pro Dokument (unter dem 1-MB-Limit)
@@ -39,7 +40,7 @@ function deviceId() {
   } catch { return 'x'; }
 }
 
-const metaRef = () => fs.doc(db, 'users', uid, 'state', 'meta');
+const metaRef = () => fs.doc(db, 'users', uid, cloudName('state'), 'meta');
 // KI-Schlüssel liegen getrennt vom Stand (users/{uid}/secret/keys). Den Stand darf auch Control lesen, die Schlüssel nicht.
 const secretRef = () => fs.doc(db, 'users', uid, 'secret', 'keys');
 const keysOf = (st) => ({ apiKey: st.settings?.apiKey || '', oaKey: st.settings?.oaKey || '', fbKey: st.settings?.fb?.key || '' });
@@ -58,14 +59,14 @@ function putKeys(next, keys) {
   if (next.settings.fb) next.settings.fb = { ...next.settings.fb, key: k.fbKey };
   return next;
 }
-const chunkRef = (i) => fs.doc(db, 'users', uid, 'state', `c${i}`);
+const chunkRef = (i) => fs.doc(db, 'users', uid, cloudName('state'), `c${i}`);
 // Sicherheitskopie des Cloud-Stands, bevor er überschrieben wird (users/{uid}/backup/…)
-const backupMetaRef = () => fs.doc(db, 'users', uid, 'backup', 'meta');
-const backupChunkRef = (i) => fs.doc(db, 'users', uid, 'backup', `c${i}`);
-const blobRef = (id, i) => fs.doc(db, 'users', uid, 'blobs', `${id}_${i}`);
-const jobRef = (examId) => fs.doc(db, 'users', uid, 'bgjobs', examId);
-const resultsCol = () => fs.collection(db, 'users', uid, 'bgresults');
-const presenceRef = () => fs.doc(db, 'users', uid, 'bgpresence', 'app');
+const backupMetaRef = () => fs.doc(db, 'users', uid, cloudName('backup'), 'meta');
+const backupChunkRef = (i) => fs.doc(db, 'users', uid, cloudName('backup'), `c${i}`);
+const blobRef = (id, i) => fs.doc(db, 'users', uid, cloudName('blobs'), `${id}_${i}`);
+const jobRef = (examId) => fs.doc(db, 'users', uid, cloudName('bgjobs'), examId);
+const resultsCol = () => fs.collection(db, 'users', uid, cloudName('bgresults'));
+const presenceRef = () => fs.doc(db, 'users', uid, cloudName('bgpresence'), 'app');
 
 // Solange die App offen ist, pausiert der Hintergrund-Dienst (sonst teilen sich beide die Gratis-Limits).
 function heartbeat(open) {
@@ -97,7 +98,7 @@ function deviceType() {
   return `${kind} · ${app}`;
 }
 export async function writeIndex(force = false) {
-  if (!db || !indexUser) return;
+  if (!db || !indexUser || DEV) return; // Developer taucht nicht in der Kontoübersicht auf
   const key = `lernki-index-${indexUser.uid}`;
   try { if (!force && Date.now() - Number(localStorage.getItem(key) || 0) < 15 * 60000) return; } catch {}
   const u = indexUser;
@@ -357,11 +358,13 @@ export async function push(force = false, overwrite = false) {
 // Alle Daten dieses Kontos aus der Cloud löschen (Recht auf Löschung).
 export async function deleteCloudData() {
   if (!db) throw new Error('Keine Verbindung zum Online-Speicher.');
-  try { await fs.deleteDoc(fs.doc(db, 'userIndex', uid)); } catch {}
-  try { await fs.deleteDoc(secretRef()); } catch {}
+  if (!DEV) { // Developer löscht nur seine eigene Kopie, nie Kontoeintrag oder Schlüssel des echten Jelly
+    try { await fs.deleteDoc(fs.doc(db, 'userIndex', uid)); } catch {}
+    try { await fs.deleteDoc(secretRef()); } catch {}
+  }
   indexUser = null;
   for (const name of ['bgjobs', 'bgresults', 'bgpresence', 'backup']) {
-    const all = await fs.getDocs(fs.collection(db, 'users', uid, name));
+    const all = await fs.getDocs(fs.collection(db, 'users', uid, cloudName(name)));
     for (const d of all.docs) await fs.deleteDoc(d.ref);
   }
   const snap = await fs.getDoc(metaRef());

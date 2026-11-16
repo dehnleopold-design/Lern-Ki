@@ -2,9 +2,10 @@
 
 import { state, getBlob } from './store.js';
 import { h, icon, toast } from './ui.js';
+import { ASSETS } from './env.js';
 
-const PDFJS = 'assets/vendor/pdfjs/pdf.min.mjs';
-const PDFJS_WORKER = 'assets/vendor/pdfjs/pdf.worker.min.mjs';
+const PDFJS = `${ASSETS}vendor/pdfjs/pdf.min.mjs`;
+const PDFJS_WORKER = `${ASSETS}vendor/pdfjs/pdf.worker.min.mjs`;
 let pdfjsPromise = null;
 
 export function loadPdfJs() {

@@ -2,8 +2,9 @@
 // dazu ein eingebauter Rechner, damit Rechenaufgaben immer stimmen.
 // Das Modell wird einmal heruntergeladen und liegt dann im Browser-Speicher.
 
-const LIB = new URL('../assets/vendor/web-llm/web-llm.js', import.meta.url).href;
-const WORKER = new URL('../assets/vendor/web-llm/worker.js', import.meta.url);
+import { ASSETS } from './env.js';
+const LIB = `${ASSETS}vendor/web-llm/web-llm.js`;
+const WORKER = new URL(`${ASSETS}vendor/web-llm/worker.js`);
 
 export const OFFLINE_MODELS = {
   normal: { name: 'Standard', size: 'ca. 1 GB', f16: 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC', f32: 'Qwen2.5-1.5B-Instruct-q4f32_1-MLC' },

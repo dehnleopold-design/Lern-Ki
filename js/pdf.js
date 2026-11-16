@@ -2,8 +2,9 @@
 // Auf iPad/iPhone öffnet sich das Teilen-Menü ("In Dateien sichern", AirDrop, …).
 
 import { md, esc } from './ui.js';
+import { ASSETS } from './env.js';
 
-const LIB = 'assets/vendor/html2pdf.bundle.min.js'; // lokal, MIT-Lizenz (html2pdf.js 0.10.1)
+const LIB = `${ASSETS}vendor/html2pdf.bundle.min.js`; // lokal, MIT-Lizenz (html2pdf.js 0.10.1)
 let libPromise = null;
 
 function loadLib() {
