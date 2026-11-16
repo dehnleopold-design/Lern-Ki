@@ -113,15 +113,48 @@ function fileDigestText(id) {
 
 // Themen, die der Schüler aufgezählt hat (eine pro Zeile, mit Spiegelstrich/Nummer oder durch ; getrennt).
 // Kommas nur, wenn alles in einer Zeile steht und die Teile kurz sind. Längere Sätze gelten als Notiz, nicht als Thema.
-export function topicList(text) {
-  const raw = String(text || '').trim();
-  if (!raw) return [];
-  let parts = raw.split(/\n+/).map((x) => x.trim()).filter(Boolean);
+// Zerlegt die Themenangabe des Schülers in einzelne Themen.
+// Erkennt zwei Formen: (1) einfache Liste (ein Thema pro Zeile / durch Komma, Semikolon, Nummern getrennt),
+// (2) Lernziele in ganzen Sätzen („Ich kann …“, „Mir sind … bekannt.“) – oft aus einem PDF kopiert und
+//     deshalb mitten im Satz umbrochen. Dann gehören umbrochene Zeilen zusammen: ein Lernziel = ein Thema.
+export function topicInfo(text) {
+  const raw = String(text || '').replace(/\r/g, '').trim();
+  if (!raw) return { items: [], goals: false };
+  const lines = raw.split(/\n+/).map((x) => x.trim()).filter(Boolean);
+  const bullet = /^([-*•–▪◦☐□✓✔]|\d+[.)]|[a-z][.)])\s+/i;
+  const starter = /^(Ich|Mir|Wir|Du)\s/;
+  const endsSentence = (l) => /[.!?]["“”')\]]*$/.test(l);
+  const bare = lines.map((l) => l.replace(bullet, ''));
+  const starters = bare.filter((l) => starter.test(l)).length;
+  const sentences = lines.filter(endsSentence).length;
+  if (lines.length >= 2 && (starters >= 2 || (sentences >= 2 && sentences >= lines.length * 0.3))) {
+    const items = [];
+    lines.forEach((l, i) => {
+      const prev = items[items.length - 1];
+      const open = prev && !endsSentence(prev) && (prev.length >= 35 || /[,:;(–-]$|\b(und|oder|sowie|der|die|das|den|dem|zum|zur|von|mit|für|im|in)$/i.test(prev));
+      if (!prev || bullet.test(l) || starter.test(bare[i]) || !open) items.push(bare[i]); else items[items.length - 1] = `${prev} ${l}`;
+    });
+    const clean = items.map((x) => x.replace(/\s+/g, ' ').trim()).filter((x) => x.length > 3);
+    if (clean.length >= 2) return { items: clean.slice(0, 15), goals: true };
+  }
+  let parts = lines;
   if (parts.length === 1) parts = raw.split(/;|(?:^|\s)\d+[.)]\s+/).map((x) => x.trim()).filter(Boolean);
   if (parts.length === 1 && raw.includes(',')) parts = raw.split(',').map((x) => x.trim()).filter(Boolean);
-  const clean = parts.map((x) => x.replace(/^([-*•–]|\d+[.)])\s*/, '').trim()).filter(Boolean);
+  const clean = parts.map((x) => x.replace(bullet, '').trim()).filter(Boolean);
   const topics = clean.filter((x) => x.length <= 90 && !/[.!?]$/.test(x));
-  return topics.length >= 2 ? topics.slice(0, 15) : [];
+  return { items: topics.length >= 2 ? topics.slice(0, 15) : [], goals: false };
+}
+export const topicList = (text) => topicInfo(text).items;
+
+// Kurzer Titel aus einem Lernziel-Satz (nur als Rückfall, falls die KI keinen liefert)
+export function goalTitle(goal) {
+  let t = String(goal).replace(/\s*\(!+\)\s*/g, ' ')
+    .replace(/^(Ich\s+(kenne|kann|weiß|verstehe|beherrsche)|Ich\s+bin\s+(sicher\s+im\s+Umgang\s+mit|vertraut\s+mit)|Mir\s+(sind|ist))[\s,]+/i, '')
+    .replace(/^(was|wie\s+man|wie|dass|warum|wann)\s+/i, '')
+    .replace(/^(ein|eine|einen|einem|der|die|das|den|dem)\s+(?=\S+\s+(ist|analysiert|funktioniert|aufgebaut)\b)/i, '');
+  t = t.split(/,| und (ich|kann|bin|wie)\b| sowie | bekannt\b| erklären\b| erläutern\b| ist\b/)[0].trim().replace(/[.!?]+$/, '');
+  t = t.charAt(0).toUpperCase() + t.slice(1);
+  return t.length > 52 ? `${t.slice(0, 50).replace(/\s+\S*$/, '')} …` : t;
 }
 
 export function examContext(exam) {
@@ -211,7 +244,13 @@ ${days.length ? `Verfügbare Lerntage (jeweils ca. ${state.profile?.minutesPerDa
 Jedes Thema wird später nach demselben Prinzip gelernt: 1. Lernzettel, 2. kurzes Fakten-Quiz, 3. Anwendungsaufgaben. Am Ende folgt ein Abschluss (Gesamt-Lernzettel + Probeklassenarbeit) – den musst du NICHT planen.
 
 VORGEHEN
-${topicList(exam.topicsText).length ? `- DER SCHÜLER HAT DIE THEMEN FESTGELEGT. Übernimm GENAU diese ${topicList(exam.topicsText).length} Themen – gleiche Anzahl, gleiche Reihenfolge, Titel in seinen Worten (nur Tippfehler korrigieren). Nichts zusammenlegen, nichts weglassen, nichts hinzufügen; Zusätzliches aus dem Material gehört als Schwerpunkt zum passenden Thema.
+${topicInfo(exam.topicsText).goals ? `- DER SCHÜLER HAT ${topicList(exam.topicsText).length} LERNZIELE (Kompetenzen) FESTGELEGT. Mache aus JEDEM Lernziel genau EIN Thema – gleiche Anzahl, gleiche Reihenfolge. Nichts zusammenlegen, nichts aufteilen, nichts weglassen, nichts hinzufügen.
+  · "titel": kurz und prägnant (höchstens 45 Zeichen), als Thema formuliert, nicht als Ich-Satz – z. B. aus „Ich kenne die Ereignisse, die zum Aufstieg der NSDAP beigetragen haben“ wird „Aufstieg der NSDAP“.
+  · "beschreibung": das Lernziel inhaltlich vollständig (was genau soll man können?).
+  · Klammer-Hinweise wie „(besonders: …)“ werden Schwerpunkte. Markierungen wie „(!!)“ bedeuten: besonders wichtig – als ersten Schwerpunkt „Besonders wichtig“ aufnehmen.
+  · Methodische Lernziele (z. B. „Plakat analysieren“, „Aufbau einer schriftlichen Analyse“) sind eigene Themen mit Vorgehen/Schrittfolge; übergreifende (z. B. „Fachbegriffe sicher anwenden“) ebenfalls ein eigenes Thema mit den Fachbegriffen aus dem Material.
+${topicList(exam.topicsText).map((t, i) => `  ${i + 1}. ${t}`).join('\n')}
+- Weitere Notizen des Schülers sind verbindlich für Beschreibung und Schwerpunkte.` : topicList(exam.topicsText).length ? `- DER SCHÜLER HAT DIE THEMEN FESTGELEGT. Übernimm GENAU diese ${topicList(exam.topicsText).length} Themen – gleiche Anzahl, gleiche Reihenfolge, Titel in seinen Worten (nur Tippfehler korrigieren). Nichts zusammenlegen, nichts weglassen, nichts hinzufügen; Zusätzliches aus dem Material gehört als Schwerpunkt zum passenden Thema.
 ${topicList(exam.topicsText).map((t, i) => `  ${i + 1}. ${t}`).join('\n')}
 - Weitere Notizen des Schülers sind verbindlich für Beschreibung und Schwerpunkte.` : `- Bestimme die klausurrelevanten Themen aus Material, Themenangabe und Lehrerprofil. 2–6 Themen, so zugeschnitten, dass jedes in eine Lernsitzung passt. Gewichte nach Prüfungsrelevanz.${exam.topicsText ? ' Die Notizen des Schülers sind dabei verbindlich.' : ''}`}
 - Reihenfolge so, dass Grundlagen zuerst kommen.

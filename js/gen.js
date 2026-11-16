@@ -156,7 +156,16 @@ export async function createPlan(exam) {
   let themen = (plan.themen || []).filter((t) => t?.titel).slice(0, 15).map((t) => ({ titel: String(t.titel), beschreibung: t.beschreibung || '', schwerpunkte: t.schwerpunkte || [], tag: isDay(t.tag) ? t.tag : null }));
   // Hat der Schüler Themen aufgezählt, gilt genau seine Liste – auch wenn die KI etwas zusammengelegt hat
   const wanted = P.topicList(exam.topicsText);
-  if (wanted.length && themen.length !== wanted.length) {
+  const goals = P.topicInfo(exam.topicsText).goals;
+  if (goals && themen.length === wanted.length) {
+    // Lernziele: Reihenfolge stimmt – Lernziel als Beschreibung sichern, „(!!)“ als besonders wichtig merken
+    themen = themen.map((t, i) => ({ ...t,
+      titel: /^(Ich|Mir)\s/.test(t.titel) || t.titel.length > 70 ? P.goalTitle(wanted[i]) : t.titel,
+      beschreibung: t.beschreibung || wanted[i],
+      schwerpunkte: /\(!+\)/.test(wanted[i]) && !t.schwerpunkte.some((x) => /wichtig/i.test(x)) ? ['Besonders wichtig', ...t.schwerpunkte] : t.schwerpunkte }));
+  } else if (goals && wanted.length) {
+    themen = wanted.map((w, i) => ({ titel: P.goalTitle(w), beschreibung: w, schwerpunkte: /\(!+\)/.test(w) ? ['Besonders wichtig'] : [], tag: days[Math.min(days.length - 1, Math.floor((i * days.length) / wanted.length))]?.iso || null }));
+  } else if (wanted.length && themen.length !== wanted.length) {
     const near = (a, b) => a.toLowerCase().includes(b.toLowerCase().slice(0, 12)) || b.toLowerCase().includes(a.toLowerCase().slice(0, 12));
     themen = wanted.map((w, i) => {
       const t = themen.find((x) => near(x.titel, w)) || {};

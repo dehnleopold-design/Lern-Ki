@@ -24,7 +24,7 @@ setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, JELLY_STYLES, setJellyStyle, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.59 (16.11.)';
+const APP_VERSION = '2.60 (16.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -287,7 +287,7 @@ function render() {
   if (!state.profile && !['onboarding', 'login'].includes(route.name)) route = { name: 'onboarding', params: {} };
   const views = { login: viewLogin, onboarding: viewOnboarding, prepare: viewPrepare, plan: viewPlan, pick: viewPick, vocab: viewVocab, solve: viewSolveNew, solved: viewSolved, vnew: viewVocabNew, vset: viewVocabSet, vwords: viewVocabWords, vplan: viewVocabPlan, vquiz: viewVocabQuiz, vtests: viewVocabTests, files: viewFiles, week: viewWeek, wimport: viewWeekImport, todo: viewTodos, notes: viewNotes, notebook: viewNotebook, calendar: viewCalendar, newExam: viewNewExam, session: viewSession, subjects: viewSubjects, subject: viewSubject, tutor: viewTutor, settings: viewSettings, play: viewPlay };
   const v = (views[route.name] || viewPlan)(route.params);
-  add(app, v);
+  app.replaceChildren(v); // ersetzt alles – auch falls eine Ansicht währenddessen selbst neu gezeichnet hat (sonst doppelte Seiten)
   if (state.profile && !['login', 'onboarding'].includes(route.name)) { try { placeRankChip(app); } catch (e) { console.warn(e); } }
 }
 
@@ -3900,6 +3900,26 @@ async function openAccountSetup() {
   render();
   try { await startAuth(); } catch { toast('Für die Anmeldung brauchst du Internet.', 'error'); }
 }
+
+// iPadOS-Eigenheit: Nach einem Screenshot (oder Drehen/Split View) bleibt eine Web-App vom Home-Bildschirm
+// manchmal in falscher Breite stehen – rechts ein schwarzer Rand. Die Ansicht neu berechnen zu lassen behebt das.
+let vpLock = 0;
+function refreshViewport() {
+  const now = Date.now();
+  if (now - vpLock < 400) return;
+  vpLock = now;
+  const m = document.querySelector('meta[name="viewport"]');
+  if (!m) return;
+  const c = m.getAttribute('content');
+  m.setAttribute('content', `${c}, minimum-scale=1`);
+  requestAnimationFrame(() => { m.setAttribute('content', c); if (window.scrollX) window.scrollTo(0, window.scrollY); });
+}
+addEventListener('resize', () => setTimeout(refreshViewport, 120));
+addEventListener('orientationchange', () => setTimeout(refreshViewport, 300));
+addEventListener('focus', () => setTimeout(refreshViewport, 150));
+addEventListener('pageshow', () => setTimeout(refreshViewport, 150));
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') setTimeout(refreshViewport, 150); });
+window.visualViewport?.addEventListener('resize', () => setTimeout(refreshViewport, 120));
 
 (async function init() {
   if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});

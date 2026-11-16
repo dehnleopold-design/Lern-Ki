@@ -60,6 +60,8 @@ export function rankChip() {
 export function placeRankChip(root) {
   const bar = root.querySelector('.topbar');
   if (!bar) { chipEl = null; return; }
+  // Nie doppelt: vorhandene Abzeichen auf der Seite zuerst entfernen
+  root.querySelectorAll('.rank-chip').forEach((x) => x.remove());
   const last = bar.lastElementChild;
   const chip = rankChip();
   if (last?.classList.contains('iconbtn-spacer')) last.replaceWith(chip);
