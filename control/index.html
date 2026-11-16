@@ -14,10 +14,14 @@
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icon-180.png">
   <link rel="stylesheet" href="../assets/fonts.css">
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=3">
 </head>
 <body>
   <div id="app"><div class="center-screen"><div class="logo big"></div></div></div>
-  <script type="module" src="app.js"></script>
+  <script type="module">
+    // Immer die neueste Version laden (GitHub lässt Browser sonst bis zu 10 Minuten alte Dateien nutzen)
+    try { await Promise.all(['app.js', 'rules.js', '../js/ui.js', '../js/pdf.js', '../js/firebase-config.js'].map((f) => fetch(f, { cache: 'reload' }))); } catch {}
+    import('./app.js');
+  </script>
 </body>
 </html>
