@@ -19,6 +19,9 @@ export const UNLOCKS = [
   { kind: 'skin', id: 'terminal', need: { units: 25 }, label: '25 Lerneinheiten schaffen' },
 ];
 const key = (u) => `${u.kind}:${u.id}`;
+// Von Control für dieses Konto freigegeben: alles ist offen (z. B. Admins)
+let allOpen = false;
+export function setAllUnlocked(v) { allOpen = !!v; }
 
 function allUnits() {
   const out = [];
@@ -60,7 +63,7 @@ function reached(u) { return Object.entries(u.need).every(([k, v]) => value(k) >
 
 export function isUnlocked(kind, id) {
   const u = UNLOCKS.find((x) => x.kind === kind && x.id === id);
-  if (!u) return true;
+  if (!u || allOpen) return true;
   return stats().owned.includes(key(u)) || reached(u);
 }
 export function unlockInfo(kind, id) {

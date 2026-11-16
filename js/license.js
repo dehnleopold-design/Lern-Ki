@@ -17,6 +17,9 @@ async function fire() {
 const KEY = (uid) => `lernki-access-${uid}`;
 const remember = (uid, v) => { try { localStorage.setItem(KEY(uid), v); } catch {} };
 export const cachedAccess = (uid) => { try { return localStorage.getItem(KEY(uid)); } catch { return null; } };
+// Extras, die Control einem Konto gibt (z. B. alle Designs) – stehen in der Freischaltung und werden für offline gemerkt
+const PERKS = (uid) => `lernki-perks-${uid}`;
+export const accessPerks = (uid) => { try { return JSON.parse(localStorage.getItem(PERKS(uid)) || '{}'); } catch { return {}; } };
 
 const timeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(Object.assign(new Error('timeout'), { code: 'unavailable' })), ms))]);
 
@@ -30,6 +33,7 @@ export async function checkAccess(uid) {
       if (e.code === 'permission-denied') return 'ok';
       throw e;
     }
+    try { localStorage.setItem(PERKS(uid), JSON.stringify({ allDesigns: !!(lic.exists() && lic.data().allDesigns) })); } catch {}
     if (lic.exists()) { const v = lic.data().revoked ? 'revoked' : 'ok'; remember(uid, v); return v; }
     try {
       const meta = await timeout(fs.getDoc(fs.doc(db, 'users', uid, 'state', 'meta')), 9000);

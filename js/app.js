@@ -8,13 +8,13 @@ import * as P from './prompts.js';
 import { allUnits, hasContent, lernzettelText, missingPhases, genLernzettel, genQuiz, genAufgaben, generateUnit, mixOptions, setPartLoader, digestFile, groupOf, isGroupLead, resetGroup, buildTeacherProfile, examFileIds, examNeedsProfile, createPlan, buildVocabPlan, buildVocabSet, buildVocabTestProfile, solveSheet, pendingJobs } from './gen.js';
 import { gradeLabel, gradeOptions, percentToGrade, reachesTarget, scale } from './grades.js';
 import { downloadLernzettel, sheetHTML, SHEET_CSS, SHEET_STYLES } from './pdf.js';
-import { stats, streak, isUnlocked, unlockInfo, recordActivity } from './rewards.js';
+import { stats, streak, isUnlocked, unlockInfo, recordActivity, setAllUnlocked } from './rewards.js';
 import { celebrate } from './celebrate.js';
 import { SEASONS, applySeason, activeSeason, seasonName } from './seasons.js';
 import { openFile, fileKindLabel } from './viewer.js';
 import { chessPanel } from './chess.js';
 import { GAMES, isGame, gamePanel } from './games.js';
-import { checkAccess, redeemCode, cachedAccess, normalizeCode } from './license.js';
+import { checkAccess, redeemCode, cachedAccess, normalizeCode, accessPerks } from './license.js';
 import { initNotes, viewNotes, viewNotebook } from './notes.js';
 import { splitNotebook, guessSubject, baseName } from './goodnotes.js';
 import { OFFLINE_MODELS, offlineSupport, offlineDownloaded, offlineLoad, offlineDelete, offlineChat, offlineSystem, offlineSize, setOfflineSize, mathAnswer, pickContext, takeCrashNote } from './offline-ai.js';
@@ -23,7 +23,7 @@ setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, JELLY_STYLES, setJellyStyle, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.57 (15.11.)';
+const APP_VERSION = '2.58 (16.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -3806,6 +3806,7 @@ async function handleUser(user) {
   if (access !== 'ok' && !(await accessGate(user, access))) return;
   if (bootedUid === user.uid) return;
   bootedUid = user.uid;
+  setAllUnlocked(accessPerks(user.uid).allDesigns);
   ui.localOnly = false;
   try { localStorage.setItem('lernki-last-uid', user.uid); localStorage.setItem('lernki-last-email', user.email || ''); } catch {}
   app.replaceChildren(h('div', { class: 'boot' }, mascot(90), h('p', { class: 'muted' }, 'Lade deine Daten …')));
@@ -3898,7 +3899,7 @@ async function openAccountSetup() {
     let last = null;
     try { last = localStorage.getItem('lernki-last-uid'); } catch {}
     if (last && ['need-code', 'revoked'].includes(cachedAccess(last))) app.replaceChildren(h('div', { class: 'boot' }, mascot(90), h('p', {}, 'Für die Freischaltung brauchst du Internet.'), h('button', { class: 'btn primary', onclick: () => location.reload() }, 'Nochmal versuchen')));
-    else if (last) { bootedUid = last; await useAccount(last); await boot(null); toast('Offline – du bist mit deinem letzten Konto angemeldet.'); }
+    else if (last) { bootedUid = last; setAllUnlocked(accessPerks(last).allDesigns); await useAccount(last); await boot(null); toast('Offline – du bist mit deinem letzten Konto angemeldet.'); }
     else app.replaceChildren(h('div', { class: 'boot' }, mascot(90), h('p', {}, 'Für die erste Anmeldung brauchst du Internet.'), h('button', { class: 'btn primary', onclick: () => location.reload() }, 'Nochmal versuchen')));
   }
 })();

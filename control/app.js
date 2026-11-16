@@ -428,7 +428,10 @@ function accessBlock(u, close) {
         : h('button', { class: 'btn block', onclick: () => set({ code: 'control', at: Date.now() }, 'Freigeschaltet') }, 'Ohne Code freischalten'));
     }).catch(() => { status.textContent = 'unbekannt'; });
   }
-  return h('div', { class: 'access' }, h('div', { class: 'label' }, 'Zugang'), h('div', { style: 'margin:4px 0 8px;font-weight:600' }, status), btns);
+  const all = !!lic?.allDesigns;
+  const design = h('button', { class: 'btn block', style: 'margin-top:8px', onclick: () => set({ allDesigns: !all }, all ? 'Designs wieder nur durch Lernen' : 'Alle Designs freigeschaltet – gilt ab dem nächsten Öffnen von Jelly') },
+    all ? '✓ Alle Designs frei – wieder zurücknehmen' : 'Alle Designs freischalten');
+  return h('div', { class: 'access' }, h('div', { class: 'label' }, 'Zugang'), h('div', { style: 'margin:4px 0 8px;font-weight:600' }, status), btns, lic?.revoked ? null : design);
 }
 
 // Partner aus der Kontoliste wählen (er hat ja schon ein Jelly-Konto) – oder UID von Hand
