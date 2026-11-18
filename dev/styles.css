@@ -1214,3 +1214,9 @@ html.has-userbg[data-skin] body::before { inset: calc(var(--bg-blur, 0px) * -2);
 /* Handschrift / Druckschrift wählen */
 .font-switch { width: min(100%, 420px); margin: 0 auto; }
 .font-pick .label { text-align: center; }
+
+/* Vergrößerter Ausschnitt eines Blatts */
+.annot-wrap.cropped { overflow: hidden; }
+.annot-wrap.cropped img { max-width: none; }
+.solve-opts .label:first-child { margin-top: 0; }
+.solve-opts .seg-btn:disabled { opacity: .45; }

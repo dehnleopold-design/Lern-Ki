@@ -26,7 +26,7 @@ setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, JELLY_STYLES, setJellyStyle, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.63-dev.9';
+const APP_VERSION = '2.63-dev.10';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -1985,8 +1985,35 @@ const solvedList = () => (state.solved ||= []);
 let nsv = null;
 
 function startSolve(subjectId = null) {
-  nsv = { subjectId: subjectId || state.subjects[0]?.id || null, fileIds: [], note: '', links: '' };
+  nsv = { subjectId: subjectId || state.subjects[0]?.id || null, fileIds: [], note: '', links: '', opts: solveOpts() };
   go('solve');
+}
+
+// Einstellungen für eine Hausaufgabe – gemerkt als Vorgabe fürs nächste Blatt
+const SOLVE_DEFAULTS = { font: 'auto', detail: 'normal', place: 'auto', steps: true };
+const solveOpts = () => ({ ...SOLVE_DEFAULTS, ...(state.settings.solveOpts || {}) });
+const fontOf = (opts) => (opts?.font === 'hand' || (opts?.font !== 'print' && state.settings.handOn)) && handReady();
+function solveOptionsBlock(opts) {
+  const box = h('div', { class: 'card stack solve-opts' });
+  const set = (k, v) => { opts[k] = v; state.settings.solveOpts = { ...opts }; if (k === 'font') state.settings.handOn = v === 'hand'; save(); draw(); };
+  const seg = (k, items) => h('div', { class: 'seg' }, items.map(([v, l, dis]) => h('button', { class: `seg-btn ${opts[k] === v ? 'active' : ''}`, disabled: dis || undefined, onclick: () => set(k, v) }, l)));
+  const draw = () => {
+    if (opts.font === 'auto') opts.font = fontOf(opts) ? 'hand' : 'print';
+    box.replaceChildren(...[
+      h('div', { class: 'label' }, 'Schrift'),
+      seg('font', [['hand', '✍️ Handschrift', !handReady()], ['print', '🔤 Druckschrift']]),
+      !handReady() ? h('p', { class: 'muted small' }, 'Für Handschrift: ', h('button', { class: 'link-small', onclick: () => go('hand') }, 'Handschrift einrichten')) : null,
+      h('div', { class: 'label' }, 'Wie ausführlich?'),
+      seg('detail', [['kurz', 'Kurz'], ['normal', 'Normal'], ['ausfuehrlich', 'Ausführlich']]),
+      h('p', { class: 'muted small' }, { kurz: 'Nur das Nötige – Stichpunkte, Ergebnisse.', normal: 'Vollständige Antworten, so wie man sie abgibt.', ausfuehrlich: 'Ganze Sätze mit Begründung, Beispielen und Rechenweg.' }[opts.detail]),
+      h('div', { class: 'label' }, 'Wohin mit den Lösungen?'),
+      seg('place', [['auto', 'Automatisch'], ['blatt', 'Aufs Blatt'], ['heft', 'Ins Heft']]),
+      h('p', { class: 'muted small' }, { auto: 'Aufs Blatt, wo Platz ist (auch in Tabellen, notfalls im vergrößerten Ausschnitt) – sonst kariertes Blatt.', blatt: 'Alles aufs Blatt, auch klein und in Tabellen. Nur wo gar nichts frei ist, kommt es ins Heft.', heft: 'Alles ordentlich auf karierte Seiten – wie im Heft.' }[opts.place]),
+      h('label', { class: 'hand-toggle' }, h('input', { type: 'checkbox', checked: opts.steps, onchange: (e) => set('steps', e.target.checked) }),
+        h('span', {}, h('b', {}, 'Rechenweg und Begründung zeigen'), h('small', { class: 'muted' }, 'Aus: nur die Ergebnisse')))].filter(Boolean));
+  };
+  draw();
+  return box;
 }
 
 function viewSolveNew() {
@@ -2016,6 +2043,8 @@ function viewSolveNew() {
       h('div', { class: 'chips' }, state.subjects.map((sub) => h('button', { class: `chip ${nsv.subjectId === sub.id ? 'active' : ''}`, onclick: () => { nsv.subjectId = sub.id; render(); } }, sub.name))),
       h('div', { class: 'label' }, 'Seiten'),
       grid,
+      h('div', { class: 'label' }, 'So soll die Hausaufgabe aussehen'),
+      solveOptionsBlock(nsv.opts ||= solveOpts()),
       h('div', { class: 'label' }, 'Links (optional, z. B. LEIFIphysik)'),
       (() => {
         const ta = h('textarea', { class: 'input', rows: 2, placeholder: 'Link von der Lehrkraft hier einfügen – auch mehrere', value: nsv.links, oninput: (e) => { nsv.links = e.target.value; } });
@@ -2041,7 +2070,7 @@ function parseLinks(text) {
 
 function startSolveBuild() {
   const subject = subjectById(nsv.subjectId);
-  const item = { id: uid(), subjectId: nsv.subjectId, fileIds: [...nsv.fileIds], links: parseLinks(nsv.links), note: nsv.note.trim(), loesung: null, titel: `${subject?.name || 'Blatt'} · ${new Date().toLocaleDateString('de-DE')}`, ersteAufgabe: '', chat: [], createdAt: Date.now(), annot: {}, building: true };
+  const item = { id: uid(), subjectId: nsv.subjectId, fileIds: [...nsv.fileIds], links: parseLinks(nsv.links), note: nsv.note.trim(), opts: { ...(nsv.opts || solveOpts()) }, loesung: null, titel: `${subject?.name || 'Blatt'} · ${new Date().toLocaleDateString('de-DE')}`, ersteAufgabe: '', chat: [], createdAt: Date.now(), annot: {}, building: true };
   solvedList().unshift(item);
   save();
   nsv = null;
@@ -2060,9 +2089,8 @@ const SUP_CHARS = { 0: '⁰', 1: '¹', 2: '²', 3: '³', 4: '⁴', 5: '⁵', 6: 
 // Druckschrift: 1,3^x → 1,3ˣ, * → · usw. (wie die Handschrift, nur mit Schriftzeichen)
 const typedMath = (t) => mathTokens(t).map(({ ch, sup }) => (sup ? SUP_CHARS[ch] || SUP_CHARS[ch.toLowerCase()] || ch : ch)).join('');
 const inkProbe = () => (inkProbe.c ||= document.createElement('canvas').getContext('2d'));
-function inkPlace(txt, boxW, boxH, W, hand, seed) {
+function inkPlace(txt, boxW, boxH, W, hand, seed, minScale = 0.72, forceSize = null) {
   const measure = (t, size) => { const c = inkProbe(); c.font = `600 ${size}px Inter, system-ui, sans-serif`; return c.measureText(t).width; };
-  const width = (t, size) => (hand ? layoutWidth(t, seed) * HAND_EM * size : measure(t, size));
   const wrap = (size) => {
     if (hand) return handLines(txt, boxW / size, seed);
     const out = [];
@@ -2073,21 +2101,35 @@ function inkPlace(txt, boxW, boxH, W, hand, seed) {
     }
     return out;
   };
+  const count = (l) => (Array.isArray(l) ? l.length : l);
+  // Passt Text in dieser Größe ins Feld? (keine Zeile breiter als das Feld, alle Zeilen innerhalb der Höhe)
+  const tooWide = (size) => hand ? false : txt.split('\n').some((p) => p.split(/\s+/).some((w) => measure(w, size) > boxW * 1.02));
+  const fits = (size) => { const n = count(wrap(size)); return !tooWide(size) && (n - 1) * size * 1.25 + size <= boxH * 0.95 && (!hand || layoutWidthMax(size) <= boxW * 1.02); };
+  const layoutWidthMax = (size) => Math.max(...txt.split(/\s+/).map((w) => layoutWidth(w, seed))) * HAND_EM * size;
   if (!hand) txt = typedMath(txt);
-  let size = Math.max(W * 0.007, Math.min(W * 0.024, boxH * 0.62));
-  const size0 = size;
-  const single = !txt.includes('\n');
-  const w0 = single ? width(txt, size) : 0;
-  // Passt es nicht in die Zeile, höchstens auf 75 % verkleinern – kleiner sähe neben den anderen Antworten komisch aus
-  if (single && w0 > boxW) size *= Math.max(0.75, (boxW / w0) * 0.98);
+  const size0 = Math.max(W * 0.007, Math.min(W * 0.024, boxH * 0.62));
+  let size = size0, overflow = false;
+  if (forceSize) size = forceSize;
+  else if (!fits(size0)) {
+    // Größte Schrift suchen, mit der alles ins Feld passt – aber nicht kleiner als minScale
+    let lo = size0 * minScale, hi = size0;
+    if (!fits(lo)) { overflow = true; size = lo; }
+    else { for (let k = 0; k < 9; k++) { const mid = (lo + hi) / 2; if (fits(mid)) lo = mid; else hi = mid; } size = lo; }
+  }
   const lines = wrap(size);
-  const n = Array.isArray(lines) ? lines.length : lines;
+  const n = count(lines);
   const pitch = size * 1.25;
   const last = boxH - size * 0.1;
-  // Zu wenig Platz: mehr Zeilen, als das Feld hoch ist → gehört aufs karierte Blatt
-  const room = Math.max(1, Math.floor(boxH / (size0 * 1.25 * 0.95))); // so viele Zeilen in normaler Größe passen
-  const overflow = n > room || (n > 1 && (n - 1) * pitch + size > boxH * 1.15);
   return { size, lines, n, pitch, first: last - (n - 1) * pitch, overflow, txt };
+}
+
+// Gleich große Felder (z. B. Zellen einer Tabelle) bekommen dieselbe Schriftgröße – sonst sieht es unruhig aus
+function uniformSizes(items) {
+  return items.map((it, i) => {
+    const peers = items.filter((o) => Math.abs(o.boxH / it.boxH - 1) < 0.3 && Math.abs(o.boxW / it.boxW - 1) < 0.35);
+    const min = Math.min(...peers.map((o) => o.pl.size));
+    return min < it.pl.size * 0.98 ? min : null;
+  });
 }
 
 // ---------- Platz prüfen: Steht im vorgesehenen Feld schon gedruckter Text (z. B. Schulbuchseite)?
@@ -2128,7 +2170,7 @@ function boxOccupied(px, W, H, box) {
 
 // Einmal pro Blatt: Seitenverhältnis merken und belegte Felder markieren (e.blocked)
 async function checkSheetSpace(item) {
-  if (item.spaceV === 1) return false;
+  if (item.spaceV === 2) return false;
   item.aspect ||= {};
   for (const fid of item.fileIds) {
     const list = item.annot?.[fid];
@@ -2143,8 +2185,21 @@ async function checkSheetSpace(item) {
     const c = cv.getContext('2d', { willReadFrequently: true }); c.drawImage(img, 0, 0, W, H);
     const px = c.getImageData(0, 0, W, H).data;
     for (const e of list) if (e.art === 'text' && Array.isArray(e.box)) e.blocked = boxOccupied(px, W, H, e.box) || undefined;
+    // Steht alles Auszufüllende nur in einem kleinen Teil des Fotos (Tabelle am Beamer, Blatt weit weg),
+    // schreibt Jelly in einen vergrößerten Ausschnitt – dann passt die Schrift lesbar in die Felder
+    const boxes = list.filter((e) => Array.isArray(e.box) && !e.blocked).map((e) => e.box);
+    item.crop ||= {};
+    delete item.crop[fid];
+    if (boxes.length) {
+      let y0 = Math.min(...boxes.map((b) => b[0])), x0 = Math.min(...boxes.map((b) => b[1])), y1 = Math.max(...boxes.map((b) => b[2])), x1 = Math.max(...boxes.map((b) => b[3]));
+      // Großzügiger Rand, damit Aufgabe, Tabellenkopf und Zeilennamen mit im Bild sind
+      const bw = x1 - x0, bh = y1 - y0;
+      const mx = Math.max(60, bw * 0.4), myTop = Math.max(90, bh * 0.6), myBot = Math.max(50, bh * 0.2);
+      y0 = Math.max(0, y0 - myTop); y1 = Math.min(1000, y1 + myBot); x0 = Math.max(0, x0 - mx); x1 = Math.min(1000, x1 + mx * 0.6);
+      if ((y1 - y0) * (x1 - x0) < 0.45 * 1000 * 1000 && (x1 - x0) < 820) item.crop[fid] = [Math.round(y0), Math.round(x0), Math.round(y1), Math.round(x1)];
+    }
   }
-  item.spaceV = 1;
+  item.spaceV = 2;
   save();
   return true;
 }
@@ -2152,29 +2207,42 @@ async function checkSheetSpace(item) {
 // Was aufs Foto kommt und was aufs karierte Blatt: belegte Felder und Antworten, die nicht in ihre Zeile passen,
 // wandern komplett (ganze Aufgabe) aufs karierte Blatt – lieber ordentlich im Heft als gequetscht oder über Text.
 function sheetEntries(item, fid) {
-  const all = item.annot?.[fid] || [];
-  const aspect = item.aspect?.[fid] || 1.35;
+  const raw = item.annot?.[fid] || [];
+  const place = item.opts?.place || 'auto';
+  const crop = place !== 'heft' ? item.crop?.[fid] : null;
+  const aspect0 = item.aspect?.[fid] || 1.35;
+  // Felder in Ausschnitt-Koordinaten umrechnen (0–1000 bezogen auf den Ausschnitt)
+  const all = crop ? raw.map((e) => (Array.isArray(e.box) ? { ...e, box: [
+    ((e.box[0] - crop[0]) / (crop[2] - crop[0])) * 1000, ((e.box[1] - crop[1]) / (crop[3] - crop[1])) * 1000,
+    ((e.box[2] - crop[0]) / (crop[2] - crop[0])) * 1000, ((e.box[3] - crop[1]) / (crop[3] - crop[1])) * 1000] } : e)) : raw;
+  const aspect = crop ? (aspect0 * (crop[2] - crop[0])) / (crop[3] - crop[1]) : aspect0;
   const hand = handActive();
   const key = (e) => String(e.aufgabe || '').trim() || e;
   const moved = new Set();
   for (const e of all) {
     if (e.art !== 'text' || !Array.isArray(e.box)) continue;
-    if (e.blocked) { moved.add(key(e)); continue; }
+    if (place === 'heft' || e.blocked) { moved.add(key(e)); continue; }
+    if (place === 'blatt') continue; // „Aufs Blatt“: lieber klein als im Heft
     const pl = inkPlace(cleanText(e.text || ''), (e.box[3] - e.box[1]), ((e.box[2] - e.box[0]) / 1000) * 1000 * aspect, 1000, hand, 1);
     if (pl.overflow) moved.add(key(e));
   }
-  if (!moved.size) return all;
-  const out = [];
-  const groups = new Map();
-  for (const e of all) {
-    if (e.art === 'text' && moved.has(key(e))) {
-      const k = key(e);
-      if (!groups.has(k)) { const g = { aufgabe: typeof k === 'string' ? k : '', art: 'heft', text: '' }; groups.set(k, g); out.push(g); }
-      const g = groups.get(k); g.text = g.text ? `${g.text} ${cleanText(e.text || '')}` : cleanText(e.text || '');
-    } else out.push(e);
+  let out = all;
+  if (moved.size) {
+    out = [];
+    const groups = new Map();
+    for (const e of all) {
+      if (e.art === 'text' && moved.has(key(e))) {
+        const k = key(e);
+        if (!groups.has(k)) { const g = { aufgabe: typeof k === 'string' ? k : '', art: 'heft', text: '' }; groups.set(k, g); out.push(g); }
+        const g = groups.get(k); g.text = g.text ? `${g.text} ${cleanText(e.text || '')}` : cleanText(e.text || '');
+      } else out.push(e);
+    }
+    out = [...out.filter((e) => e.art !== 'heft'), ...out.filter((e) => e.art === 'heft')];
   }
-  // Karierte Einträge nach den übrigen, in Reihenfolge der Aufgaben
-  return [...out.filter((e) => e.art !== 'heft'), ...out.filter((e) => e.art === 'heft')];
+  if (crop && !out.some((e) => Array.isArray(e.box))) return out; // nichts mehr auf dem Blatt → kein Ausschnitt nötig
+  out.crop = crop || null;
+  out.minScale = place === 'blatt' ? 0.45 : 0.72;
+  return out;
 }
 
 // Umschalter Handschrift / Druckschrift (auch während Jelly noch löst)
@@ -2193,6 +2261,14 @@ function fontSwitch(onChange) {
 function annotatedPage(fid, entries, show) {
   const wrap = h('div', { class: `annot-wrap ${show ? '' : 'hide-ink'}` });
   const img = h('img', { alt: 'Arbeitsblatt' });
+  const crop = entries.crop;
+  if (crop) {
+    // Nur den Ausschnitt zeigen: Bild vergrößert und verschoben, der Rahmen hat das Seitenverhältnis des Ausschnitts
+    wrap.classList.add('cropped');
+    const cw = crop[3] - crop[1], ch = crop[2] - crop[0];
+    Object.assign(img.style, { position: 'absolute', width: `${(1000 / cw) * 100}%`, left: `${(-crop[1] / cw) * 100}%`, top: `${(-crop[0] / ch) * 100}%` });
+    img.addEventListener('load', () => { wrap.style.aspectRatio = `${(cw * img.naturalWidth) / (ch * img.naturalHeight)}`; fit(); });
+  }
   add(wrap, img);
   const layer = h('div', { class: 'annot-layer' });
   add(wrap, layer);
@@ -2214,11 +2290,13 @@ function annotatedPage(fid, entries, show) {
   // Schriftgröße an die Zeilenhöhe im Foto anpassen
   // Schriftgröße: klein und gleichmäßig (nach Blattbreite), höchstens so hoch wie das Feld
   const fit = () => {
-    const W = img.clientWidth, H = img.clientHeight;
+    const W = wrap.clientWidth, H = wrap.clientHeight;
     if (!W || !H) return;
+    const meas = texts.map(([t, b, txt], i) => { const boxW = ((b[3] - b[1]) / 1000) * W, boxH = ((b[2] - b[0]) / 1000) * H; return { boxW, boxH, pl: inkPlace(txt, boxW, boxH, W, hand, i + 1, entries.minScale) }; });
+    const uni = uniformSizes(meas);
     texts.forEach(([t, b, txt], i) => {
-      const boxW = ((b[3] - b[1]) / 1000) * W, boxH = ((b[2] - b[0]) / 1000) * H;
-      const pl = inkPlace(txt, boxW, boxH, W, hand, i + 1);
+      const { boxW, boxH } = meas[i];
+      const pl = uni[i] ? inkPlace(txt, boxW, boxH, W, hand, i + 1, entries.minScale, uni[i]) : meas[i].pl;
       t.style.fontSize = `${pl.size}px`;
       // Inhalt so setzen, dass die Grundlinie der letzten Zeile auf der Schreiblinie (Unterkante) liegt
       t.replaceChildren(hand
@@ -2235,7 +2313,7 @@ function annotatedPage(fid, entries, show) {
 // ---------- Gelöstes Blatt als echtes Bild (Foto + Lösungen), zum Kopieren und Sichern
 const solvedPng = new Map(); // "fid:AnzahlEinträge" → Promise<Blob>
 function solvedImage(fid, entries) {
-  const key = `${fid}:${entries.length}:${entries.filter((e) => e.art === 'heft').length}:${handVersion()}`;
+  const key = `${fid}:${entries.length}:${entries.filter((e) => e.art === 'heft').length}:${handVersion()}:${entries.crop || ''}:${entries.minScale || ''}`;
   if (!solvedPng.has(key)) solvedPng.set(key, renderSolvedImage(fid, entries).catch((e) => { solvedPng.delete(key); throw e; }));
   return solvedPng.get(key);
 }
@@ -2246,12 +2324,16 @@ async function renderSolvedImage(fid, entries) {
   const img = new Image();
   await new Promise((res, rej) => { img.onload = res; img.onerror = () => rej(new Error('Foto konnte nicht geladen werden.')); img.src = url; });
   try { await document.fonts?.load('700 20px Inter'); } catch {}
-  const scale = Math.min(1, 2600 / Math.max(img.naturalWidth, img.naturalHeight));
-  const W = Math.round(img.naturalWidth * scale), H = Math.round(img.naturalHeight * scale);
+  const cr = entries.crop || [0, 0, 1000, 1000];
+  const sx = (cr[1] / 1000) * img.naturalWidth, sy = (cr[0] / 1000) * img.naturalHeight;
+  const sw = ((cr[3] - cr[1]) / 1000) * img.naturalWidth, sh = ((cr[2] - cr[0]) / 1000) * img.naturalHeight;
+  const scale = Math.min(entries.crop ? 2.5 : 1, 2600 / Math.max(sw, sh)); // Ausschnitt darf hochskaliert werden
+  const W = Math.round(sw * scale), H = Math.round(sh * scale);
   const cv = document.createElement('canvas');
   cv.width = W; cv.height = H;
   const c = cv.getContext('2d');
-  c.drawImage(img, 0, 0, W, H);
+  c.imageSmoothingQuality = 'high';
+  c.drawImage(img, sx, sy, sw, sh, 0, 0, W, H);
   const INK = INK_COLOR, RED = '#c62828', GREEN = '#1f9d55';
   const box = (b) => ({ x: (b[1] / 1000) * W, y: (b[0] / 1000) * H, w: ((b[3] - b[1]) / 1000) * W, h: ((b[2] - b[0]) / 1000) * H });
   const lw = Math.max(2, W * 0.0028);
@@ -2259,8 +2341,11 @@ async function renderSolvedImage(fid, entries) {
   // Text wie in der Ansicht: klein und gleichmäßig, bricht an der Feldbreite um, weißer Rand für Lesbarkeit
   const hand = handActive();
   let seed = 0;
-  const text = (str, r, color, boxH) => {
-    const pl = inkPlace(str, r.w, boxH, W, hand, ++seed);
+  const tItems = entries.filter((e) => e.art === 'text' && Array.isArray(e.box)).map((e) => { const r = box(e.box); return { e, boxW: r.w, boxH: r.h, pl: inkPlace(cleanText(e.text || ''), r.w, r.h, W, hand, 1, entries.minScale) }; });
+  const uniC = uniformSizes(tItems);
+  const forced = new Map(tItems.map((t, i) => [t.e, uniC[i]]));
+  const text = (str, r, color, boxH, force = null) => {
+    const pl = inkPlace(str, r.w, boxH, W, hand, ++seed, entries.minScale, force);
     if (hand) { drawHand(c, str, r.x, r.y + pl.first - 0.66 * pl.size * HAND_EM, pl.size, r.w, color, seed, 1.25 / HAND_EM); return; }
     c.font = `600 ${pl.size}px Inter, system-ui, sans-serif`;
     c.textBaseline = 'alphabetic';
@@ -2274,7 +2359,7 @@ async function renderSolvedImage(fid, entries) {
   for (const e of entries) {
     if (!Array.isArray(e.box)) continue;
     const r = box(e.box);
-    if (e.art === 'text') text(cleanText(e.text || ''), r, INK, r.h);
+    if (e.art === 'text') text(cleanText(e.text || ''), r, INK, r.h, forced.get(e));
     else if (e.art === 'kreuz') cross(r, INK);
     else if (e.art === 'markieren') { c.save(); c.globalCompositeOperation = 'multiply'; c.fillStyle = 'rgba(255, 221, 0, .45)'; c.fillRect(r.x, r.y, r.w, r.h); c.restore(); }
     else if (e.art === 'kreis') { c.strokeStyle = INK; c.lineWidth = lw; c.beginPath(); c.ellipse(r.x + r.w / 2, r.y + r.h / 2, r.w / 2 + lw * 2, r.h / 2 + lw * 2, 0, 0, Math.PI * 2); c.stroke(); }
@@ -2318,10 +2403,15 @@ function heftLayout(entries) {
   const pages = [[]];
   let used = 0;
   entries.forEach((e, i) => {
-    const txt = hand ? cleanText(e.text) : typedMath(cleanText(e.text));
+    // Kurze Nummer (1, 2b, c) kommt in den Kreis, lange Namen („1 (Definition)“) werden zur ersten Zeile
+    const lab = heftLabel(e);
+    const short = lab.length <= 3;
+    let raw = cleanText(e.text);
+    if (lab && !short) raw = `${lab}:\n${raw}`;
+    const txt = hand ? raw : typedMath(raw);
     const n = hand ? handLines(txt, HEFT.inner, i + 11) : typedLines(txt, HEFT.inner).length;
     if (used && used + n > HEFT.lines) { pages.push([]); used = 0; }
-    pages.at(-1).push({ e, txt, label: heftLabel(e), seed: i + 11, line: used, n });
+    pages.at(-1).push({ e, txt, label: short ? lab : '', seed: i + 11, line: used, n });
     used += n + 1;
   });
   return pages.map((items) => ({ items, h: Math.max(HEFT.h, HEFT.first + (Math.max(...items.map((it) => it.line + it.n)) - 1) * HEFT.pitch + HEFT.bottom + 0.8) }));
@@ -2453,15 +2543,13 @@ function viewSolved({ id }) {
   const item = solvedList().find((x) => x.id === id);
   if (!item) { go('subjects'); return h('div'); }
   const subject = subjectById(item.subjectId);
-  if (!item.building && item.spaceV !== 1 && Object.keys(item.annot || {}).length && !ui.busy[`space:${item.id}`]) {
+  if (!item.building && item.spaceV !== 2 && Object.keys(item.annot || {}).length && !ui.busy[`space:${item.id}`]) {
     ui.busy[`space:${item.id}`] = true;
     const here = route;
-    checkSheetSpace(item).then((changed) => { delete ui.busy[`space:${item.id}`]; if (changed && route === here) render(); }).catch(() => { delete ui.busy[`space:${item.id}`]; item.spaceV = 1; });
+    checkSheetSpace(item).then((changed) => { delete ui.busy[`space:${item.id}`]; if (changed && route === here) render(); }).catch(() => { delete ui.busy[`space:${item.id}`]; item.spaceV = 2; });
   }
   if (item.building) {
     const main = h('main', { class: 'content narrow' });
-    // Schon jetzt wählen, wie die Lösungen aufs Blatt kommen (ändert nichts am Lösen, nur an der Schrift)
-    add(main, h('div', { class: 'stack font-pick' }, h('div', { class: 'label' }, 'So schreibt Jelly die Lösungen'), fontSwitch()));
     pending(main, `s:${item.id}`, 'Ich löse dein Arbeitsblatt …', ['Blatt lesen & Aufgaben lösen', 'Lösungen aufs Blatt schreiben'], () => solveSheet(item, () => save()));
     return h('div', { class: 'screen' }, topbar({ back: () => go('subjects'), title: 'Blatt lösen' }), main);
   }
@@ -2500,7 +2588,7 @@ function viewSolved({ id }) {
           const o = sheet('Blatt', [h('div', { class: 'menu' },
             menuRow('refresh', 'Nochmal lösen lassen', 'Gleiche Seiten, neue Lösung', async () => {
               o.remove();
-              nsv = { subjectId: item.subjectId, fileIds: [...item.fileIds], note: item.note || '', processing: true };
+              nsv = { subjectId: item.subjectId, fileIds: [...item.fileIds], note: item.note || '', links: (item.links || []).join('\n'), opts: { ...(item.opts || solveOpts()) } };
               solvedList().splice(solvedList().indexOf(item), 1); save(); go('solve');
             }),
             menuRow('trash', 'Löschen', null, async () => {
@@ -2537,12 +2625,13 @@ function viewSolved({ id }) {
               const out = pages.map((fid) => {
                 const ents = sheetEntries(item, fid);
                 const page = annotatedPage(fid, ents, ui.inkShow);
+                const cropNote = ents.crop ? h('p', { class: 'muted small center' }, 'Vergrößerter Ausschnitt – so passt alles lesbar in die Felder. Das ganze Foto: unten bei „Original ansehen“.') : null;
                 const box = h('div', { class: `annot-scroll ${ui.inkZoom ? 'zoomed' : ''}` }, page);
                 const zoomBtn = h('button', { class: 'zoom-btn', 'aria-label': 'Vergrößern', onclick: () => { ui.inkZoom = !ui.inkZoom; box.classList.toggle('zoomed', ui.inkZoom); zoomBtn.replaceChildren(icon(ui.inkZoom ? 'minus' : 'plus', 20)); } }, icon(ui.inkZoom ? 'minus' : 'plus', 20));
                 solvedImage(fid, ents).catch(() => {}); // schon vorbereiten, damit Kopieren/Sichern sofort klappt
                 const heft = heftOf(ents);
                 if (heft.length) heftImage(fid, ents).catch(() => {});
-                return [h('div', { class: 'annot-holder' }, box, zoomBtn,
+                return [cropNote, h('div', { class: 'annot-holder' }, box, zoomBtn,
                   h('div', { class: 'annot-actions' },
                     h('button', { class: 'btn small', onclick: () => copySolvedImage(item, fid) }, icon('layers', 16), 'Kopieren'),
                     h('button', { class: 'btn small', onclick: () => saveSolvedImages(item, [fid]) }, icon('download', 16), heft.length ? 'Sichern (mit Heft)' : 'Sichern / Teilen'))),
