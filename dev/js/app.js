@@ -196,7 +196,7 @@ function designSheet(tab = designTab) {
   const body = h('div');
   const seg = () => h('div', { class: 'seg design-tabs' }, [['stil', 'Stil'], ['farben', 'Farben'], ['qualle', 'Qualle'], ['extras', 'Extras']].map(([k, l]) =>
     h('button', { class: `seg-btn ${designTab === k ? 'active' : ''}`, onclick: () => { designTab = k; draw(); } }, l)));
-  const draw = () => body.replaceChildren(seg(), ...(designTab === 'stil' ? skinPane() : designTab === 'farben' ? colorPane() : designTab === 'qualle' ? jellyPane() : extrasPane()));
+  const draw = () => body.replaceChildren(seg(), ...(designTab === 'stil' ? skinPane() : designTab === 'farben' ? colorPane() : designTab === 'qualle' ? jellyPane() : extrasPane()).filter(Boolean)); // ohne leere Einträge (sonst steht „null“ da)
   const lockBadge = (info) => h('span', { class: 'lock-badge' }, '🔒', `${info.have}/${info.need}`);
   const statRow = () => { const st = stats(); return h('div', { class: 'stat-row' }, h('div', {}, h('b', {}, `${streak()} 🔥`), 'Tage am Stück'), h('div', {}, h('b', {}, String(st.units)), 'Einheiten'), h('div', {}, h('b', {}, String(st.quizzes)), 'Quizze'), h('div', {}, h('b', {}, String(st.perfect)), 'mit 100 %')); };
   const redraw = () => { render(); draw(); };
@@ -762,13 +762,14 @@ function viewPlan() {
   if (!exam) {
     add(screen,
       h('header', { class: 'topbar' }, h('span', { class: 'iconbtn-spacer' }), h('div', { class: 'topbar-title' }, `Hi ${state.profile.name}!`), h('span', { class: 'iconbtn-spacer' })),
-      h('main', { class: 'content narrow center' },
+      h('main', { class: 'content narrow' },
         planSeg(),
+        h('div', { class: 'plan-empty' },
         mascot(140),
         h('h1', { class: 'display' }, 'Welche Klausur steht an?'),
         (() => { const next = allExamDates().filter((x) => daysUntil(x.date) >= 0 && !x.examId).slice(0, 3); return next.length ? [h('div', { class: 'label' }, 'Anstehende Prüfungen'), h('div', { class: 'menu' }, next.map(examRow))] : null; })(),
         h('p', { class: 'muted' }, 'Leg eine Klausur an, lade deine Arbeitsblätter hoch – ich baue dir daraus Lernzettel, Quizze, Aufgaben und eine Probeklassenarbeit.'),
-        h('button', { class: 'btn primary', onclick: () => startNewExam() }, 'Klausur anlegen')),
+        h('button', { class: 'btn primary', onclick: () => startNewExam() }, 'Klausur anlegen'))),
       tabbar('plan'));
     return screen;
   }
@@ -776,12 +777,13 @@ function viewPlan() {
   if (exam.building && !exam.plan) {
     add(screen,
       h('header', { class: 'topbar' }, h('span', { class: 'iconbtn-spacer' }), h('div', { class: 'topbar-title' }, subjectById(exam.subjectId)?.name || 'Klausur'), h('button', { class: 'iconbtn', 'aria-label': 'Klausuren', onclick: () => examSheet() }, icon('more'))),
-      h('main', { class: 'content narrow center' },
+      h('main', { class: 'content narrow' },
         planSeg(),
+        h('div', { class: 'plan-empty' },
         mascot(130),
         h('h1', { class: 'display' }, 'Dein Plan entsteht gerade'),
         h('p', { class: 'muted' }, ui.busy[`prep:${exam.id}`] ? 'Jelly liest deine Unterlagen …' : backgroundAvailable() ? 'Jelly arbeitet im Hintergrund daran, sobald die App geschlossen ist.' : 'Tippe auf „Weitermachen“, damit Jelly den Plan fertig baut.'),
-        h('button', { class: 'btn primary', onclick: () => go('prepare', { examId: exam.id }) }, 'Hier weitermachen')),
+        h('button', { class: 'btn primary', onclick: () => go('prepare', { examId: exam.id }) }, 'Hier weitermachen'))),
       tabbar('plan'));
     return screen;
   }
@@ -2050,6 +2052,35 @@ function startSolveBuild() {
 const SVG_CROSS = '<svg viewBox="0 0 10 10" preserveAspectRatio="none"><path d="M1.5 1.5 L8.5 8.5 M8.5 1.5 L1.5 8.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" fill="none"/></svg>';
 const SVG_CHECK = '<svg viewBox="0 0 10 10"><path d="M1.5 5.5 L4 8 L8.8 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>';
 
+// Wie eine Antwort in ihr Feld geschrieben wird: so groß, wie das Feld hoch ist (begrenzt nach Blattbreite),
+// in einer Zeile, wenn sie passt (sonst etwas kleiner oder umgebrochen) – und mit der Grundlinie auf der Unterkante
+// des Felds, also auf der Schreiblinie. Gibt Zeilen, Schriftgröße, Zeilenabstand und Grundlinien (ab Feld-Oberkante).
+const INK_COLOR = '#16131f';
+const inkProbe = () => (inkProbe.c ||= document.createElement('canvas').getContext('2d'));
+function inkPlace(txt, boxW, boxH, W, hand, seed) {
+  const measure = (t, size) => { const c = inkProbe(); c.font = `600 ${size}px Inter, system-ui, sans-serif`; return c.measureText(t).width; };
+  const width = (t, size) => (hand ? layoutWidth(t, seed) * HAND_EM * size : measure(t, size));
+  const wrap = (size) => {
+    if (hand) return handLines(txt, boxW / size, seed);
+    const out = [];
+    for (const para of txt.split('\n')) {
+      let line = '';
+      for (const w of para.split(/\s+/)) { const t = line ? `${line} ${w}` : w; if (line && measure(t, size) > boxW) { out.push(line); line = w; } else line = t; }
+      out.push(line);
+    }
+    return out;
+  };
+  let size = Math.max(W * 0.007, Math.min(W * 0.024, boxH * 0.62));
+  const single = !txt.includes('\n');
+  const w0 = single ? width(txt, size) : 0;
+  if (single && w0 > boxW) size = Math.max(size * 0.72, size * boxW / w0);
+  const lines = wrap(size);
+  const n = Array.isArray(lines) ? lines.length : lines;
+  const pitch = size * 1.25;
+  const last = boxH - size * 0.1;
+  return { size, lines, n, pitch, first: last - (n - 1) * pitch };
+}
+
 function annotatedPage(fid, entries, show) {
   const wrap = h('div', { class: `annot-wrap ${show ? '' : 'hide-ink'}` });
   const img = h('img', { alt: 'Arbeitsblatt' });
@@ -2076,13 +2107,14 @@ function annotatedPage(fid, entries, show) {
   const fit = () => {
     const W = img.clientWidth, H = img.clientHeight;
     if (!W || !H) return;
-    const base = W * 0.0105;
     texts.forEach(([t, b, txt], i) => {
-      const boxH = ((b[2] - b[0]) / 1000) * H;
-      const size = Math.max(6, Math.min(base, boxH * 0.75));
-      t.style.fontSize = `${size}px`;
-      // In der eigenen Handschrift: gleiche Größe und Breite, nur als Striche
-      if (hand && t.clientWidth) t.replaceChildren(handSVG(txt, t.clientWidth / size, i + 1));
+      const boxW = ((b[3] - b[1]) / 1000) * W, boxH = ((b[2] - b[0]) / 1000) * H;
+      const pl = inkPlace(txt, boxW, boxH, W, hand, i + 1);
+      t.style.fontSize = `${pl.size}px`;
+      // Inhalt so setzen, dass die Grundlinie der letzten Zeile auf der Schreiblinie (Unterkante) liegt
+      t.replaceChildren(hand
+        ? h('div', { class: 'ink-lines', style: { top: `${pl.first / pl.size - 0.7467}em` } }, handSVG(txt, boxW / pl.size, i + 1, 1.25 / HAND_EM))
+        : h('div', { class: 'ink-lines typed', style: { top: `${pl.first / pl.size - 0.99}em` } }, pl.lines.join('\n')));
     });
   };
   img.onload = fit;
@@ -2111,7 +2143,7 @@ async function renderSolvedImage(fid, entries) {
   cv.width = W; cv.height = H;
   const c = cv.getContext('2d');
   c.drawImage(img, 0, 0, W, H);
-  const INK = '#4b2bd6', RED = '#c62828', GREEN = '#1f9d55';
+  const INK = INK_COLOR, RED = '#c62828', GREEN = '#1f9d55';
   const box = (b) => ({ x: (b[1] / 1000) * W, y: (b[0] / 1000) * H, w: ((b[3] - b[1]) / 1000) * W, h: ((b[2] - b[0]) / 1000) * H });
   const lw = Math.max(2, W * 0.0028);
   c.lineCap = 'round'; c.lineJoin = 'round';
@@ -2119,22 +2151,13 @@ async function renderSolvedImage(fid, entries) {
   const hand = handActive();
   let seed = 0;
   const text = (str, r, color, boxH) => {
-    const size = Math.max(W * 0.006, Math.min(W * 0.0105, boxH * 0.75));
-    if (hand) { drawHand(c, str, r.x, r.y, size, Math.max(r.w, size * 4), color, ++seed); return; }
-    c.font = `700 ${size}px Inter, system-ui, sans-serif`;
-    c.textBaseline = 'top';
-    const lines = [];
-    for (const para of String(str).split(/\n/)) {
-      let line = '';
-      for (const word of para.split(/\s+/)) {
-        const test = line ? `${line} ${word}` : word;
-        if (line && c.measureText(test).width > Math.max(r.w, size * 4)) { lines.push(line); line = word; } else line = test;
-      }
-      lines.push(line);
-    }
-    lines.forEach((ln, i) => {
-      const y = r.y + i * size * 1.2;
-      c.lineWidth = size * 0.32; c.strokeStyle = 'rgba(255,255,255,.92)'; c.strokeText(ln, r.x, y);
+    const pl = inkPlace(str, r.w, boxH, W, hand, ++seed);
+    if (hand) { drawHand(c, str, r.x, r.y + pl.first - 0.66 * pl.size * HAND_EM, pl.size, r.w, color, seed, 1.25 / HAND_EM); return; }
+    c.font = `600 ${pl.size}px Inter, system-ui, sans-serif`;
+    c.textBaseline = 'alphabetic';
+    pl.lines.forEach((ln, i) => {
+      const y = r.y + pl.first + i * pl.pitch;
+      c.lineWidth = pl.size * 0.32; c.strokeStyle = 'rgba(255,255,255,.92)'; c.strokeText(ln, r.x, y);
       c.fillStyle = color; c.fillText(ln, r.x, y);
     });
   };
