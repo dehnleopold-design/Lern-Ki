@@ -182,21 +182,24 @@ function racer() {
     c.fillStyle = '#ef4444'; roundRect(c, L + w * 0.08, T + hh - hh * 0.05 - 2, w * 0.2, hh * 0.05, 3); c.fill(); roundRect(c, L + w * 0.72, T + hh - hh * 0.05 - 2, w * 0.2, hh * 0.05, 3); c.fill();
     if (player) { c.save(); c.globalAlpha = 0.1; c.fillStyle = '#fde68a'; c.beginPath(); c.moveTo(L + w * 0.1, T); c.lineTo(L - w * 0.3, T - hh * 0.9); c.lineTo(L + w * 1.3, T - hh * 0.9); c.lineTo(L + w * 0.9, T); c.fill(); c.restore(); }
   }
-  // Spur frei? Liefert eine Spur, in die ein neues Auto darf, ohne alle drei Spuren zu sperren (oder -1)
-  function freeLaneFor(wish, len, cw) {
-    const near = cars.filter((k) => k.y < cw * 3.4); // gerade erst erschienen = gleiche Höhe
-    const used = new Set(near.map((k) => k.lane));
-    const order = [wish, (wish + 1) % LANES, (wish + 2) % LANES];
-    for (const l of order) {
-      if (near.some((k) => k.lane === l)) continue;           // Spur oben schon belegt
-      if (!used.has(l) && used.size >= LANES - 1) continue;   // würde die letzte freie Spur zumachen
-      return l;
+  // Sichere Spur: dort erscheint nie ein Auto. Sie wechselt nur zur Nachbarspur und erst, wenn genug Platz
+  // zum Umsetzen ist – so gibt es immer einen Weg vorbei, auch bei versetzt fahrenden Autos.
+  let safe = 1, safeTimer = 4, oldSafe = -1;
+  const topY = (l) => Math.min(Infinity, ...cars.filter((k) => k.lane === l).map((k) => k.y - k.len * W * 0.08));
+  function laneOk(l, cw) {
+    if (l === safe) return false;
+    if (cars.some((k) => k.lane === l && k.y < k.len * cw * 0.5 + cw * 1.4)) return false; // Abstand in derselben Spur
+    // Alte sichere Spur erst wieder befahren, wenn das letzte Auto der neuen sicheren Spur weit genug weg ist
+    if (l === oldSafe) {
+      const gap = cw * 5 + speed * (1 - REL) * 0.5;
+      if (topY(safe) < gap) return false;
+      oldSafe = -1;
     }
-    return -1;
+    return true;
   }
   return {
     over: false,
-    init(_, w, hh) { W = w; H = hh; laneX = (i) => W * (0.2 + i * 0.3); target = 1; px = laneX(1); cars = []; coins = []; speed = 260; dist = 0; spawn = 0.6; coin = 1.2; bonus = 0; stripe = 0; tilt = 0; accent = css('--accent', '#8b5cf6'); },
+    init(_, w, hh) { W = w; H = hh; laneX = (i) => W * (0.2 + i * 0.3); target = 1; safe = 1; safeTimer = 4; oldSafe = -1; px = laneX(1); cars = []; coins = []; speed = 260; dist = 0; spawn = 0.6; coin = 1.2; bonus = 0; stripe = 0; tilt = 0; accent = css('--accent', '#8b5cf6'); },
     input(type, d) {
       if (type === 'tap' && d) target = Math.max(0, Math.min(LANES - 1, target + (d.x < W / 2 ? -1 : 1)));
       if ((type === 'swipe' || type === 'key') && (d === 'left' || d === 'right')) target = Math.max(0, Math.min(LANES - 1, target + (d === 'left' ? -1 : 1)));
@@ -206,15 +209,13 @@ function racer() {
       const nx = px + (laneX(target) - px) * Math.min(1, dt * 14); tilt = (nx - px) / Math.max(dt, 1e-3) / 900; px = nx;
       spawn -= dt; coin -= dt;
       const cw = W * 0.16;
+      safeTimer -= dt;
+      if (safeTimer <= 0 && oldSafe < 0) { oldSafe = safe; safe = safe === 1 ? (Math.random() < 0.5 ? 0 : 2) : 1; safeTimer = rnd(3, 6); }
       if (spawn <= 0) {
         const tp = TYPES[Math.floor(Math.random() * TYPES.length)];
-        // Manchmal zwei Autos nebeneinander – eine Spur bleibt immer frei
-        const n = Math.random() < Math.min(0.45, speed / 1200) ? 2 : 1;
-        for (let i = 0; i < n; i++) {
-          const lane = freeLaneFor(Math.floor(Math.random() * LANES), tp.len, cw);
-          if (lane < 0) break;
-          cars.push({ lane, x: laneX(lane), y: -cw * tp.len, len: tp.len, kind: tp.kind, col: tp.cols[Math.floor(Math.random() * tp.cols.length)] });
-        }
+        const n = Math.random() < Math.min(0.45, speed / 1200) ? 2 : 1; // manchmal zwei nebeneinander
+        const lanes = [0, 1, 2].filter((l) => laneOk(l, cw)).sort(() => Math.random() - 0.5).slice(0, n);
+        for (const lane of lanes) cars.push({ lane, x: laneX(lane), y: -cw * tp.len, len: tp.len, kind: tp.kind, col: tp.cols[Math.floor(Math.random() * tp.cols.length)] });
         spawn = Math.max(0.42, 1.05 - speed / 1400) + rnd(0, .3);
       }
       if (coin <= 0) { coins.push({ x: laneX(Math.floor(Math.random() * LANES)), y: -30 }); coin = rnd(1, 2.2); }
