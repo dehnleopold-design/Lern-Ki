@@ -791,7 +791,7 @@ input.input[type=date]::-webkit-date-and-time-value, input.input[type=time]::-we
 .wait-mode button { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 16px 10px; border-radius: 16px; background: var(--surface-2); border: 2px solid transparent; font-weight: 700; }
 .wait-mode button.on { border-color: var(--accent); }
 /* Mit Schach darf der Warte-Bereich auf dem iPad breiter sein als der Text darunter */
-.wait:has(> .ch) { width: min(1040px, calc(100vw - 32px)); margin-left: calc(50% - min(520px, 50vw - 16px)); }
+.wait:has(.ch) { width: min(1040px, calc(100vw - 32px)); margin-left: calc(50% - min(520px, 50vw - 16px)); }
 .ch-act span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 @container (max-width: 420px) { .ch-act { font-size: .68rem; } }
 .play-seg { margin-bottom: 14px; }
@@ -865,7 +865,7 @@ html, body { overflow-x: hidden; }
 @container (max-width: 600px) { .ch-game .ch-caps.bot { order: -1; } }
 .ch-cap svg { filter: drop-shadow(0 0 1.2px rgba(255, 255, 255, .55)); }
 /* Im Warte-Bildschirm das Brett etwas tiefer, damit die oberste Reihe frei liegt */
-.wait:has(> .ch) { padding-top: 14px; }
+.wait:has(.ch) { padding-top: 14px; }
 .ch-casual { margin-left: auto; font-size: .72rem; font-weight: 700; color: var(--muted); border: 1px solid var(--line); padding: 2px 8px; border-radius: 99px; white-space: nowrap; }
 .ch-casual[hidden] { display: none; }
 .ch-me-face { background: none; overflow: hidden; padding: 0; }
