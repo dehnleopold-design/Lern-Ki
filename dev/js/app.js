@@ -26,7 +26,7 @@ setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, JELLY_STYLES, setJellyStyle, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.63-dev.5';
+const APP_VERSION = '2.63-dev.6';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -2265,12 +2265,12 @@ function heftImage(fid, entries) {
 const solvedFileName = (item, i, n) => `${(subjectById(item.subjectId)?.name || 'Blatt').replace(/[^\wäöüÄÖÜß -]+/g, '')}-Lösung${n > 1 ? `-Seite-${i + 1}` : ''}.png`;
 
 // Teilen-Menü von iOS: „Bild sichern“ (Mediathek), „In Dateien sichern“, AirDrop … – sonst Download
-async function saveSolvedImages(item, fids) {
+async function saveSolvedImages(item, fids, heftOnly = false) {
   try {
     const files = [];
     for (const fid of fids) {
       const name = solvedFileName(item, item.fileIds.indexOf(fid), item.fileIds.length);
-      if (item.annot[fid].some((e) => Array.isArray(e.box)) || !heftOf(item.annot[fid]).length) files.push(new File([await solvedImage(fid, item.annot[fid])], name, { type: 'image/png' }));
+      if (!heftOnly && (item.annot[fid].some((e) => Array.isArray(e.box)) || !heftOf(item.annot[fid]).length)) files.push(new File([await solvedImage(fid, item.annot[fid])], name, { type: 'image/png' }));
       if (heftOf(item.annot[fid]).length) {
         const pages = await heftImage(fid, item.annot[fid]);
         pages.forEach((bl, k) => files.push(new File([bl], name.replace(/\.png$/, `-Heft${pages.length > 1 ? `-${k + 1}` : ''}.png`), { type: 'image/png' })));
@@ -2408,7 +2408,8 @@ function viewSolved({ id }) {
                   h('div', { class: 'label' }, `Im Heft – kein Platz auf dem Blatt (${heft.map((e) => e.aufgabe).filter(Boolean).join(', ') || heft.length})`),
                   heftPaper(heft),
                   h('div', { class: 'annot-actions' },
-                    h('button', { class: 'btn small', onclick: () => copySolvedImage(item, fid, true) }, icon('layers', 16), 'Kopieren'))) : null];
+                    h('button', { class: 'btn small', onclick: () => copySolvedImage(item, fid, true) }, icon('layers', 16), 'Kopieren'),
+                    h('button', { class: 'btn small', onclick: () => saveSolvedImages(item, [fid], true) }, icon('download', 16), 'Als Bild sichern'))) : null];
               });
               if (pages.length > 1) out.push(h('button', { class: 'btn block', onclick: () => saveSolvedImages(item, pages) }, icon('download', 18), `Alle ${pages.length} Seiten sichern`));
               out.push(h('p', { class: 'muted small center' }, '„Sichern / Teilen“ öffnet das Teilen-Menü: „Bild sichern“ legt es in die Mediathek, „In Dateien sichern“ in die Dateien-App. Das Bild enthält die Lösungen.'));
