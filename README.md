@@ -116,6 +116,13 @@ Einrichtung (einmalig):
 1. Firebase-Konsole → Projekteinstellungen → **Cloud Messaging** → Web-Push-Zertifikate → **Schlüsselpaar generieren**. Den öffentlichen Schlüssel in `js/firebase-config.js` bei `pushVapidKey` eintragen.
 2. Die Cloud Functions neu hochladen (gleicher Befehl wie oben unter „Einrichtung“, Blaze-Tarif nötig).
 
+**Ohne Blaze/Kreditkarte:** Statt der Cloud Function kann ein kostenloser **Cloudflare Worker** die Mitteilungen verschicken (`tools/jelly-push-worker.js`, alles außer „Jelly ist fertig“, weil der Hintergrund-Worker Blaze braucht):
+1. Firebase → Einstellungen → Dienstkonten → „Neuen privaten Schlüssel generieren“ (JSON, **geheim**).
+2. cloudflare.com → Workers & Pages → Erstellen → Worker „jelly-push“ (Hello World) → Code durch `tools/jelly-push-worker.js` ersetzen → Bereitstellen.
+3. Worker → Einstellungen → Variablen und Geheimnisse → Geheimnis `FIREBASE_SA` = kompletter JSON-Inhalt.
+4. Worker → Einstellungen → Trigger → Cron-Trigger `*/15 * * * *`.
+5. Worker-Adresse im Browser öffnen: „Jelly Push ist eingerichtet ✅“.
+
 ## Jelly Control (Kontoübersicht)
 
 Unter `/control/` liegt eine eigene kleine Web-App (eigenes Symbol, „Zum Home-Bildschirm“ möglich), die alle Jelly-Konten mit Kennzahlen zeigt: Name, E-Mail, registriert seit, zuletzt aktiv, Version, Gerät, Klasse, KI eingerichtet, Anzahl Fächer/Klausuren/Vokabellisten/Blätter/Dateien/Stunden. **Keine Lerninhalte.**
