@@ -146,12 +146,12 @@ export function dueMessages(p, now = new Date()) {
   if (t.hm < '07:00' || t.hm >= '21:30') return { t, msgs: [] };
   const learnedToday = p.lastLearnDay === t.today;
   const msgs = [];
-  if (want('daily') && !learnedToday && t.hm >= (p.time || '17:00')) msgs.push(['daily', { title: 'Zeit für Jelly 🪼', body: p.next ? `Heute dran: ${p.next}` : 'Ein paar Minuten lernen? Jelly hat alles vorbereitet.', tag: 'daily' }]);
-  if (want('streak') && !learnedToday && (p.streak || 0) >= 2 && p.lastLearnDay === t.yesterday && t.hm >= '19:00') msgs.push(['streak', { title: `Deine ${p.streak}-Tage-Serie 🔥`, body: 'Sie endet um Mitternacht – schon eine Einheit rettet sie.', tag: 'streak' }]);
+  if (want('daily') && !learnedToday && t.hm >= (p.time || '17:00')) msgs.push({ key: 'daily', msg: { title: 'Zeit für Jelly 🪼', body: p.next ? `Heute dran: ${p.next}` : 'Ein paar Minuten lernen? Jelly hat alles vorbereitet.', tag: 'daily' } });
+  if (want('streak') && !learnedToday && (p.streak || 0) >= 2 && p.lastLearnDay === t.yesterday && t.hm >= '19:00') msgs.push({ key: 'streak', msg: { title: `Deine ${p.streak}-Tage-Serie 🔥`, body: 'Sie endet um Mitternacht – schon eine Einheit rettet sie.', tag: 'streak' } });
   const ex = (p.exams || []).filter((e) => e.date === t.tomorrow);
-  if (want('exam') && ex.length && t.hm >= '16:00') msgs.push(['exam', { title: `Morgen: ${ex.map((e) => e.name).join(' & ')}-Klausur 📚`, body: 'Noch ein kurzes Quiz zum Aufwärmen? Du schaffst das!', tag: 'exam' }]);
+  if (want('exam') && ex.length && t.hm >= '16:00') msgs.push({ key: 'exam', msg: { title: `Morgen: ${ex.map((e) => e.name).join(' & ')}-Klausur 📚`, body: 'Noch ein kurzes Quiz zum Aufwärmen? Du schaffst das!', tag: 'exam' } });
   const td = (p.todos || []).filter((x) => x.date === t.today);
-  if (want('todo') && td.length && t.hm >= '14:00') msgs.push(['todo', { title: td.length === 1 ? 'Heute fällig 📝' : `${td.length} To-dos heute fällig 📝`, body: td.slice(0, 3).map((x) => x.title).join(' · '), tag: 'todo' }]);
+  if (want('todo') && td.length && t.hm >= '14:00') msgs.push({ key: 'todo', msg: { title: td.length === 1 ? 'Heute fällig 📝' : `${td.length} To-dos heute fällig 📝`, body: td.slice(0, 3).map((x) => x.title).join(' · '), tag: 'todo' } });
   return { t, msgs: msgs.slice(0, 2) };
 }
 
@@ -166,7 +166,7 @@ async function run(env) {
     const { t, msgs } = dueMessages(pr.data);
     if (!msgs.length) continue;
     const sent = { ...(pr.data.sent || {}) };
-    for (const [k, m] of msgs) { sentTotal += await send(sa.project_id, token, pr.uid, m); sent[k] = t.today; }
+    for (const { key, msg } of msgs) { sentTotal += await send(sa.project_id, token, pr.uid, msg); sent[key] = t.today; }
     await fsFetch(`https://firestore.googleapis.com/v1/${pr.name}?updateMask.fieldPaths=sent`, token, { method: 'PATCH', body: JSON.stringify({ fields: { sent: toFs(sent) } }) });
   }
   return { sent: sentTotal, users };
