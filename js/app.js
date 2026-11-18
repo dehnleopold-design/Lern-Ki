@@ -27,7 +27,7 @@ setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, JELLY_STYLES, setJellyStyle, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.68 (18.11.)';
+const APP_VERSION = '2.70 (18.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -1991,10 +1991,10 @@ function startSolve(subjectId = null) {
 }
 
 // Einstellungen für eine Hausaufgabe – gemerkt als Vorgabe fürs nächste Blatt
-const SOLVE_DEFAULTS = { font: 'auto', detail: 'normal', place: 'auto', steps: true };
+const SOLVE_DEFAULTS = { font: 'auto', detail: 'normal', place: 'auto', steps: true, export: 'bild' };
 const solveOpts = () => ({ ...SOLVE_DEFAULTS, ...(state.settings.solveOpts || {}) });
 const fontOf = (opts) => (opts?.font === 'hand' || (opts?.font !== 'print' && state.settings.handOn)) && handReady();
-function solveOptionsBlock(opts) {
+function solveOptionsBlock(opts, withExport = false) {
   const box = h('div', { class: 'card stack solve-opts' });
   const set = (k, v) => { opts[k] = v; state.settings.solveOpts = { ...opts }; if (k === 'font') state.settings.handOn = v === 'hand'; save(); draw(); };
   const seg = (k, items) => h('div', { class: 'seg' }, items.map(([v, l, dis]) => h('button', { class: `seg-btn ${opts[k] === v ? 'active' : ''}`, disabled: dis || undefined, onclick: () => set(k, v) }, l)));
@@ -2011,7 +2011,10 @@ function solveOptionsBlock(opts) {
       seg('place', [['auto', 'Automatisch'], ['blatt', 'Aufs Blatt'], ['heft', 'Ins Heft']]),
       h('p', { class: 'muted small' }, { auto: 'Aufs Blatt, wo Platz ist (auch in Tabellen, notfalls im vergrößerten Ausschnitt) – sonst kariertes Blatt.', blatt: 'Alles aufs Blatt, auch klein und in Tabellen. Nur wo gar nichts frei ist, kommt es ins Heft.', heft: 'Alles ordentlich auf karierte Seiten – wie im Heft.' }[opts.place]),
       h('label', { class: 'hand-toggle' }, h('input', { type: 'checkbox', checked: opts.steps, onchange: (e) => set('steps', e.target.checked) }),
-        h('span', {}, h('b', {}, 'Rechenweg und Begründung zeigen'), h('small', { class: 'muted' }, 'Aus: nur die Ergebnisse')))].filter(Boolean));
+        h('span', {}, h('b', {}, 'Rechenweg und Begründung zeigen'), h('small', { class: 'muted' }, 'Aus: nur die Ergebnisse'))),
+      withExport ? h('div', { class: 'label' }, 'Dateiformat beim Sichern') : null,
+      withExport ? seg('export', [['bild', '🖼️ Bild'], ['pdf', '📄 PDF'], ['goodnotes', '✏️ GoodNotes']]) : null,
+      withExport ? h('p', { class: 'muted small' }, { bild: 'Jede Seite als Bild – für Fotos oder Dateien.', pdf: 'Alle Seiten in einem PDF.', goodnotes: 'Ein PDF zum Öffnen in GoodNotes – dort kannst du weiterschreiben und markieren.' }[opts.export || 'bild']) : null].filter(Boolean));
   };
   draw();
   return box;
@@ -2487,8 +2490,58 @@ function heftImage(fid, entries) {
 
 const solvedFileName = (item, i, n) => `${(subjectById(item.subjectId)?.name || 'Blatt').replace(/[^\wäöüÄÖÜß -]+/g, '')}-Lösung${n > 1 ? `-Seite-${i + 1}` : ''}.png`;
 
+// ---------- PDF ohne Bibliothek: jede Seite ein JPEG-Bild auf einer Seite in A4-Breite
+async function jpegOf(blob) {
+  const url = URL.createObjectURL(blob);
+  try {
+    const img = new Image();
+    await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
+    const cv = document.createElement('canvas'); cv.width = img.naturalWidth; cv.height = img.naturalHeight;
+    const c = cv.getContext('2d'); c.fillStyle = '#fff'; c.fillRect(0, 0, cv.width, cv.height); c.drawImage(img, 0, 0);
+    const jb = await new Promise((res) => cv.toBlob(res, 'image/jpeg', 0.92));
+    return { bytes: new Uint8Array(await jb.arrayBuffer()), w: cv.width, h: cv.height };
+  } finally { URL.revokeObjectURL(url); }
+}
+async function pdfFromImages(blobs, title = 'Jelly') {
+  const pages = [];
+  for (const b of blobs) pages.push(await jpegOf(b));
+  const enc = new TextEncoder();
+  const parts = []; const offsets = []; let len = 0;
+  const push = (x) => { const u = typeof x === 'string' ? enc.encode(x) : x; parts.push(u); len += u.length; };
+  const obj = (n, body) => { offsets[n] = len; push(`${n} 0 obj\n`); body(); push('\nendobj\n'); };
+  push('%PDF-1.4\n%\xE2\xE3\xCF\xD3\n');
+  const n = pages.length; // Objekte: 1 Katalog, 2 Seitenbaum, je Seite 3: Seite, Inhalt, Bild
+  const pageIds = pages.map((_, i) => 3 + i * 3);
+  obj(1, () => push('<< /Type /Catalog /Pages 2 0 R >>'));
+  obj(2, () => push(`<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(' ')}] /Count ${n} >>`));
+  pages.forEach((pg, i) => {
+    const W = 595.28, H = +(W * pg.h / pg.w).toFixed(2); // A4-Breite, Höhe nach Bild
+    const [pid, cid, iid] = [pageIds[i], pageIds[i] + 1, pageIds[i] + 2];
+    obj(pid, () => push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${W} ${H}] /Resources << /XObject << /Im${i} ${iid} 0 R >> >> /Contents ${cid} 0 R >>`));
+    const content = `q ${W} 0 0 ${H} 0 0 cm /Im${i} Do Q`;
+    obj(cid, () => push(`<< /Length ${content.length} >>\nstream\n${content}\nendstream`));
+    obj(iid, () => { push(`<< /Type /XObject /Subtype /Image /Width ${pg.w} /Height ${pg.h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${pg.bytes.length} >>\nstream\n`); push(pg.bytes); push('\nendstream'); });
+  });
+  const total = 3 + n * 3;
+  const xref = len;
+  push(`xref\n0 ${total}\n0000000000 65535 f \n`);
+  for (let k = 1; k < total; k++) push(`${String(offsets[k]).padStart(10, '0')} 00000 n \n`);
+  push(`trailer\n<< /Size ${total} /Root 1 0 R /Info << /Title <FEFF${[...title].map((ch) => ch.charCodeAt(0).toString(16).padStart(4, '0')).join('')}> >> >>\nstartxref\n${xref}\n%%EOF`);
+  return new Blob(parts, { type: 'application/pdf' });
+}
+
+// Sichern: Format wählen (Bild, PDF, GoodNotes) – Voreinstellung aus den Hausaufgaben-Vorgaben
+function saveSheet(item, fids, heftOnly = false) {
+  const cur = item.opts?.export || solveOpts().export || 'bild';
+  const opt = (fmt, ic, title, sub) => menuRow(ic, title, sub, () => { o.remove(); saveSolvedImages(item, fids, heftOnly, fmt); }, fmt === cur ? 'is-default' : '');
+  const o = sheet('Sichern als …', [h('div', { class: 'menu' },
+    opt('bild', 'image', 'Bild', 'Jede Seite als Bild – „Bild sichern“ legt es in Fotos'),
+    opt('pdf', 'file', 'PDF', 'Alle Seiten in einer Datei'),
+    opt('goodnotes', 'notebook', 'GoodNotes', 'PDF – im Teilen-Menü „GoodNotes“ wählen, dort kannst du weiterschreiben'))]);
+}
+
 // Teilen-Menü von iOS: „Bild sichern“ (Mediathek), „In Dateien sichern“, AirDrop … – sonst Download
-async function saveSolvedImages(item, fids, heftOnly = false) {
+async function saveSolvedImages(item, fids, heftOnly = false, fmt = 'bild') {
   try {
     const files = [];
     for (const fid of fids) {
@@ -2500,12 +2553,17 @@ async function saveSolvedImages(item, fids, heftOnly = false) {
         pages.forEach((bl, k) => files.push(new File([bl], name.replace(/\.png$/, `-Heft${pages.length > 1 ? `-${k + 1}` : ''}.png`), { type: 'image/png' })));
       }
     }
+    if (fmt === 'pdf' || fmt === 'goodnotes') {
+      const name = `${(subjectById(item.subjectId)?.name || 'Blatt').replace(/[^\wäöüÄÖÜß -]+/g, '')}-Lösung${fmt === 'goodnotes' ? '-GoodNotes' : ''}.pdf`;
+      const pdf = new File([await pdfFromImages(files, item.titel || 'Jelly')], name, { type: 'application/pdf' });
+      files.length = 0; files.push(pdf);
+    }
     if (navigator.canShare?.({ files })) {
       try { await navigator.share({ files }); } catch (e) { if (e?.name !== 'AbortError') throw e; }
       return;
     }
     for (const f of files) { const a = h('a', { href: URL.createObjectURL(f), download: f.name }); document.body.append(a); a.click(); a.remove(); }
-    toast('Bild gespeichert.', 'ok');
+    toast(fmt === 'bild' ? 'Bild gespeichert.' : 'PDF gespeichert.', 'ok');
   } catch (e) { toast(errorMsg(e), 'error'); }
 }
 
@@ -2635,15 +2693,15 @@ function viewSolved({ id }) {
                 return [cropNote, h('div', { class: 'annot-holder' }, box, zoomBtn,
                   h('div', { class: 'annot-actions' },
                     h('button', { class: 'btn small', onclick: () => copySolvedImage(item, fid) }, icon('layers', 16), 'Kopieren'),
-                    h('button', { class: 'btn small', onclick: () => saveSolvedImages(item, [fid]) }, icon('download', 16), heft.length ? 'Sichern (mit Heft)' : 'Sichern / Teilen'))),
+                    h('button', { class: 'btn small', onclick: () => saveSheet(item, [fid]) }, icon('download', 16), heft.length ? 'Sichern (mit Heft)' : 'Sichern / Teilen'))),
                 heft.length && ui.inkShow ? h('div', { class: 'heft-holder' },
                   h('div', { class: 'label' }, `Im Heft – kein Platz auf dem Blatt (${heft.map((e) => e.aufgabe).filter(Boolean).join(', ') || heft.length})`),
                   heftPaper(heft),
                   h('div', { class: 'annot-actions' },
                     h('button', { class: 'btn small', onclick: () => copySolvedImage(item, fid, true) }, icon('layers', 16), 'Kopieren'),
-                    h('button', { class: 'btn small', onclick: () => saveSolvedImages(item, [fid], true) }, icon('download', 16), 'Als Bild sichern'))) : null];
+                    h('button', { class: 'btn small', onclick: () => saveSheet(item, [fid], true) }, icon('download', 16), 'Sichern'))) : null];
               });
-              if (pages.length > 1) out.push(h('button', { class: 'btn block', onclick: () => saveSolvedImages(item, pages) }, icon('download', 18), `Alle ${pages.length} Seiten sichern`));
+              if (pages.length > 1) out.push(h('button', { class: 'btn block', onclick: () => saveSheet(item, pages) }, icon('download', 18), `Alle ${pages.length} Seiten sichern`));
               out.push(h('p', { class: 'muted small center' }, '„Sichern / Teilen“ öffnet das Teilen-Menü: „Bild sichern“ legt es in die Mediathek, „In Dateien sichern“ in die Dateien-App. Das Bild enthält die Lösungen.'));
               return out;
             })()];
@@ -3969,24 +4027,35 @@ function viewPlay() {
       h('div', { class: 'wait' }, waitSlot((id) => { playTab = id; }, tab))));
 }
 
-function viewSettings() {
+function viewSettings(params = {}) {
   const p = state.profile;
   const st = state.settings;
   const aiSub = aiReady() ? (st.provider === 'openai' ? `Eigener Anbieter · ${st.oaModel}` : `Verbunden · ${st.model}`) : 'Nicht eingerichtet';
-  return h('div', { class: 'screen with-tabs' },
-    h('header', { class: 'topbar' }, h('span', { class: 'iconbtn-spacer' }), h('div', { class: 'topbar-title' }, 'Mehr'), h('span', { class: 'iconbtn-spacer' })),
-    h('main', { class: 'content narrow' },
-      h('div', { class: 'menu' },
-        menuRow('sparkles', 'KI-Verbindung', aiSub, () => sheet('KI-Verbindung', [aiSetupBlock(false)])),
-        menuRow('bell', 'Mitteilungen', (() => { const p = pushSettings(); return p.enabled && deviceRegistered() ? `An · Erinnerung um ${p.time} Uhr` : 'Erinnerungen, Klausur morgen, Jelly ist fertig …'; })(), () => pushSheet()),
-        menuRow('play', 'Beim Warten', `Spiele, Schach & Video · beim Warten läuft: ${waitName(waitModeOf())}`, () => go('play')),
-        menuRow('zap', 'Offline-Tutor', 'KI direkt auf dem Gerät – auch ohne Internet', () => offlineSheet()),
-        menuRow('pencil', 'Meine Handschrift', handReady() ? (state.settings.handOn ? 'An – der Blatt-Löser schreibt in deiner Schrift' : 'Aus – gespeichert, aber nicht benutzt') : handCount() ? 'Angefangen – noch nicht fertig' : 'Buchstaben nachzeichnen, dann löst Jelly in deiner Schrift', () => go('hand')),
-        menuRow('mic', 'Jelly Voice', 'Unterricht aufnehmen – Notizen & Lernzettel daraus', () => { location.href = DEV ? '../voice/' : 'voice/'; })),
-      authEnabled && !bootedUid ? h('div', { class: 'menu' },
-        menuRow('key', 'Konto & Sync einrichten', 'Anmelden – dann hast du alles auf iPad und Handy', () => openAccountSetup())) : null,
-      authEnabled && bootedUid ? h('div', { class: 'menu' },
-        menuRow('key', 'Konto & Sync', currentUser()?.email || (() => { try { return localStorage.getItem('lernki-last-email') || 'Angemeldet'; } catch { return 'Angemeldet'; } })(), () => {
+  const group = (title, ...items) => ({ title, items: items.flat().filter(Boolean) });
+  // Daten-Sachen (selten gebraucht) – eigene Seite „Daten & Speicher“
+  const dataRows = () => [
+      menuRow('upload', 'GoodNotes-Import', (() => { const n = state.subjects.reduce((a, s) => a + notesCountOf(s), 0); return n ? `${n} Hefte · Mitschriften aktualisieren` : 'Mitschriften für deine Fächer holen'; })(), () => importGoodNotes()),
+      menuRow('folder', 'Hochgeladene Dateien', `${Object.keys(state.files || {}).length} Dateien`, () => go('files')),
+      menuRow('save', 'Datensicherung', 'Backup speichern oder einspielen', () => {
+          sheet('Datensicherung', [
+            h('p', { class: 'muted small' }, bootedUid ? 'Mit Konto liegt dein Stand zusätzlich in der Cloud. Ein Backup als Datei schadet trotzdem nicht. Der API-Schlüssel wird nicht mitgesichert.' : 'Alles liegt nur auf diesem Gerät. Wenn Safari-Daten gelöscht werden, ist es weg – mach ab und zu ein Backup. Der API-Schlüssel wird nicht mitgesichert.'),
+            h('button', { class: 'btn primary block', onclick: exportBackup }, 'Backup herunterladen'),
+            h('button', { class: 'btn ghost block', onclick: importBackup }, 'Backup einspielen')]);
+        }),
+      menuRow('refresh', 'Daten retten', 'Verschwundene Lernsachen wiederfinden', () => rescueSheet()),
+      menuRow('info', 'Datenschutz', 'Was wird wo gespeichert?', () => privacySheet()),
+      menuRow('trash', 'Alle Daten löschen', null, async () => { if (await confirmDialog('Wirklich ALLE Daten löschen (Profil, Fächer, Klausuren, Archiv)?', 'Alles löschen')) { await clearAll(); draft = null; nx = null; go('onboarding'); } }, 'danger'),
+  ];
+  const groups = [
+      group('Ich',
+        menuRow('user', 'Profil', `${p.name} · Klasse ${p.grade} · ${p.state}`, () => {
+          const o = sheet('Profil', [
+            h('p', { class: 'muted' }, `${p.name} · Klasse ${p.grade} · ${p.schoolType} · ${p.state}`),
+            h('p', { class: 'muted small' }, `${p.minutesPerDay} Min./Tag · Korrektur: ${p.feedbackStyle === 'hart' ? 'schonungslos' : 'ermutigend'} · ${p.gradeScale === '0-15' ? 'Punkte 0–15' : 'Noten 1–6'}`),
+            h('button', { class: 'btn primary block', onclick: () => { o.remove(); draft = null; go('onboarding'); } }, 'Fragebogen neu ausfüllen')]);
+        }),
+        authEnabled && !bootedUid ? menuRow('key', 'Konto & Sync einrichten', 'Anmelden – dann hast du alles auf iPad und Handy', () => openAccountSetup()) : null,
+        authEnabled && bootedUid ? menuRow('key', 'Konto & Sync', currentUser()?.email || (() => { try { return localStorage.getItem('lernki-last-email') || 'Angemeldet'; } catch { return 'Angemeldet'; } })(), () => {
           const u = currentUser();
           sheet('Konto', [
             h('p', {}, u?.email || 'Offline angemeldet'),
@@ -4011,33 +4080,50 @@ function viewSettings() {
                 setTimeout(() => location.reload(), 800);
               } catch (e) { toast(authErrorText(e).startsWith('Anmeldung fehlgeschlagen') ? errorMsg(e) : authErrorText(e), 'error'); }
             } }, 'Konto und alle Daten löschen')]);
-        })) : null,
-      h('div', { class: 'menu' },
-        menuRow('user', 'Profil', `${p.name} · Klasse ${p.grade} · ${p.state}`, () => {
-          const o = sheet('Profil', [
-            h('p', { class: 'muted' }, `${p.name} · Klasse ${p.grade} · ${p.schoolType} · ${p.state}`),
-            h('p', { class: 'muted small' }, `${p.minutesPerDay} Min./Tag · Korrektur: ${p.feedbackStyle === 'hart' ? 'schonungslos' : 'ermutigend'} · ${p.gradeScale === '0-15' ? 'Punkte 0–15' : 'Noten 1–6'}`),
-            h('button', { class: 'btn primary block', onclick: () => { o.remove(); draft = null; go('onboarding'); } }, 'Fragebogen neu ausfüllen')]);
-        }),
-        menuRow('sparkles', 'Design', `Stil: ${skinOf().name} · Farben: ${state.settings.theme ? (THEMES.find((x) => x.id === state.settings.theme.id)?.name || 'Eigene') : 'vom Stil'} · Qualle: ${JELLY_STYLES.find((x) => x.id === state.settings.jelly)?.name || 'Klassisch'}`, () => designSheet()),
+        }) : null,
+        menuRow('bell', 'Mitteilungen', (() => { const p = pushSettings(); return p.enabled && deviceRegistered() ? `An · Erinnerung um ${p.time} Uhr` : 'Erinnerungen, Klausur morgen, Jelly ist fertig …'; })(), () => pushSheet())),
+      group('Lernen',
         menuRow('notebook', 'Notizen', 'Notizbücher mit Apple Pencil und Tastatur', () => openNotes('settings')),
         menuRow('chat', 'Tutor-Chat', 'Fragen zum Stoff deiner Klausur', () => go('tutor')),
-        menuRow('upload', 'GoodNotes-Import', (() => { const n = state.subjects.reduce((a, s) => a + notesCountOf(s), 0); return n ? `${n} Hefte · Mitschriften aktualisieren` : 'Mitschriften für deine Fächer holen'; })(), () => importGoodNotes()),
-        menuRow('folder', 'Hochgeladene Dateien', `${Object.keys(state.files || {}).length} Dateien`, () => go('files')),
-        menuRow('refresh', 'Daten retten', 'Verschwundene Lernsachen wiederfinden', () => rescueSheet()),
-        menuRow('save', 'Datensicherung', 'Backup speichern oder einspielen', () => {
-          sheet('Datensicherung', [
-            h('p', { class: 'muted small' }, bootedUid ? 'Mit Konto liegt dein Stand zusätzlich in der Cloud. Ein Backup als Datei schadet trotzdem nicht. Der API-Schlüssel wird nicht mitgesichert.' : 'Alles liegt nur auf diesem Gerät. Wenn Safari-Daten gelöscht werden, ist es weg – mach ab und zu ein Backup. Der API-Schlüssel wird nicht mitgesichert.'),
-            h('button', { class: 'btn primary block', onclick: exportBackup }, 'Backup herunterladen'),
-            h('button', { class: 'btn ghost block', onclick: importBackup }, 'Backup einspielen')]);
-        })),
-      h('div', { class: 'menu' },
-        menuRow('info', 'Datenschutz', 'Was wird wo gespeichert?', () => privacySheet())),
-      h('div', { class: 'menu' },
-        menuRow('trash', 'Alle Daten löschen', null, async () => { if (await confirmDialog('Wirklich ALLE Daten löschen (Profil, Fächer, Klausuren, Archiv)?', 'Alles löschen')) { await clearAll(); draft = null; nx = null; go('onboarding'); } }, 'danger')),
+        menuRow('mic', 'Jelly Voice', 'Unterricht aufnehmen – Notizen & Lernzettel daraus', () => { location.href = DEV ? '../voice/' : 'voice/'; }),
+        menuRow('zap', 'Offline-Tutor', 'KI direkt auf dem Gerät – auch ohne Internet', () => offlineSheet())),
+      group('Hausaufgaben & KI',
+        menuRow('checkc', 'Hausaufgaben-Vorgaben', (() => { const o = solveOpts(); return `${fontOf(o) ? 'Handschrift' : 'Druckschrift'} · ${{ kurz: 'kurz', normal: 'normal', ausfuehrlich: 'ausführlich' }[o.detail]} · ${{ auto: 'automatisch', blatt: 'aufs Blatt', heft: 'ins Heft' }[o.place]} · ${{ bild: 'Bild', pdf: 'PDF', goodnotes: 'GoodNotes' }[o.export || 'bild']}`; })(), () => sheet('Hausaufgaben-Vorgaben', [h('p', { class: 'muted small' }, 'Gilt für jedes neue Blatt – beim Erstellen kannst du es trotzdem ändern.'), solveOptionsBlock(solveOpts(), true)])),
+        menuRow('pencil', 'Meine Handschrift', handReady() ? (state.settings.handOn ? 'An – der Blatt-Löser schreibt in deiner Schrift' : 'Aus – gespeichert, aber nicht benutzt') : handCount() ? 'Angefangen – noch nicht fertig' : 'Buchstaben nachzeichnen, dann löst Jelly in deiner Schrift', () => go('hand')),
+        menuRow('sparkles', 'KI-Verbindung', aiSub, () => sheet('KI-Verbindung', [aiSetupBlock(false)]))),
+      group('Aussehen & Pause',
+        menuRow('sparkles', 'Design', `Stil: ${skinOf().name} · Farben: ${state.settings.theme ? (THEMES.find((x) => x.id === state.settings.theme.id)?.name || 'Eigene') : 'vom Stil'} · Qualle: ${JELLY_STYLES.find((x) => x.id === state.settings.jelly)?.name || 'Klassisch'}`, () => designSheet()),
+        menuRow('play', 'Beim Warten', `Spiele, Schach & Video · beim Warten läuft: ${waitName(waitModeOf())}`, () => go('play'))),
+      group('Daten & Speicher', dataRows()),
+  ];
+  return settingsPage(groups, params);
+}
+
+// Mehr: Kacheln für die Bereiche; jede Kachel öffnet eine eigene Seite mit ihren Punkten
+const SETTINGS_ICONS = { 'Ich': 'user', 'Lernen': 'book', 'Hausaufgaben & KI': 'sparkles', 'Aussehen & Pause': 'play', 'Daten & Speicher': 'folder' };
+const settingsSlug = (t) => t.toLowerCase().replace(/&/g, 'und').replace(/[^a-z0-9äöüß]+/g, '-').replace(/^-|-$/g, '');
+function settingsPage(groups, params = {}) {
+  const g = params.g && groups.find((x) => settingsSlug(x.title) === params.g);
+  if (g) {
+    return h('div', { class: 'screen with-tabs' }, topbar({ back: () => go('settings'), title: g.title }),
+      h('main', { class: 'content narrow settings' }, h('div', { class: 'menu' }, g.items)),
+      tabbar('settings'));
+  }
+  const labels = (x) => x.items.map((el) => el.querySelector('.menu-label')?.textContent).filter(Boolean).join(' · ');
+  return h('div', { class: 'screen with-tabs' },
+    h('header', { class: 'topbar' }, h('span', { class: 'iconbtn-spacer' }), h('div', { class: 'topbar-title' }, 'Mehr'), h('span', { class: 'iconbtn-spacer' })),
+    h('main', { class: 'content narrow settings' },
+      h('div', { class: 'set-tiles' }, groups.filter((x) => x.items.length).map((x) =>
+        h('button', { class: 'set-tile', onclick: () => go('settings', { g: settingsSlug(x.title) }) },
+          h('span', { class: 'set-tile-ico' }, icon(SETTINGS_ICONS[x.title] || 'more', 26)),
+          h('span', { class: 'set-tile-title' }, x.title),
+          h('span', { class: 'set-tile-sub' }, labels(x)),
+          h('span', { class: 'set-tile-go' }, icon('chev', 18))))),
       h('p', { class: 'muted small center' }, `Lern-KI · Version ${APP_VERSION}`)),
     tabbar('settings'));
 }
+
+
 
 function viewFiles() {
   const order = ['material', 'goodnotes', 'archive', 'sheet', 'vocab', 'vtest', 'timetable', 'examplan', 'answer'];

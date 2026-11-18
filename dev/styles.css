@@ -1256,3 +1256,12 @@ html.has-userbg[data-skin] body::before { inset: calc(var(--bg-blur, 0px) * -2);
 .settings-group { display: flex; flex-direction: column; gap: 8px; }
 .settings-group > .label { padding-left: 6px; }
 .menu-row.is-default .menu-label::after { content: ' · Vorgabe'; color: var(--accent); font-weight: 600; font-size: .85em; }
+
+/* Mehr: Bereichs-Kacheln */
+.set-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.set-tile { position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; text-align: left; padding: 18px 44px 18px 18px; border-radius: 22px; background: var(--surface); border: 1px solid var(--line); color: var(--text); min-height: 132px; }
+.set-tile:active { transform: scale(.98); }
+.set-tile-ico { width: 46px; height: 46px; border-radius: 14px; display: grid; place-items: center; background: color-mix(in srgb, var(--accent) 22%, var(--surface-2)); color: var(--accent); }
+.set-tile-title { font-family: var(--display); font-weight: 800; font-size: 1.12rem; }
+.set-tile-sub { color: var(--muted); font-size: .85rem; line-height: 1.35; }
+.set-tile-go { position: absolute; top: 18px; right: 14px; color: var(--muted); }

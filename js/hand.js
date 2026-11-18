@@ -8,6 +8,7 @@
 import { state, save } from './store.js';
 import { h, add, icon, toast, confirmDialog } from './ui.js';
 import { HERSHEY, SYMBOLS } from './hand-fallback.js';
+import { WORDS } from './hand-words.js';
 
 export const LINES = { asc: 0.12, mid: 0.42, base: 0.72, desc: 0.92 };
 export const HAND_EM = 0.7 / (0.72 - 0.12); // 1 Einheit in em
@@ -22,7 +23,7 @@ export const PAGES = [
   { id: 'klein', title: 'Kleinbuchstaben', chars: 'abcdefghijklmnopqrstuvwxyzäöüß' },
   { id: 'gross', title: 'Großbuchstaben', chars: 'ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÜ' },
   { id: 'zeichen', title: 'Zahlen & Zeichen', chars: '0123456789.,:;!?-+=()/%"\'<>' },
-  { id: 'woerter', title: 'Wörter', words: ['Zellkern', 'Photosynthese', 'Lösung', 'Antwort', 'Gleichung', 'Mitochondrien', 'Jahrhundert', 'Quadratwurzel', 'Verb', 'Größe', 'fünf', 'Experiment'] },
+  { id: 'woerter', title: 'Wörter', words: true },
 ];
 
 const hand = () => state.hand || null;
@@ -238,6 +239,15 @@ function simplify(pts, eps = 0.0035) {
 }
 
 let penSeen = false;
+const MAX_VARIANTS = 8;
+const WORDS_PER_ROUND = 5;
+// Fortschritt bei den Wörtern: Position in der Liste und Anzahl fertig geschriebener Wörter
+const wordState = () => { const hd = (state.hand ||= { glyphs: {}, at: 0 }); hd.words ||= { at: 0, done: 0 }; return hd.words; };
+const roundWords = () => { const ws = wordState(); return WORDS.slice(ws.at, ws.at + WORDS_PER_ROUND); };
+const wordId = (word, ci) => `W:${word}:${ci}`;
+const leftText = (n) => `Noch ${n} ${n === 1 ? 'Wort' : 'Wörter'}, dann gibt es 5 neue`;
+// Ist ein Wort komplett nachgezeichnet? (jedes Kästchen hat Striche)
+const wordDone = (word) => [...word].every((ch, ci) => !!wordState().cur?.[wordId(word, ci)]);
 
 // Ein Kästchen. ch = Vorlage, id = eindeutige Stelle (damit Neuzeichnen die alte Variante ersetzt)
 function cell(ch, id, { w = 0.8, joinL = false, joinR = false } = {}) {
@@ -304,6 +314,11 @@ function cell(ch, id, { w = 0.8, joinL = false, joinR = false } = {}) {
     state.hand = state.hand || { glyphs: {}, at: 0 };
     const list = (state.hand.glyphs[ch] = (state.hand.glyphs[ch] || []).filter((v) => v.id !== id));
     if (strokes.length) list.push({ id, s: strokes });
+    // Höchstens 8 Varianten pro Zeichen (sonst wird der Stand riesig): die älteste aus den Wörtern fliegt raus,
+    // die Buchstaben-Seiten (L:…) bleiben immer
+    if (id.startsWith('W:')) { const cur = (wordState().cur ||= {}); if (strokes.length) cur[id] = 1; else delete cur[id]; }
+    const keep = wordState().cur || {};
+    while (list.length > MAX_VARIANTS) { const k = list.findIndex((v) => !v.id.startsWith('L:') && v.id !== id && !keep[v.id]); if (k < 0) break; list.splice(k, 1); }
     if (!list.length) delete state.hand.glyphs[ch];
     state.hand.at = Date.now();
     scheduleSave();
@@ -339,8 +354,8 @@ export function handView({ topbar, back }) {
     status.textContent = missing.length ? `Noch ${missing.length} Buchstaben fehlen (${missing.slice(0, 8).join(' ')}${missing.length > 8 ? ' …' : ''}), dann kann Jelly in deiner Schrift schreiben. Zahlen, Zeichen und Wörter sind freiwillig – sie machen es schöner.` : `${handCount()} Zeichen gespeichert – Jelly kann in deiner Schrift schreiben.`;
   };
   const drawTabs = () => tabs.replaceChildren(...PAGES.map((p, i) => {
-    const done = p.chars ? [...p.chars].filter((c) => hand()?.glyphs?.[c]?.length).length : (hand()?.glyphs && Object.values(hand().glyphs).flat().filter((v) => v.id.startsWith('W:')).length) || 0;
-    const total = p.chars ? p.chars.length : p.words.join('').length;
+    const done = p.chars ? [...p.chars].filter((c) => hand()?.glyphs?.[c]?.length).length : wordState().done;
+    const total = p.chars ? p.chars.length : WORDS.length;
     return h('button', { class: `seg-btn ${page === i ? 'active' : ''}`, onclick: () => { page = i; drawTabs(); drawPage(); } }, `${p.title} ${Math.min(done, total)}/${total}`);
   }));
   const drawPage = () => {
@@ -349,8 +364,24 @@ export function handView({ topbar, back }) {
       body.replaceChildren(h('p', { class: 'muted small' }, 'Fahre die helle Vorlage mit dem Stift nach – so, wie du normal schreibst. Die Linien sind wie im Schulheft. Mit × löschst du ein Kästchen.'),
         h('div', { class: 'hand-grid' }, [...p.chars].map((ch) => cell(ch, `L:${ch}`))));
     } else {
-      body.replaceChildren(h('p', { class: 'muted small' }, 'Schreib die Wörter nach, ein Buchstabe pro Kästchen. So lernt Jelly, wie deine Buchstaben im Wort aussehen (jede Variante macht die Schrift natürlicher).'),
-        h('div', { class: 'hand-words' }, p.words.map((word, wi) => h('div', { class: 'hand-word' }, [...word].map((ch, ci, arr) => cell(ch, `W:${wi}:${ci}`, { w: 0.62, joinL: ci > 0, joinR: ci < arr.length - 1 }))))));
+      const ws = wordState();
+      const words = roundWords();
+      if (!words.length) {
+        body.replaceChildren(h('div', { class: 'card stack center' }, h('div', { class: 'hand-count big' }, `${ws.done} / ${WORDS.length}`), h('p', {}, 'Geschafft – du hast alle Wörter durch! Deine Schrift hat jetzt viele Varianten.'),
+          h('button', { class: 'btn', onclick: () => { ws.at = 0; save(); drawPage(); drawTabs(); } }, 'Von vorn beginnen')));
+        return;
+      }
+      const allDone = words.every(wordDone);
+      const next = () => { ws.done += words.filter(wordDone).length; ws.at += WORDS_PER_ROUND; ws.cur = {}; save(); drawPage(); drawTabs(); };
+      body.replaceChildren(
+        h('div', { class: 'hand-words-head' },
+          h('div', {}, h('div', { class: 'hand-count' }, `${ws.done} / ${WORDS.length}`), h('div', { class: 'muted small' }, 'Wörter geschrieben')),
+          h('div', { class: 'hand-progress' }, h('span', { style: { width: `${(ws.done / WORDS.length) * 100}%` } }))),
+        h('p', { class: 'muted small' }, 'Schreib die Wörter nach, ein Buchstabe pro Kästchen. Jedes Wort gibt Jelly neue Varianten deiner Buchstaben – so sieht deine Schrift natürlicher aus.'),
+        h('div', { class: 'hand-words' }, words.map((word) => h('div', { class: `hand-word ${wordDone(word) ? 'is-done' : ''}` }, [...word].map((ch, ci, arr) => cell(ch, wordId(word, ci), { w: 0.62, joinL: ci > 0, joinR: ci < arr.length - 1 }))))),
+        h('div', { class: 'hand-words-actions' },
+          h('button', { class: 'btn primary', disabled: !allDone || undefined, onclick: next }, icon('refresh', 18), allDone ? '5 neue Wörter' : leftText(words.filter((w) => !wordDone(w)).length)),
+          h('button', { class: 'btn ghost', onclick: next }, 'Überspringen')));
     }
   };
   const on = h('input', { type: 'checkbox', checked: !!state.settings.handOn, onchange: (e) => {
@@ -372,8 +403,15 @@ export function handView({ topbar, back }) {
         if (!(await confirmDialog('Deine ganze Handschrift löschen?', 'Löschen'))) return;
         state.hand = { glyphs: {}, at: Date.now() }; state.settings.handOn = false; save(); on.checked = false; drawPage(); drawTabs(); drawPreview(); drawStatus();
       } }, 'Handschrift löschen')));
-  root.addEventListener('hand-change', () => {
+  root.addEventListener('hand-change', (e) => {
     drawPreview(); drawStatus(); drawTabs();
+    if (PAGES[page].words) {
+      const btn = root.querySelector('.hand-words-actions .btn.primary');
+      const words = roundWords();
+      const left = words.filter((w) => !wordDone(w)).length;
+      if (btn) { btn.disabled = left > 0; btn.lastChild.textContent = left ? leftText(left) : '5 neue Wörter'; }
+      root.querySelectorAll('.hand-word').forEach((el, i) => el.classList.toggle('is-done', !!words[i] && wordDone(words[i])));
+    }
     if (handReady() && state.settings.handOn === undefined) { state.settings.handOn = true; on.checked = true; toast('Fertig – der Blatt-Löser schreibt ab jetzt in deiner Schrift.', 'ok'); }
   });
   drawTabs(); drawPage(); drawPreview(); drawStatus();

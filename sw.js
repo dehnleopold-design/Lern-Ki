@@ -1,7 +1,7 @@
 // Offline-Cache für die App-Dateien. KI-Anfragen gehen immer ins Netz.
-const CACHE = 'lernki-v80';
+const CACHE = 'lernki-v81';
 const SHELL = ['./', 'index.html', 'styles.css', 'manifest.webmanifest', 'assets/icon.svg', 'assets/fonts.css',
-  'js/ai.js', 'js/app.js', 'js/auth.js', 'js/celebrate.js', 'js/chess-engine.js', 'js/chess.js', 'js/env.js', 'js/files.js', 'js/firebase-config.js', 'js/games.js', 'js/gen.js', 'js/goodnotes.js', 'js/grades.js', 'js/hand-fallback.js', 'js/hand.js', 'js/license.js', 'js/notes.js', 'js/offline-ai.js', 'js/pdf.js', 'js/prompts.js', 'js/push.js', 'js/ranks.js', 'js/rewards.js', 'js/seasons.js', 'js/store.js', 'js/sync.js', 'js/ui.js', 'js/viewer.js'];
+  'js/ai.js', 'js/app.js', 'js/auth.js', 'js/celebrate.js', 'js/chess-engine.js', 'js/chess.js', 'js/env.js', 'js/files.js', 'js/firebase-config.js', 'js/games.js', 'js/gen.js', 'js/goodnotes.js', 'js/grades.js', 'js/hand-fallback.js', 'js/hand-words.js', 'js/hand.js', 'js/license.js', 'js/notes.js', 'js/offline-ai.js', 'js/pdf.js', 'js/prompts.js', 'js/push.js', 'js/ranks.js', 'js/rewards.js', 'js/seasons.js', 'js/store.js', 'js/sync.js', 'js/ui.js', 'js/viewer.js'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));

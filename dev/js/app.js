@@ -27,7 +27,7 @@ setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, JELLY_STYLES, setJellyStyle, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.69-dev.3';
+const APP_VERSION = '2.71-dev.1';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -4027,14 +4027,13 @@ function viewPlay() {
       h('div', { class: 'wait' }, waitSlot((id) => { playTab = id; }, tab))));
 }
 
-function viewSettings() {
+function viewSettings(params = {}) {
   const p = state.profile;
   const st = state.settings;
   const aiSub = aiReady() ? (st.provider === 'openai' ? `Eigener Anbieter · ${st.oaModel}` : `Verbunden · ${st.model}`) : 'Nicht eingerichtet';
-  const group = (title, ...items) => { const r = items.flat().filter(Boolean); return r.length ? h('section', { class: 'settings-group' }, h('div', { class: 'label' }, title), h('div', { class: 'menu' }, r)) : null; };
-  // Selten gebrauchte Daten-Sachen gesammelt in einem Unterpunkt
-  const dataSheet = () => {
-    const menu = h('div', { class: 'menu' },
+  const group = (title, ...items) => ({ title, items: items.flat().filter(Boolean) });
+  // Daten-Sachen (selten gebraucht) – eigene Seite „Daten & Speicher“
+  const dataRows = () => [
       menuRow('upload', 'GoodNotes-Import', (() => { const n = state.subjects.reduce((a, s) => a + notesCountOf(s), 0); return n ? `${n} Hefte · Mitschriften aktualisieren` : 'Mitschriften für deine Fächer holen'; })(), () => importGoodNotes()),
       menuRow('folder', 'Hochgeladene Dateien', `${Object.keys(state.files || {}).length} Dateien`, () => go('files')),
       menuRow('save', 'Datensicherung', 'Backup speichern oder einspielen', () => {
@@ -4045,13 +4044,9 @@ function viewSettings() {
         }),
       menuRow('refresh', 'Daten retten', 'Verschwundene Lernsachen wiederfinden', () => rescueSheet()),
       menuRow('info', 'Datenschutz', 'Was wird wo gespeichert?', () => privacySheet()),
-      menuRow('trash', 'Alle Daten löschen', null, async () => { if (await confirmDialog('Wirklich ALLE Daten löschen (Profil, Fächer, Klausuren, Archiv)?', 'Alles löschen')) { await clearAll(); draft = null; nx = null; go('onboarding'); } }, 'danger'));
-    const o = sheet('Daten & Speicher', [menu]);
-    menu.addEventListener('click', (e) => { if (e.target.closest('.menu-row')) o.remove(); }, true); // Blatt schließen, bevor es weitergeht
-  };
-  return h('div', { class: 'screen with-tabs' },
-    h('header', { class: 'topbar' }, h('span', { class: 'iconbtn-spacer' }), h('div', { class: 'topbar-title' }, 'Mehr'), h('span', { class: 'iconbtn-spacer' })),
-    h('main', { class: 'content narrow settings' },
+      menuRow('trash', 'Alle Daten löschen', null, async () => { if (await confirmDialog('Wirklich ALLE Daten löschen (Profil, Fächer, Klausuren, Archiv)?', 'Alles löschen')) { await clearAll(); draft = null; nx = null; go('onboarding'); } }, 'danger'),
+  ];
+  const groups = [
       group('Ich',
         menuRow('user', 'Profil', `${p.name} · Klasse ${p.grade} · ${p.state}`, () => {
           const o = sheet('Profil', [
@@ -4099,11 +4094,36 @@ function viewSettings() {
       group('Aussehen & Pause',
         menuRow('sparkles', 'Design', `Stil: ${skinOf().name} · Farben: ${state.settings.theme ? (THEMES.find((x) => x.id === state.settings.theme.id)?.name || 'Eigene') : 'vom Stil'} · Qualle: ${JELLY_STYLES.find((x) => x.id === state.settings.jelly)?.name || 'Klassisch'}`, () => designSheet()),
         menuRow('play', 'Beim Warten', `Spiele, Schach & Video · beim Warten läuft: ${waitName(waitModeOf())}`, () => go('play'))),
-      group('Daten',
-        menuRow('folder', 'Daten & Speicher', `${(() => { const n = Object.keys(state.files || {}).length; return `${n} ${n === 1 ? 'Datei' : 'Dateien'}`; })()} · GoodNotes-Import · Backup · Datenschutz`, () => dataSheet())),
+      group('Daten & Speicher', dataRows()),
+  ];
+  return settingsPage(groups, params);
+}
+
+// Mehr: Kacheln für die Bereiche; jede Kachel öffnet eine eigene Seite mit ihren Punkten
+const SETTINGS_ICONS = { 'Ich': 'user', 'Lernen': 'book', 'Hausaufgaben & KI': 'sparkles', 'Aussehen & Pause': 'play', 'Daten & Speicher': 'folder' };
+const settingsSlug = (t) => t.toLowerCase().replace(/&/g, 'und').replace(/[^a-z0-9äöüß]+/g, '-').replace(/^-|-$/g, '');
+function settingsPage(groups, params = {}) {
+  const g = params.g && groups.find((x) => settingsSlug(x.title) === params.g);
+  if (g) {
+    return h('div', { class: 'screen with-tabs' }, topbar({ back: () => go('settings'), title: g.title }),
+      h('main', { class: 'content narrow settings' }, h('div', { class: 'menu' }, g.items)),
+      tabbar('settings'));
+  }
+  const labels = (x) => x.items.map((el) => el.querySelector('.menu-label')?.textContent).filter(Boolean).join(' · ');
+  return h('div', { class: 'screen with-tabs' },
+    h('header', { class: 'topbar' }, h('span', { class: 'iconbtn-spacer' }), h('div', { class: 'topbar-title' }, 'Mehr'), h('span', { class: 'iconbtn-spacer' })),
+    h('main', { class: 'content narrow settings' },
+      h('div', { class: 'set-tiles' }, groups.filter((x) => x.items.length).map((x) =>
+        h('button', { class: 'set-tile', onclick: () => go('settings', { g: settingsSlug(x.title) }) },
+          h('span', { class: 'set-tile-ico' }, icon(SETTINGS_ICONS[x.title] || 'more', 26)),
+          h('span', { class: 'set-tile-title' }, x.title),
+          h('span', { class: 'set-tile-sub' }, labels(x)),
+          h('span', { class: 'set-tile-go' }, icon('chev', 18))))),
       h('p', { class: 'muted small center' }, `Lern-KI · Version ${APP_VERSION}`)),
     tabbar('settings'));
 }
+
+
 
 function viewFiles() {
   const order = ['material', 'goodnotes', 'archive', 'sheet', 'vocab', 'vtest', 'timetable', 'examplan', 'answer'];
