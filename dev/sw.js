@@ -1,6 +1,6 @@
 // Service Worker von Jelly Developer (/dev/). Eigener Cache, getrennt vom echten Jelly.
 // Wird von tools/dev.py erzeugt – nicht von Hand ändern.
-const CACHE = 'lernki-dev-10';
+const CACHE = 'lernki-dev-11';
 const SHELL = ["./", "index.html", "devshim.js", "styles.css", "manifest.webmanifest", "icon-180.png", "../assets/icon.svg", "../assets/fonts.css", "js/ai.js", "js/app.js", "js/auth.js", "js/celebrate.js", "js/chess-engine.js", "js/chess.js", "js/devtools.js", "js/env.js", "js/files.js", "js/firebase-config.js", "js/games.js", "js/gen.js", "js/goodnotes.js", "js/grades.js", "js/hand.js", "js/license.js", "js/notes.js", "js/offline-ai.js", "js/pdf.js", "js/prompts.js", "js/ranks.js", "js/rewards.js", "js/seasons.js", "js/store.js", "js/sync.js", "js/ui.js", "js/viewer.js"];
 
 self.addEventListener('install', (e) => {
