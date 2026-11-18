@@ -1161,3 +1161,32 @@ html.has-userbg[data-skin] body::before { inset: calc(var(--bg-blur, 0px) * -2);
 .dev-pins { position: fixed; inset: 0; pointer-events: none; z-index: 80; }
 .dev-pin { position: absolute; width: 30px; height: 30px; margin: -15px 0 0 -15px; border-radius: 50% 50% 50% 4px; display: grid; place-items: center; font-size: .95rem; background: #fff; border: 2px solid #f97316; box-shadow: 0 4px 12px rgba(0, 0, 0, .35); pointer-events: auto; animation: devPin .3s ease-out; }
 @keyframes devPin { from { transform: scale(.3); opacity: 0; } }
+
+/* ---------- Meine Handschrift */
+.hand-page { max-width: 1100px; }
+.hand-top { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+.hand-preview { min-height: 70px; padding: 10px 14px; border-radius: 14px; background: #fff; color: #1d1640; font-size: 26px; overflow-x: auto; }
+.hand-preview .hand-halo { display: none; }
+.hand-toggle { display: flex; align-items: flex-start; gap: 12px; padding: 6px 2px; }
+.hand-toggle input { width: 22px; height: 22px; margin-top: 2px; accent-color: var(--accent); flex-shrink: 0; }
+.hand-toggle span { display: flex; flex-direction: column; gap: 2px; }
+.hand-tabs { margin-bottom: 12px; }
+.hand-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 10px; }
+.hand-cell { position: relative; aspect-ratio: var(--w) / 1; background: #fff; border-radius: 12px; border: 2px solid transparent; overflow: hidden; }
+.hand-grid .hand-cell { aspect-ratio: auto; height: 116px; }
+.hand-cell.done { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+.hand-cell-cv { display: block; width: 100%; height: 100%; touch-action: none; }
+.hand-cell-x { position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; background: rgba(29, 22, 64, .08); color: #1d1640; opacity: 0; }
+.hand-cell.done .hand-cell-x { opacity: 1; }
+.hand-words { display: flex; flex-direction: column; gap: 14px; }
+.hand-word { display: flex; overflow-x: auto; padding-bottom: 2px; }
+.hand-word .hand-cell { width: 82px; height: 120px; flex-shrink: 0; border-radius: 0; border-width: 2px 0; }
+.hand-word .hand-cell:first-child { border-radius: 12px 0 0 12px; border-left-width: 2px; }
+.hand-word .hand-cell:last-child { border-radius: 0 12px 12px 0; border-right-width: 2px; }
+.hand-word .hand-cell + .hand-cell { box-shadow: inset 1px 0 0 rgba(90, 70, 200, .15); }
+.hand-svg { display: block; overflow: visible; }
+.hand-halo { fill: none; stroke: rgba(255, 255, 255, .9); stroke-linecap: round; stroke-linejoin: round; }
+.hand-ink { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
+.hand-fallback { fill: currentColor; font-family: Inter, system-ui, sans-serif; font-weight: 600; }
+.ink-hand { text-shadow: none; }
+@media (max-width: 600px) { .hand-grid { grid-template-columns: repeat(auto-fill, minmax(70px, 1fr)); } .hand-grid .hand-cell { height: 92px; } .hand-word .hand-cell { width: 64px; height: 94px; } }

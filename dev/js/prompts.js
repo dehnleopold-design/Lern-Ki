@@ -532,7 +532,7 @@ Gib für JEDE Stelle auf DIESER Seite, an der etwas eingetragen, angekreuzt, mar
 Position "box": [ymin, xmin, ymax, xmax] als ganze Zahlen von 0 bis 1000, relativ zur Bildhöhe/-breite (0,0 = oben links).
 
 Arten ("art"):
-- "text": Antwort hinschreiben. box = genau die freie Lücke oder die erste freie Schreiblinie, auf der die Antwort stehen soll (nicht die Aufgabenstellung!). "text" = die Antwort so kurz, wie man sie dort hinschreiben würde. Mehrere Linien: eine box über die freien Linien.
+- "text": Antwort hinschreiben. box = genau die freie Lücke oder die erste freie Schreiblinie, auf der die Antwort stehen soll (nicht die Aufgabenstellung!). ${state.settings?.sheetDetail !== false ? '"text" = die Antwort so, wie ein guter Schüler sie dort hinschreibt: in eine kurze Lücke nur das fehlende Wort; sind mehrere Schreiblinien frei, eine vollständige Antwort in ganzen Sätzen (mit Begründung/Rechenweg, wenn gefragt), die den Platz sinnvoll füllt, aber nicht überläuft. Zeilenumbrüche als \\n.' : '"text" = die Antwort so kurz, wie man sie dort hinschreiben würde.'} Mehrere Linien: eine box über alle freien Linien.
 - "kreuz": Kästchen ankreuzen. box = das Kästchen.
 - "markieren": Wort/Textstelle markieren oder unterstreichen. box = die Textstelle.
 - "kreis": etwas einkreisen. box = das Einzukreisende.

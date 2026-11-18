@@ -2,6 +2,7 @@ import { state, loadState, save, replaceState, clearAll, allBlobs, putBlob, uid,
 import { startSync, syncNow, syncStatus, onSyncStatus, deleteCloudData, push, requestJob, backgroundAvailable, cloudInfo, cloudBackupInfo, reloadFromCloud, restoreCloudBackup } from './sync.js';
 import { deleteAccount } from './auth.js';
 import { DEV } from './env.js';
+import { handView, handActive, handSVG, drawHand, handVersion, handReady, handCount } from './hand.js';
 import { authEnabled, initAuth, signInGoogle, signInEmail, registerEmail, resetPassword, signOutUser, currentUser, authErrorText } from './auth.js';
 import { generate, aiReady, listGeminiModels, pickDefaultModel, AIError, onAIStatus, FALLBACK_PRESETS, listOpenAIModels, pickFallbackModel, fallbackReady } from './ai.js';
 import { addFile, removeFile, filePart, thumbURL, pickFiles } from './files.js';
@@ -25,7 +26,7 @@ setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, JELLY_STYLES, setJellyStyle, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.63-dev.1';
+const APP_VERSION = '2.63-dev.2';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -287,7 +288,7 @@ function render() {
   applyTheme();
   app.replaceChildren();
   if (!state.profile && !['onboarding', 'login'].includes(route.name)) route = { name: 'onboarding', params: {} };
-  const views = { login: viewLogin, onboarding: viewOnboarding, prepare: viewPrepare, plan: viewPlan, pick: viewPick, vocab: viewVocab, solve: viewSolveNew, solved: viewSolved, vnew: viewVocabNew, vset: viewVocabSet, vwords: viewVocabWords, vplan: viewVocabPlan, vquiz: viewVocabQuiz, vtests: viewVocabTests, files: viewFiles, week: viewWeek, wimport: viewWeekImport, todo: viewTodos, notes: viewNotes, notebook: viewNotebook, calendar: viewCalendar, newExam: viewNewExam, session: viewSession, subjects: viewSubjects, subject: viewSubject, tutor: viewTutor, settings: viewSettings, play: viewPlay };
+  const views = { login: viewLogin, onboarding: viewOnboarding, prepare: viewPrepare, plan: viewPlan, pick: viewPick, vocab: viewVocab, solve: viewSolveNew, solved: viewSolved, vnew: viewVocabNew, vset: viewVocabSet, vwords: viewVocabWords, vplan: viewVocabPlan, vquiz: viewVocabQuiz, vtests: viewVocabTests, files: viewFiles, week: viewWeek, wimport: viewWeekImport, todo: viewTodos, notes: viewNotes, notebook: viewNotebook, calendar: viewCalendar, newExam: viewNewExam, session: viewSession, subjects: viewSubjects, subject: viewSubject, tutor: viewTutor, settings: viewSettings, play: viewPlay, hand: () => handView({ topbar, back: () => go('settings') }) };
   const seq = ++renderSeq;
   const v = (views[route.name] || viewPlan)(route.params);
   // Hat die Ansicht beim Aufbauen selbst weitergeleitet (go/render), steht die neue Seite schon da – nicht mit dieser überschreiben
@@ -2057,15 +2058,16 @@ function annotatedPage(fid, entries, show) {
   add(wrap, layer);
   const pos = (b) => ({ top: `${b[0] / 10}%`, left: `${b[1] / 10}%`, height: `${(b[2] - b[0]) / 10}%`, width: `${(b[3] - b[1]) / 10}%` });
   const texts = [];
+  const hand = handActive();
   for (const e of entries) {
     const st = pos(e.box);
-    if (e.art === 'text') { const t = h('div', { class: 'ink ink-text', style: st }, cleanText(e.text || '')); texts.push([t, e.box]); add(layer, t); }
+    if (e.art === 'text') { const t = h('div', { class: `ink ink-text ${hand ? 'ink-hand' : ''}`, style: st }, cleanText(e.text || '')); texts.push([t, e.box, cleanText(e.text || '')]); add(layer, t); }
     else if (e.art === 'kreuz') add(layer, h('div', { class: 'ink ink-cross', style: st, html: SVG_CROSS }));
     else if (e.art === 'markieren') add(layer, h('div', { class: 'ink ink-mark', style: st }));
     else if (e.art === 'kreis') add(layer, h('div', { class: 'ink ink-circle', style: st }));
     else if (e.art === 'pruefen') {
       add(layer, h('div', { class: `ink ink-check ${e.ok ? 'ok' : 'bad'}`, style: { top: st.top, height: st.height, left: `${Math.min(97, e.box[3] / 10)}%` }, html: e.ok ? SVG_CHECK : SVG_CROSS }));
-      if (!e.ok && e.text) { const t = h('div', { class: 'ink ink-text ink-fix', style: { ...st, top: `${e.box[2] / 10}%` } }, cleanText(e.text)); texts.push([t, e.box]); add(layer, t); }
+      if (!e.ok && e.text) { const t = h('div', { class: `ink ink-text ink-fix ${hand ? 'ink-hand' : ''}`, style: { ...st, top: `${e.box[2] / 10}%` } }, cleanText(e.text)); texts.push([t, e.box, cleanText(e.text)]); add(layer, t); }
     }
   }
   // Schriftgröße an die Zeilenhöhe im Foto anpassen
@@ -2074,10 +2076,13 @@ function annotatedPage(fid, entries, show) {
     const W = img.clientWidth, H = img.clientHeight;
     if (!W || !H) return;
     const base = W * 0.0105;
-    for (const [t, b] of texts) {
+    texts.forEach(([t, b, txt], i) => {
       const boxH = ((b[2] - b[0]) / 1000) * H;
-      t.style.fontSize = `${Math.max(6, Math.min(base, boxH * 0.75))}px`;
-    }
+      const size = Math.max(6, Math.min(base, boxH * 0.75));
+      t.style.fontSize = `${size}px`;
+      // In der eigenen Handschrift: gleiche Größe und Breite, nur als Striche
+      if (hand && t.clientWidth) t.replaceChildren(handSVG(txt, t.clientWidth / size, i + 1));
+    });
   };
   img.onload = fit;
   if (window.ResizeObserver) new ResizeObserver(fit).observe(wrap);
@@ -2088,7 +2093,7 @@ function annotatedPage(fid, entries, show) {
 // ---------- Gelöstes Blatt als echtes Bild (Foto + Lösungen), zum Kopieren und Sichern
 const solvedPng = new Map(); // "fid:AnzahlEinträge" → Promise<Blob>
 function solvedImage(fid, entries) {
-  const key = `${fid}:${entries.length}`;
+  const key = `${fid}:${entries.length}:${handVersion()}`;
   if (!solvedPng.has(key)) solvedPng.set(key, renderSolvedImage(fid, entries).catch((e) => { solvedPng.delete(key); throw e; }));
   return solvedPng.get(key);
 }
@@ -2110,8 +2115,11 @@ async function renderSolvedImage(fid, entries) {
   const lw = Math.max(2, W * 0.0028);
   c.lineCap = 'round'; c.lineJoin = 'round';
   // Text wie in der Ansicht: klein und gleichmäßig, bricht an der Feldbreite um, weißer Rand für Lesbarkeit
+  const hand = handActive();
+  let seed = 0;
   const text = (str, r, color, boxH) => {
     const size = Math.max(W * 0.006, Math.min(W * 0.0105, boxH * 0.75));
+    if (hand) { drawHand(c, str, r.x, r.y, size, Math.max(r.w, size * 4), color, ++seed); return; }
     c.font = `700 ${size}px Inter, system-ui, sans-serif`;
     c.textBaseline = 'top';
     const lines = [];
@@ -3571,7 +3579,8 @@ function viewSettings() {
         menuRow('sparkles', 'KI-Verbindung', aiSub, () => sheet('KI-Verbindung', [aiSetupBlock(false)])),
         menuRow('play', 'Beim Warten', `Spiele, Schach & Video · beim Warten läuft: ${waitName(waitModeOf())}`, () => go('play')),
         menuRow('zap', 'Offline-Tutor', 'KI direkt auf dem Gerät – auch ohne Internet', () => offlineSheet()),
-        menuRow('mic', 'Jelly Voice', 'Unterricht aufnehmen – Notizen & Lernzettel daraus', () => { location.href = 'voice/'; })),
+        menuRow('pencil', 'Meine Handschrift', handReady() ? (state.settings.handOn ? 'An – der Blatt-Löser schreibt in deiner Schrift' : 'Aus – gespeichert, aber nicht benutzt') : handCount() ? 'Angefangen – noch nicht fertig' : 'Buchstaben nachzeichnen, dann löst Jelly in deiner Schrift', () => go('hand')),
+        menuRow('mic', 'Jelly Voice', 'Unterricht aufnehmen – Notizen & Lernzettel daraus', () => { location.href = DEV ? '../voice/' : 'voice/'; })),
       authEnabled && !bootedUid ? h('div', { class: 'menu' },
         menuRow('key', 'Konto & Sync einrichten', 'Anmelden – dann hast du alles auf iPad und Handy', () => openAccountSetup())) : null,
       authEnabled && bootedUid ? h('div', { class: 'menu' },
