@@ -21,4 +21,4 @@ export const backgroundFunctions = false;
 // Push-Mitteilungen: öffentlicher Web-Push-Schlüssel (VAPID) aus der Firebase-Konsole →
 // Projekteinstellungen → Cloud Messaging → Web-Push-Zertifikate → „Schlüsselpaar generieren“.
 // Nicht geheim. Leer = Mitteilungen in der App als „noch nicht eingerichtet“ anzeigen.
-export const pushVapidKey = '';
+export const pushVapidKey = 'BI_HjegMxd-ZA_Ga6o-JTVQh_GySBL5K7fb5ShBWrNbHlL5f2JzdaDMP5OO2Frv1Adsmw-shnT8MxlBAArKNdFo';
