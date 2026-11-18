@@ -25,7 +25,7 @@ setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, JELLY_STYLES, setJellyStyle, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.62 (18.11.)';
+const APP_VERSION = '2.63 (18.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -1070,7 +1070,7 @@ function waitPanel(title) {
     bar.style.width = `${Math.max(3, Math.round(((done + running) / Math.max(1, steps.length)) * 100))}%`;
   };
   const el = h('div', { class: 'wait' },
-    waitContent(state.settings.waitMode),
+    waitSlot((id) => { state.settings.waitMode = id; save(); }),
     h('div', { class: 'wait-card' },
       h('div', { class: 'row gap' }, mascot(52, 'think'), h('div', { class: 'wait-title' }, title)),
       h('div', { class: 'progress' }, bar),
@@ -3478,7 +3478,25 @@ const waitName = (id) => WAIT_OPTIONS.find((x) => x.id === id)?.name || 'Video';
 function waitContent(mode) {
   if (mode === 'chess') return chessPanel();
   if (isGame(mode)) return gamePanel(mode);
-  return waitVideo();
+  return waitVideo() || h('div', { class: 'card muted' }, 'Kein Video eingestellt – unter Mehr → Beim Warten → Zahnrad einen YouTube-Link eintragen.');
+}
+// Spiel/Schach/Video mit ☰-Auswahl darüber; wechseln geht jederzeit, ohne die Seite zu verlassen
+function waitSlot(onPick, start = waitModeOf()) {
+  let cur = start;
+  const slot = h('div', { class: 'wait-slot' }, waitContent(cur));
+  const label = h('span', { class: 'ws-label' });
+  const menu = h('div', { class: 'ws-menu', hidden: true });
+  const drawLabel = () => { const o = WAIT_OPTIONS.find((x) => x.id === cur); label.replaceChildren(h('span', { class: 'ws-emoji' }, o?.emoji || ''), o?.name || ''); };
+  const drawMenu = () => menu.replaceChildren(...WAIT_OPTIONS.map((x) => h('button', { class: `ws-item ${x.id === cur ? 'on' : ''}`, onclick: () => {
+    menu.hidden = true;
+    if (x.id === cur) return;
+    cur = x.id; onPick?.(cur); drawLabel(); slot.replaceChildren(waitContent(cur));
+  } }, h('span', { class: 'ws-emoji' }, x.emoji), x.name, x.id === cur ? icon('check', 16) : null)));
+  const btn = h('button', { class: 'iconbtn ws-btn', 'aria-label': 'Spiel wechseln', onclick: (e) => { e.stopPropagation(); drawMenu(); menu.hidden = !menu.hidden; } }, icon('menu', 22));
+  drawLabel();
+  const bar = h('div', { class: 'ws-bar' }, label, btn, menu);
+  document.addEventListener('click', (e) => { if (!menu.hidden && !bar.contains(e.target)) menu.hidden = true; });
+  return h('div', { class: 'ws' }, bar, slot);
 }
 function waitAreaSheet() {
   const st = state.settings;
@@ -3552,12 +3570,10 @@ function offlineSheet() {
 let playTab = null;
 function viewPlay() {
   const tab = playTab || waitModeOf();
-  const content = tab === 'video' ? (waitVideo() || h('div', { class: 'card muted' }, 'Kein Video eingestellt – oben rechts beim Zahnrad einen YouTube-Link eintragen.')) : waitContent(tab);
   return h('div', { class: 'screen' },
     h('header', { class: 'topbar' }, h('button', { class: 'iconbtn', 'aria-label': 'Zurück', onclick: () => go('settings') }, icon('back')), h('div', { class: 'topbar-title' }, 'Beim Warten'), h('button', { class: 'iconbtn', 'aria-label': 'Einstellungen', onclick: () => waitAreaSheet() }, icon('gear'))),
     h('main', { class: 'content narrow' },
-      h('div', { class: 'game-pick' }, WAIT_OPTIONS.map((x) => h('button', { class: tab === x.id ? 'on' : '', onclick: () => { playTab = x.id; render(); } }, h('span', { class: 'gp-emoji' }, x.emoji), x.name))),
-      h('div', { class: 'wait' }, content)));
+      h('div', { class: 'wait' }, waitSlot((id) => { playTab = id; }, tab))));
 }
 
 function viewSettings() {

@@ -1161,3 +1161,16 @@ html.has-userbg[data-skin] body::before { inset: calc(var(--bg-blur, 0px) * -2);
 .dev-pins { position: fixed; inset: 0; pointer-events: none; z-index: 80; }
 .dev-pin { position: absolute; width: 30px; height: 30px; margin: -15px 0 0 -15px; border-radius: 50% 50% 50% 4px; display: grid; place-items: center; font-size: .95rem; background: #fff; border: 2px solid #f97316; box-shadow: 0 4px 12px rgba(0, 0, 0, .35); pointer-events: auto; animation: devPin .3s ease-out; }
 @keyframes devPin { from { transform: scale(.3); opacity: 0; } }
+
+/* ---------- Beim Warten: ☰-Auswahl über dem Spiel ---------- */
+.ws { display: flex; flex-direction: column; gap: 10px; width: 100%; }
+.ws-bar { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 6px 6px 14px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); }
+.ws-label { display: flex; align-items: center; gap: 8px; font-family: var(--display); font-weight: 700; font-size: 1rem; }
+.ws-emoji { font-size: 1.25rem; line-height: 1; }
+.ws-btn { background: var(--surface-2); border-radius: 12px; }
+.ws-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 60; min-width: 220px; padding: 6px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); box-shadow: 0 16px 40px rgba(0,0,0,.4); display: flex; flex-direction: column; }
+.ws-menu[hidden] { display: none; }
+.ws-item { display: flex; align-items: center; gap: 10px; padding: 11px 12px; border-radius: 12px; text-align: left; font-weight: 600; color: var(--text); }
+.ws-item .icon { margin-left: auto; color: var(--accent); }
+.ws-item.on { background: var(--accent-soft); }
+.ws-item:active { background: var(--surface-2); }
