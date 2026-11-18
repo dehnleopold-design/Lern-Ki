@@ -25,7 +25,7 @@ setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, JELLY_STYLES, setJellyStyle, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.61 (16.11.)';
+const APP_VERSION = '2.62 (18.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -280,6 +280,7 @@ function designSheet(tab = designTab) {
   sheet('Design', [body]);
 }
 
+let renderSeq = 0;
 function render() {
   // „Fertig mit Haken bestätigen“: Seite nicht wechseln, bis der Haken gedrückt ist (Video/Schach läuft weiter)
   if (ui.waitHold) { if (ui.waitHold === JSON.stringify(route)) return; ui.waitHold = null; }
@@ -287,8 +288,11 @@ function render() {
   app.replaceChildren();
   if (!state.profile && !['onboarding', 'login'].includes(route.name)) route = { name: 'onboarding', params: {} };
   const views = { login: viewLogin, onboarding: viewOnboarding, prepare: viewPrepare, plan: viewPlan, pick: viewPick, vocab: viewVocab, solve: viewSolveNew, solved: viewSolved, vnew: viewVocabNew, vset: viewVocabSet, vwords: viewVocabWords, vplan: viewVocabPlan, vquiz: viewVocabQuiz, vtests: viewVocabTests, files: viewFiles, week: viewWeek, wimport: viewWeekImport, todo: viewTodos, notes: viewNotes, notebook: viewNotebook, calendar: viewCalendar, newExam: viewNewExam, session: viewSession, subjects: viewSubjects, subject: viewSubject, tutor: viewTutor, settings: viewSettings, play: viewPlay };
+  const seq = ++renderSeq;
   const v = (views[route.name] || viewPlan)(route.params);
-  app.replaceChildren(v); // ersetzt alles – auch falls eine Ansicht währenddessen selbst neu gezeichnet hat (sonst doppelte Seiten)
+  // Hat die Ansicht beim Aufbauen selbst weitergeleitet (go/render), steht die neue Seite schon da – nicht mit dieser überschreiben
+  if (seq !== renderSeq) return;
+  app.replaceChildren(v); // ersetzt alles (sonst doppelte Seiten)
   if (state.profile && !['login', 'onboarding'].includes(route.name)) { try { placeRankChip(app); } catch (e) { console.warn(e); } }
   document.dispatchEvent(new CustomEvent('jelly:render', { detail: { route: route.name } }));
 }
