@@ -1210,3 +1210,7 @@ html.has-userbg[data-skin] body::before { inset: calc(var(--bg-blur, 0px) * -2);
 .ink-fix { color: #c62828; }
 .ink-lines { position: absolute; left: 0; white-space: pre; }
 .ink-lines.typed { line-height: 1.25em; font-weight: 600; }
+
+/* Handschrift / Druckschrift wählen */
+.font-switch { width: min(100%, 420px); margin: 0 auto; }
+.font-pick .label { text-align: center; }

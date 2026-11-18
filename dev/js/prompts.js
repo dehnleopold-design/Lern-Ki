@@ -539,7 +539,13 @@ Arten ("art"):
 - "heft": Für diese Aufgabe gibt es auf der Seite KEINEN Platz zum Hinschreiben (z. B. Schulbuch, „Schreibe ins Heft“, Erklär- oder Rechenaufgaben ohne Lücke/Linien). KEINE box. "text" = die vollständige Lösung so, wie ein guter Schüler sie ins Heft schreibt: Rechenweg Schritt für Schritt, Antwortsatz, bei Erklärungen ganze Sätze. Zeilenumbrüche als \\n. Nie in gedruckten Text oder Bilder schreiben – lieber "heft".
 - "pruefen": Der Schüler hat hier SCHON etwas hingeschrieben. box = seine Antwort, "ok" = true/false, "text" = bei falsch die richtige Lösung (kurz), bei richtig leer.
 
-Regeln: nur Aufgaben auf DIESER Seite; fachlich korrekt (nutze die Lösungen unten); nur normale Schrift-Zeichen, kein LaTeX, keine HTML-Tags.
+Platz prüfen (sehr wichtig):
+- Eine box für "text" darf NUR wirklich leere Fläche abdecken: freie Lücke, leere Schreiblinie, leeres Kästchen oder leere Tabellenzelle. Nie über gedruckten Text, Überschriften, Bilder, Formeln oder Tabellenköpfe.
+- Schulbuchseiten und Seiten ohne freie Linien/Lücken haben in der Regel KEINEN Platz → "heft".
+- Passt die Antwort nicht in den freien Platz (zu wenig Linien, zu kurze Lücke), nimm "heft" statt sie zu quetschen.
+- Wörter nie trennen: pro Linie nur ganze Wörter.
+Schreibweise: nur normale Schrift-Zeichen, kein LaTeX, keine HTML-Tags. Mathe: Mal als ·, Potenzen mit ^ (1,3^x, 10^(-3), x^2), Wurzel √, außerdem ≤ ≥ ≠ ≈ → °, Brüche als a/b.
+Regeln: nur Aufgaben auf DIESER Seite; fachlich korrekt (nutze die Lösungen unten).
 
 Gib NUR JSON zurück:
 { "eintraege": [ { "aufgabe": "1a", "art": "text", "text": "…", "box": [400, 120, 430, 900] }, { "aufgabe": "1c", "art": "heft", "text": "…" } ] }

@@ -7,6 +7,7 @@
 
 import { state, save } from './store.js';
 import { h, add, icon, toast, confirmDialog } from './ui.js';
+import { HERSHEY, SYMBOLS } from './hand-fallback.js';
 
 export const LINES = { asc: 0.12, mid: 0.42, base: 0.72, desc: 0.92 };
 export const HAND_EM = 0.7 / (0.72 - 0.12); // 1 Einheit in em
@@ -51,9 +52,35 @@ const hash = (n) => { let x = Math.imul(n ^ 0x9e3779b9, 0x85ebca6b); x ^= x >>> 
 function variantOf(ch, seed) {
   const g = hand()?.glyphs || {};
   const list = g[ch]; // nur genau dieses Zeichen – sonst würde aus „DNA“ „dna“
-  if (!list?.length) return null;
-  return list[hash(seed) % list.length];
+  if (list?.length) return list[hash(seed) % list.length];
+  // Nicht selbst gezeichnet: Mathe-Zeichen und Satzzeichen zeichnet Jelly selbst (als Striche, nicht gedruckt)
+  if (SYMBOLS[ch]) return { s: SYMBOLS[ch] };
+  if (HERSHEY[ch]) return { s: HERSHEY[ch] };
+  return null;
 }
+
+// Schreibweisen aus der KI in echte Zeichen übersetzen: 1,3^x → hochgestellt, * → ·, <= → ≤, sqrt( → √( …
+const SUP = { '²': '2', '³': '3', '¹': '1', '⁰': '0', '⁴': '4', '⁵': '5', '⁶': '6', '⁷': '7', '⁸': '8', '⁹': '9', '⁻': '-', '⁺': '+', 'ⁿ': 'n', 'ˣ': 'x' };
+export function mathTokens(text) {
+  let t = String(text || '')
+    .replace(/sqrt\(/gi, '√(').replace(/<=/g, '≤').replace(/>=/g, '≥').replace(/!=/g, '≠').replace(/=>/g, '⇒').replace(/->/g, '→').replace(/<-/g, '←')
+    .replace(/(\d|\)|\s)\*(?=\s|\d|\(|[a-zA-Z])/g, '$1·').replace(/\*/g, '·')
+    .replace(/[–—]/g, '-').replace(/[„“”]/g, '"').replace(/[‘’]/g, "'").replace(/\.\.\./g, '…');
+  const out = [];
+  for (let i = 0; i < t.length; i++) {
+    const ch = t[i];
+    if (SUP[ch]) { out.push({ ch: SUP[ch], sup: true }); continue; }
+    if (ch === '^' && i + 1 < t.length) {
+      let exp = '';
+      if (t[i + 1] === '(') { let d = 0, j = i + 1; for (; j < t.length; j++) { if (t[j] === '(') d++; else if (t[j] === ')' && --d === 0) break; } exp = t.slice(i + 2, j); i = j; }
+      else { const m = t.slice(i + 1).match(/^[-+]?[A-Za-z0-9,.]+/); if (m) { exp = m[0].replace(/[.,]$/, ''); i += exp.length; } }
+      if (exp) { for (const c of exp) out.push({ ch: c, sup: true }); continue; }
+    }
+    out.push({ ch, sup: false });
+  }
+  return out;
+}
+const SUP_SCALE = 0.6, SUP_RAISE = 0.3;
 
 // Jeder Buchstabe sieht etwas anders aus: Größe, Neigung, Lage und ein leichtes Zittern ändern sich
 // zufällig (aber fest pro Stelle im Text, damit sich beim Neuzeichnen nichts bewegt).
@@ -93,15 +120,21 @@ export function layout(text, maxW = Infinity, seed = 1, lineH = LINE_H) {
   seed = (seed * 7919) ^ strHash(String(text || ''));
   for (const para of String(text || '').split(/\n/)) {
     let line = { items: [], w: 0 };
-    const words = para.split(/ +/);
+    // Wörter nur an Leerzeichen trennen – nie mitten im Wort
+    const words = para.split(/ +/).filter((x, i, a) => x || a.length === 1);
     for (let wi = 0; wi < words.length; wi++) {
       const word = words[wi];
       const items = [];
       let w = 0;
-      for (const ch of word) {
+      for (const { ch, sup } of mathTokens(word)) {
+        const k = sup ? SUP_SCALE : 1;
         const v = variantOf(ch, seed + n++);
-        if (v) { const g = vary(v, seed + n * 101); items.push({ s: g.s, x: w - g.x0 }); w += g.w + g.gap; }
-        else { const cw = /[ilI.,:;!'|]/.test(ch) ? 0.2 : /[mwMW]/.test(ch) ? 0.62 : 0.45; items.push({ ch, x: w }); w += cw + GAP; }
+        if (v) {
+          const g = vary(v, seed + n * 101);
+          // Hochzahl: kleiner und angehoben, an der Grundlinie verankert
+          const s2 = sup ? g.s.map((st) => st.map((val, j) => (j % 2 === 0 ? g.x0 + (val - g.x0) * k : LINES.base - (LINES.base - val) * k - SUP_RAISE))) : g.s;
+          items.push({ s: s2, x: w - g.x0 }); w += g.w * k + g.gap * (sup ? 0.6 : 1);
+        } else { const cw = (/[ilI.,:;!'|]/.test(ch) ? 0.2 : /[mwMW]/.test(ch) ? 0.62 : 0.45) * k; items.push({ ch, x: w, sup }); w += cw + GAP; }
       }
       const start = line.items.length ? line.w + SPACE : 0;
       if (line.items.length && start + w > maxW) { lines.push(line); line = { items: [], w: 0 }; }
@@ -141,7 +174,7 @@ export function handSVG(text, maxWidthEm = Infinity, seed = 1, lineH = LINE_H) {
     const oy = li * lineH - 0.06;
     for (const it of line.items) {
       if (it.s) for (const s of it.s) ds.push(pathD(s, it.x, oy));
-      else texts.push({ ch: it.ch, x: it.x, y: oy + LINES.base });
+      else texts.push({ ch: it.ch, x: it.x, y: oy + LINES.base - (it.sup ? SUP_RAISE : 0), k: it.sup ? SUP_SCALE : 1 });
     }
   });
   const d = ds.join(' ');
@@ -149,7 +182,7 @@ export function handSVG(text, maxWidthEm = Infinity, seed = 1, lineH = LINE_H) {
   svg.append(mk('hand-halo', STROKE * 2.6), mk('hand-ink', STROKE));
   for (const t of texts) {
     const el = document.createElementNS(SVGNS, 'text');
-    el.setAttribute('x', t.x); el.setAttribute('y', t.y); el.setAttribute('class', 'hand-fallback'); el.setAttribute('font-size', CAP / 0.72);
+    el.setAttribute('x', t.x); el.setAttribute('y', t.y); el.setAttribute('class', 'hand-fallback'); el.setAttribute('font-size', (CAP / 0.72) * (t.k || 1));
     el.textContent = t.ch;
     svg.append(el);
   }
@@ -179,7 +212,7 @@ export function drawHand(c, text, x, y, emPx, maxW, color, seed = 1, lineH = LIN
   if (halo) stroke('rgba(255,255,255,.9)', STROKE * 2.6);
   stroke(color, STROKE);
   c.fillStyle = color; c.font = `400 ${(CAP / 0.72) * u}px Inter, system-ui, sans-serif`; c.textBaseline = 'alphabetic';
-  each((it, oy) => { if (!it.s) c.fillText(it.ch, x + it.x * u, y + (oy + LINES.base) * u); });
+  each((it, oy) => { if (it.s) return; c.font = `400 ${(CAP / 0.72) * u * (it.sup ? SUP_SCALE : 1)}px Inter, system-ui, sans-serif`; c.fillText(it.ch, x + it.x * u, y + (oy + LINES.base - (it.sup ? SUP_RAISE : 0)) * u); });
   return L.h * u;
 }
 
