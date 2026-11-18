@@ -349,3 +349,4 @@ export function handView({ topbar, back }) {
 
 // Wie viele Zeilen ein Text in der Handschrift braucht (für das karierte Blatt)
 export function handLines(text, maxWEm, seed = 1) { return layout(text, maxWEm / EM, seed).lines.length; }
+export function layoutWidth(text, seed = 1) { return layout(text, Infinity, seed).w; }

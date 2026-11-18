@@ -1191,11 +1191,13 @@ html.has-userbg[data-skin] body::before { inset: calc(var(--bg-blur, 0px) * -2);
 .ink-hand { text-shadow: none; }
 @media (max-width: 600px) { .hand-grid { grid-template-columns: repeat(auto-fill, minmax(70px, 1fr)); } .hand-grid .hand-cell { height: 92px; } .hand-word .hand-cell { width: 64px; height: 94px; } }
 
-/* Kariertes Blatt für Aufgaben ohne Platz */
+/* Kariertes Blatt für Aufgaben ohne Platz – wie eine karierte GoodNotes-Seite (A4 hoch, 28 Kästchen breit) */
 .heft-holder { display: flex; flex-direction: column; gap: 8px; margin-top: 18px; }
-.heft-paper { background-color: #fff; color: #111; background-image: linear-gradient(rgba(70, 110, 170, .28) 1px, transparent 1px), linear-gradient(90deg, rgba(70, 110, 170, .28) 1px, transparent 1px); background-size: .8em .8em; padding: .8em 1.6em 2.4em 2.8em; border-radius: 16px; box-shadow: 0 10px 30px rgba(0, 0, 0, .4); min-height: 12em; overflow: hidden; }
+.heft-pages { display: flex; flex-direction: column; gap: 14px; width: min(100%, 720px); margin: 0 auto; }
+.heft-paper { position: relative; width: 100%; background-color: #fff; color: #111; background-image: linear-gradient(rgba(0, 0, 0, .13) 1px, transparent 1px), linear-gradient(90deg, rgba(0, 0, 0, .13) 1px, transparent 1px); background-size: .8em .8em; background-position: -1px -1px; box-shadow: 0 10px 30px rgba(0, 0, 0, .4); overflow: hidden; }
 .heft-paper .hand-halo { display: none; }
-.heft-entry { margin-top: 2.033em; }
-.heft-entry:first-child { margin-top: .853em; }
-.heft-paper.typed .heft-entry { font-weight: 600; line-height: 1.6em; white-space: pre-wrap; margin-top: 1.6em; }
-.heft-paper.typed .heft-entry:first-child { margin-top: .9em; }
+.heft-entry { position: absolute; }
+.heft-entry.typed { font-size: .9em; font-weight: 600; line-height: calc(1.6em / .9); white-space: pre; }
+.heft-num { position: absolute; width: 1.56em; height: 1.64em; border: .06em solid #111; border-radius: 50%; display: grid; place-items: center; font-size: 1em; font-weight: 600; transform: rotate(-8deg); }
+.heft-num .hand-svg { transform: rotate(8deg); }
+.heft-num.long .hand-svg, .heft-num.long { font-size: .8em; }

@@ -2,7 +2,7 @@ import { state, loadState, save, replaceState, clearAll, allBlobs, putBlob, uid,
 import { startSync, syncNow, syncStatus, onSyncStatus, deleteCloudData, push, requestJob, backgroundAvailable, cloudInfo, cloudBackupInfo, reloadFromCloud, restoreCloudBackup } from './sync.js';
 import { deleteAccount } from './auth.js';
 import { DEV } from './env.js';
-import { handView, handActive, handSVG, drawHand, handVersion, handReady, handCount, handLines, HAND_EM } from './hand.js';
+import { handView, handActive, handSVG, drawHand, handVersion, handReady, handCount, handLines, layoutWidth, HAND_EM } from './hand.js';
 import { authEnabled, initAuth, signInGoogle, signInEmail, registerEmail, resetPassword, signOutUser, currentUser, authErrorText } from './auth.js';
 import { generate, aiReady, listGeminiModels, pickDefaultModel, AIError, onAIStatus, FALLBACK_PRESETS, listOpenAIModels, pickFallbackModel, fallbackReady } from './ai.js';
 import { addFile, removeFile, filePart, thumbURL, pickFiles } from './files.js';
@@ -26,7 +26,7 @@ setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, JELLY_STYLES, setJellyStyle, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.63-dev.4';
+const APP_VERSION = '2.63-dev.5';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -2157,68 +2157,108 @@ async function renderSolvedImage(fid, entries) {
 }
 
 // ---------- Kariertes Blatt: Aufgaben, für die auf der Seite kein Platz ist (z. B. Schulbuch)
+// Wie eine karierte Seite in GoodNotes: Hochformat (A4), 28 kleine hellgraue Kästchen in der Breite,
+// Aufgabennummer im Kreis, geschrieben wird in jeder zweiten Kästchenreihe. Alle Maße in em (1 Kästchen = 0.8 em).
 const heftOf = (entries) => (entries || []).filter((e) => e.art === 'heft' && e.text);
-const heftText = (e) => `${e.aufgabe ? `${String(e.aufgabe).replace(/\)$/, '')}) ` : ''}${cleanText(e.text)}`;
-const HEFT_PITCH = 1.6; // Zeilenabstand in em = zwei Kästchen (ein Kästchen = 0.8 em)
+const heftLabel = (e) => String(e.aufgabe || '').replace(/^Aufgabe\s*/i, '').replace(/\)$/, '').trim();
+const HEFT = { sq: 0.8, cols: 28, pitch: 1.6, first: 2.4, textX: 2.8, right: 1.2, bottom: 1.6 };
+HEFT.w = HEFT.cols * HEFT.sq;                  // 22.4 em
+HEFT.h = HEFT.w * Math.SQRT2;                  // A4
+HEFT.inner = HEFT.w - HEFT.textX - HEFT.right; // Textbreite
+HEFT.lines = Math.floor((HEFT.h - HEFT.bottom - HEFT.first) / HEFT.pitch) + 1;
+const HEFT_INK = '#111';
+const typedProbe = () => (typedProbe.c ||= document.createElement('canvas').getContext('2d'));
+// Gedruckte Zeilen (wenn die Handschrift aus ist), Breiten in em bei Schriftgröße 0.9 em
+function typedLines(txt, maxEm) {
+  const c = typedProbe(); c.font = '600 100px Inter, system-ui, sans-serif';
+  const wEm = (t) => (c.measureText(t).width / 100) * 0.9;
+  const out = [];
+  for (const para of txt.split('\n')) {
+    let line = '';
+    for (const w of para.split(/ +/)) { const t = line ? `${line} ${w}` : w; if (line && wEm(t) > maxEm) { out.push(line); line = w; } else line = t; }
+    out.push(line);
+  }
+  return out;
+}
+// Einträge auf Seiten verteilen: jede Aufgabe bleibt zusammen, danach eine Zeile frei
+function heftLayout(entries) {
+  const hand = handActive();
+  const pages = [[]];
+  let used = 0;
+  entries.forEach((e, i) => {
+    const txt = cleanText(e.text);
+    const n = hand ? handLines(txt, HEFT.inner, i + 11) : typedLines(txt, HEFT.inner).length;
+    if (used && used + n > HEFT.lines) { pages.push([]); used = 0; }
+    pages.at(-1).push({ e, txt, label: heftLabel(e), seed: i + 11, line: used, n });
+    used += n + 1;
+  });
+  return pages.map((items) => ({ items, h: Math.max(HEFT.h, HEFT.first + (Math.max(...items.map((it) => it.line + it.n)) - 1) * HEFT.pitch + HEFT.bottom + 0.8) }));
+}
 
 function heftPaper(entries) {
   const hand = handActive();
-  const paper = h('div', { class: `heft-paper ${hand ? '' : 'typed'}` });
+  const wrap = h('div', { class: 'heft-pages' });
   const fill = () => {
-    const W = paper.clientWidth;
+    const W = wrap.clientWidth;
     if (!W) return;
-    const fs = Math.max(13, Math.min(22, W / 36));
-    paper.style.fontSize = `${fs}px`;
-    const inner = W / fs - 4.4; // Ränder links/rechts in em
-    paper.replaceChildren(...entries.map((e, i) => (hand
-      ? h('div', { class: 'heft-entry' }, handSVG(heftText(e), inner, i + 11, HEFT_PITCH / HAND_EM))
-      : h('div', { class: 'heft-entry' }, heftText(e)))));
+    const fs = W / HEFT.w;
+    wrap.replaceChildren(...heftLayout(entries).map((pg) => {
+      const page = h('div', { class: 'heft-paper', style: { fontSize: `${fs}px`, height: `${pg.h}em` } });
+      for (const it of pg.items) {
+        const base = HEFT.first + it.line * HEFT.pitch; // Grundlinie der ersten Zeile
+        if (it.label) add(page, h('div', { class: `heft-num ${it.label.length > 2 ? 'long' : ''}`, style: { top: `${base - 1.16}em`, left: `${1.5 - 0.78}em` } }, hand ? handSVG(it.label, 3, it.seed + 500) : it.label));
+        add(page, hand
+          ? h('div', { class: 'heft-entry', style: { top: `${base - 0.7467}em`, left: `${HEFT.textX}em` } }, handSVG(it.txt, HEFT.inner, it.seed, HEFT.pitch / HAND_EM))
+          : h('div', { class: 'heft-entry typed', style: { top: `${base - 1.15}em`, left: `${HEFT.textX}em`, width: `${HEFT.inner}em` } }, typedLines(it.txt, HEFT.inner).join('\n')));
+      }
+      return page;
+    }));
   };
-  new ResizeObserver(fill).observe(paper);
+  new ResizeObserver(fill).observe(wrap);
   requestAnimationFrame(fill);
-  return paper;
+  return wrap;
 }
 
-async function renderHeftImage(entries) {
+async function renderHeftImages(entries) {
   try { await document.fonts?.load('600 20px Inter'); } catch {}
   const hand = handActive();
-  const W = 1600, S = 40, EMPX = S / 0.8, PITCH = 2 * S, X = 3 * S, MAXW = W - X - 2 * S;
-  const lineH = HEFT_PITCH / HAND_EM;
-  const probe = document.createElement('canvas').getContext('2d');
-  const typedLines = (txt) => {
-    probe.font = `600 ${EMPX * 0.9}px Inter, system-ui, sans-serif`;
-    const out = [];
-    for (const para of txt.split('\n')) {
-      let line = '';
-      for (const w of para.split(/ +/)) { const t = line ? `${line} ${w}` : w; if (line && probe.measureText(t).width > MAXW) { out.push(line); line = w; } else line = t; }
-      out.push(line);
+  const W = 1240, EMPX = W / HEFT.w, S = HEFT.sq * EMPX; // 1 em in Pixeln, 1 Kästchen
+  const blobs = [];
+  for (const pg of heftLayout(entries)) {
+    const cv = document.createElement('canvas');
+    cv.width = W; cv.height = Math.round(pg.h * EMPX);
+    const c = cv.getContext('2d');
+    c.fillStyle = '#fff'; c.fillRect(0, 0, cv.width, cv.height);
+    c.strokeStyle = 'rgba(0,0,0,.13)'; c.lineWidth = 1.4;
+    c.beginPath();
+    for (let x = S; x < W; x += S) { c.moveTo(x, 0); c.lineTo(x, cv.height); }
+    for (let y = S; y < cv.height; y += S) { c.moveTo(0, y); c.lineTo(W, y); }
+    c.stroke();
+    for (const it of pg.items) {
+      const base = (HEFT.first + it.line * HEFT.pitch) * EMPX;
+      if (it.label) {
+        const cx = 1.5 * EMPX, cy = base - 0.38 * EMPX, r = 0.78 * EMPX;
+        c.strokeStyle = HEFT_INK; c.lineWidth = EMPX * 0.06; c.beginPath(); c.ellipse(cx, cy, r, r * 1.05, -0.2, 0, Math.PI * 2); c.stroke();
+        // Nummer mittig in den Kreis: Breite messen, dann zentriert zeichnen
+        const k = it.label.length > 2 ? 0.75 : 1;
+        const lw = hand ? layoutWidth(it.label, it.seed + 500) * EMPX * k * HAND_EM : 0;
+        if (hand) drawHand(c, it.label, cx - lw / 2, cy + 0.36 * EMPX * k - 0.66 * EMPX * k * HAND_EM, EMPX * k, 3 * EMPX, HEFT_INK, it.seed + 500, undefined, false);
+        else { c.fillStyle = HEFT_INK; c.font = `600 ${EMPX * 0.8 * k}px Inter, system-ui, sans-serif`; c.textAlign = 'center'; c.fillText(it.label, cx, cy + 0.28 * EMPX * k); c.textAlign = 'left'; }
+      }
+      const x = HEFT.textX * EMPX;
+      if (hand) drawHand(c, it.txt, x, base - 0.66 * EMPX * HAND_EM, EMPX, HEFT.inner * EMPX, HEFT_INK, it.seed, HEFT.pitch / HAND_EM, false);
+      else { c.fillStyle = HEFT_INK; c.font = `600 ${EMPX * 0.9}px Inter, system-ui, sans-serif`; typedLines(it.txt, HEFT.inner).forEach((ln, k) => c.fillText(ln, x, base + k * HEFT.pitch * EMPX)); }
     }
-    return out;
-  };
-  const blocks = entries.map((e, i) => { const txt = heftText(e); return { txt, n: hand ? handLines(txt, MAXW / EMPX, i + 11) : typedLines(txt).length }; });
-  const H = Math.max(W * 0.5, 3 * S + blocks.reduce((a, b) => a + (b.n - 1) * PITCH + 2 * PITCH, 0) + 2 * S);
-  const cv = document.createElement('canvas');
-  cv.width = W; cv.height = Math.ceil(H / S) * S;
-  const c = cv.getContext('2d');
-  c.fillStyle = '#fff'; c.fillRect(0, 0, cv.width, cv.height);
-  c.strokeStyle = 'rgba(70,110,170,.28)'; c.lineWidth = 1.5;
-  c.beginPath();
-  for (let x = 0; x <= W; x += S) { c.moveTo(x + 0.5, 0); c.lineTo(x + 0.5, cv.height); }
-  for (let y = 0; y <= cv.height; y += S) { c.moveTo(0, y + 0.5); c.lineTo(W, y + 0.5); }
-  c.stroke();
-  let base = 3 * S;
-  blocks.forEach((b, i) => {
-    if (hand) drawHand(c, b.txt, X, base - 0.66 * EMPX * HAND_EM, EMPX, MAXW, '#111', i + 11, lineH, false);
-    else { c.fillStyle = '#111'; c.font = `600 ${EMPX * 0.9}px Inter, system-ui, sans-serif`; c.textBaseline = 'alphabetic'; typedLines(b.txt).forEach((ln, k) => c.fillText(ln, X, base + k * PITCH)); }
-    base += (b.n - 1) * PITCH + 2 * PITCH;
-  });
-  return new Promise((res, rej) => cv.toBlob((bl) => (bl ? res(bl) : rej(new Error('Bild konnte nicht erstellt werden.'))), 'image/png'));
+    blobs.push(await new Promise((res, rej) => cv.toBlob((bl) => (bl ? res(bl) : rej(new Error('Bild konnte nicht erstellt werden.'))), 'image/png')));
+  }
+  return blobs;
 }
 
+// → Promise<Blob[]> (eine Datei pro Heftseite)
 function heftImage(fid, entries) {
   const list = heftOf(entries);
   const key = `heft:${fid}:${list.length}:${handVersion()}`;
-  if (!solvedPng.has(key)) solvedPng.set(key, renderHeftImage(list).catch((e) => { solvedPng.delete(key); throw e; }));
+  if (!solvedPng.has(key)) solvedPng.set(key, renderHeftImages(list).catch((e) => { solvedPng.delete(key); throw e; }));
   return solvedPng.get(key);
 }
 
@@ -2231,7 +2271,10 @@ async function saveSolvedImages(item, fids) {
     for (const fid of fids) {
       const name = solvedFileName(item, item.fileIds.indexOf(fid), item.fileIds.length);
       if (item.annot[fid].some((e) => Array.isArray(e.box)) || !heftOf(item.annot[fid]).length) files.push(new File([await solvedImage(fid, item.annot[fid])], name, { type: 'image/png' }));
-      if (heftOf(item.annot[fid]).length) files.push(new File([await heftImage(fid, item.annot[fid])], name.replace(/\.png$/, '-Heft.png'), { type: 'image/png' }));
+      if (heftOf(item.annot[fid]).length) {
+        const pages = await heftImage(fid, item.annot[fid]);
+        pages.forEach((bl, k) => files.push(new File([bl], name.replace(/\.png$/, `-Heft${pages.length > 1 ? `-${k + 1}` : ''}.png`), { type: 'image/png' })));
+      }
     }
     if (navigator.canShare?.({ files })) {
       try { await navigator.share({ files }); } catch (e) { if (e?.name !== 'AbortError') throw e; }
@@ -2246,7 +2289,7 @@ async function copySolvedImage(item, fid, heft = false) {
   try {
     if (!navigator.clipboard?.write || !window.ClipboardItem) throw new Error('Kopieren wird hier nicht unterstützt – nutze „Sichern“.');
     // Safari verlangt, dass das Bild als Versprechen übergeben wird (sonst geht die Nutzer-Geste verloren)
-    await navigator.clipboard.write([new ClipboardItem({ 'image/png': heft ? heftImage(fid, item.annot[fid]) : solvedImage(fid, item.annot[fid]) })]);
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': heft ? heftImage(fid, item.annot[fid]).then((pages) => pages[0]) : solvedImage(fid, item.annot[fid]) })]);
     toast('Bild mit Lösungen kopiert.', 'ok');
   } catch (e) { toast(e?.name === 'NotAllowedError' ? 'Kopieren wurde nicht erlaubt.' : errorMsg(e), 'error'); }
 }
