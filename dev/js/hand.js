@@ -55,10 +55,42 @@ function variantOf(ch, seed) {
   return list[hash(seed) % list.length];
 }
 
+// Jeder Buchstabe sieht etwas anders aus: Größe, Neigung, Lage und ein leichtes Zittern ändern sich
+// zufällig (aber fest pro Stelle im Text, damit sich beim Neuzeichnen nichts bewegt).
+const rnd = (k) => (hash(k) % 100000) / 100000;
+const strHash = (t) => { let x = 2166136261; for (let i = 0; i < t.length; i++) x = Math.imul(x ^ t.charCodeAt(i), 16777619); return x >>> 0; };
+function vary(v, k) {
+  const b = bounds(v);
+  const R = (i) => rnd(k * 17 + i) * 2 - 1; // −1 … 1
+  const sx = 1 + R(1) * 0.07, sy = 1 + R(2) * 0.07;   // Breite/Höhe ±7 %
+  const slant = R(3) * 0.07;                           // Neigung ±4°
+  const dy = R(4) * 0.014;                             // hüpft etwas über/unter die Linie
+  const amp = 0.004 + rnd(k * 17 + 5) * 0.005;          // Zittern der Linie
+  const fq = 16 + R(6) * 6, p1 = R(7) * 7, p2 = R(8) * 7;
+  const cx = (b.x0 + b.x1) / 2;
+  let x0 = Infinity, x1 = -Infinity;
+  const out = v.s.map((st) => {
+    const o = new Array(st.length);
+    for (let i = 0; i < st.length; i += 2) {
+      let x = cx + (st[i] - cx) * sx;
+      let y = LINES.base - (LINES.base - st[i + 1]) * sy;
+      x += (LINES.base - y) * slant;
+      const wx = amp * Math.sin(y * fq + p1), wy = amp * Math.sin(x * fq + p2);
+      x += wx; y += wy + dy;
+      o[i] = x; o[i + 1] = y;
+      if (x < x0) x0 = x; if (x > x1) x1 = x;
+    }
+    return o;
+  });
+  if (!isFinite(x0)) { x0 = 0; x1 = 0.3; }
+  return { s: out, x0, w: Math.max(0.05, x1 - x0), gap: GAP * (1 + R(9) * 0.35) };
+}
+
 // Text in Zeilen und Buchstaben zerlegen (Einheiten wie oben). maxW in Einheiten.
 export function layout(text, maxW = Infinity, seed = 1, lineH = LINE_H) {
   const lines = [];
   let n = 0;
+  seed = (seed * 7919) ^ strHash(String(text || ''));
   for (const para of String(text || '').split(/\n/)) {
     let line = { items: [], w: 0 };
     const words = para.split(/ +/);
@@ -67,8 +99,8 @@ export function layout(text, maxW = Infinity, seed = 1, lineH = LINE_H) {
       const items = [];
       let w = 0;
       for (const ch of word) {
-        const v = variantOf(ch, seed * 7919 + n++);
-        if (v) { const b = bounds(v); items.push({ v, x: w - b.x0, dy: ((hash(n * 31 + seed) % 100) / 100 - 0.5) * 0.02 }); w += b.w + GAP; }
+        const v = variantOf(ch, seed + n++);
+        if (v) { const g = vary(v, seed + n * 101); items.push({ s: g.s, x: w - g.x0 }); w += g.w + g.gap; }
         else { const cw = /[ilI.,:;!'|]/.test(ch) ? 0.2 : /[mwMW]/.test(ch) ? 0.62 : 0.45; items.push({ ch, x: w }); w += cw + GAP; }
       }
       const start = line.items.length ? line.w + SPACE : 0;
@@ -108,7 +140,7 @@ export function handSVG(text, maxWidthEm = Infinity, seed = 1, lineH = LINE_H) {
   L.lines.forEach((line, li) => {
     const oy = li * lineH - 0.06;
     for (const it of line.items) {
-      if (it.v) for (const s of it.v.s) ds.push(pathD(s, it.x, oy + it.dy));
+      if (it.s) for (const s of it.s) ds.push(pathD(s, it.x, oy));
       else texts.push({ ch: it.ch, x: it.x, y: oy + LINES.base });
     }
   });
@@ -133,9 +165,9 @@ export function drawHand(c, text, x, y, emPx, maxW, color, seed = 1, lineH = LIN
     c.strokeStyle = style; c.lineWidth = w * u; c.lineCap = 'round'; c.lineJoin = 'round';
     c.beginPath();
     each((it, oy) => {
-      if (!it.v) return;
-      for (const s of it.v.s) {
-        const X = (i) => x + (s[i] + it.x) * u, Y = (i) => y + (s[i + 1] + oy + it.dy) * u;
+      if (!it.s) return;
+      for (const s of it.s) {
+        const X = (i) => x + (s[i] + it.x) * u, Y = (i) => y + (s[i + 1] + oy) * u;
         c.moveTo(X(0), Y(0));
         if (s.length <= 2) { c.lineTo(X(0) + 0.5, Y(0)); continue; }
         for (let i = 2; i < s.length - 2; i += 2) c.quadraticCurveTo(X(i), Y(i), (X(i) + X(i + 2)) / 2, (Y(i) + Y(i + 2)) / 2);
@@ -147,7 +179,7 @@ export function drawHand(c, text, x, y, emPx, maxW, color, seed = 1, lineH = LIN
   if (halo) stroke('rgba(255,255,255,.9)', STROKE * 2.6);
   stroke(color, STROKE);
   c.fillStyle = color; c.font = `400 ${(CAP / 0.72) * u}px Inter, system-ui, sans-serif`; c.textBaseline = 'alphabetic';
-  each((it, oy) => { if (!it.v) c.fillText(it.ch, x + it.x * u, y + (oy + LINES.base) * u); });
+  each((it, oy) => { if (!it.s) c.fillText(it.ch, x + it.x * u, y + (oy + LINES.base) * u); });
   return L.h * u;
 }
 
