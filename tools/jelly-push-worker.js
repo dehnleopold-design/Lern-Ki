@@ -30,10 +30,26 @@ export default {
 // ---------------------------------------------------------------- Google-Anmeldung mit dem Dienstkonto
 function serviceAccount(env) {
   if (!env.FIREBASE_SA) throw new Error('Geheimnis FIREBASE_SA fehlt.');
-  let sa;
-  try { sa = JSON.parse(env.FIREBASE_SA); } catch { throw new Error('FIREBASE_SA ist kein gültiges JSON – bitte den ganzen Dateiinhalt einfügen.'); }
-  if (!sa.client_email || !sa.private_key || !sa.project_id) throw new Error('FIREBASE_SA ist unvollständig.');
+  const sa = parseServiceAccount(String(env.FIREBASE_SA));
+  if (!sa.client_email || !sa.private_key || !sa.project_id) throw new Error(`FIREBASE_SA ist unvollständig (gefunden: ${Object.keys(sa).join(', ') || 'nichts'}).`);
   return sa;
+}
+// Repariert typische Kopierfehler vom iPad: typografische Anführungszeichen, Text drumherum,
+// echte Zeilenumbrüche im Schlüssel. Gibt bei Fehlern eine Beschreibung OHNE geheimen Inhalt.
+export function parseServiceAccount(raw) {
+  const tries = [];
+  let s = raw.trim();
+  tries.push(s);
+  s = s.replace(/[\u201C\u201D\u201E\u201F\u00AB\u00BB]/g, '"').replace(/[\u2018\u2019\u201A]/g, "'").replace(/\u00A0/g, ' ');
+  const a = s.indexOf('{'), b = s.lastIndexOf('}');
+  if (a >= 0 && b > a) s = s.slice(a, b + 1);
+  tries.push(s);
+  tries.push(s.replace(/\r?\n/g, ' '));               // Zeilenumbrüche mitten im Schlüssel
+  for (const t of tries) { try { const o = JSON.parse(t); if (o && typeof o === 'object') return o; } catch {} }
+  const first = raw.trim().charAt(0) || '–', last = raw.trim().slice(-1) || '–';
+  const open = (raw.match(/\{/g) || []).length, close = (raw.match(/\}/g) || []).length;
+  throw new Error(`FIREBASE_SA ist kein gültiges JSON. Angekommen: ${raw.length} Zeichen, beginnt mit „${first}“, endet mit „${last}“, ${open}× { und ${close}× }. `
+    + 'Erwartet: etwa 2300 Zeichen, beginnt mit { und endet mit }. Bitte den kompletten Inhalt der JSON-Datei einfügen.');
 }
 const b64url = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 const b64urlStr = (s) => b64url(new TextEncoder().encode(s));
