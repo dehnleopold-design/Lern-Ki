@@ -45,6 +45,11 @@ export function parseServiceAccount(raw) {
   if (a >= 0 && b > a) s = s.slice(a, b + 1);
   tries.push(s);
   tries.push(s.replace(/\r?\n/g, ' '));               // Zeilenumbrüche mitten im Schlüssel
+  // Erste oder letzte Klammer beim Markieren verloren?
+  let t = s.trim();
+  if (!t.startsWith('{') && t.startsWith('"')) t = `{${t}`;
+  if (!t.endsWith('}') && t.endsWith('"')) t = `${t}}`;
+  tries.push(t, t.replace(/\r?\n/g, ' '));
   for (const t of tries) { try { const o = JSON.parse(t); if (o && typeof o === 'object') return o; } catch {} }
   const first = raw.trim().charAt(0) || '–', last = raw.trim().slice(-1) || '–';
   const open = (raw.match(/\{/g) || []).length, close = (raw.match(/\}/g) || []).length;
