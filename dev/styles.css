@@ -1250,3 +1250,9 @@ html.has-userbg[data-skin] body::before { inset: calc(var(--bg-blur, 0px) * -2);
 .hand-word.is-done .hand-cell { border-color: color-mix(in srgb, #22c55e 70%, transparent); }
 .hand-words-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
 .hand-words-actions .btn.primary { flex: 1; min-width: 240px; }
+
+/* Mehr: Gruppen mit Überschrift */
+.settings { gap: 22px; }
+.settings-group { display: flex; flex-direction: column; gap: 8px; }
+.settings-group > .label { padding-left: 6px; }
+.menu-row.is-default .menu-label::after { content: ' · Vorgabe'; color: var(--accent); font-weight: 600; font-size: .85em; }
