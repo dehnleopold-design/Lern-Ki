@@ -1187,6 +1187,15 @@ html.has-userbg[data-skin] body::before { inset: calc(var(--bg-blur, 0px) * -2);
 .hand-svg { display: block; overflow: visible; }
 .hand-halo { fill: none; stroke: rgba(255, 255, 255, .9); stroke-linecap: round; stroke-linejoin: round; }
 .hand-ink { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
-.hand-fallback { fill: currentColor; font-family: Inter, system-ui, sans-serif; font-weight: 600; }
+.hand-fallback { fill: currentColor; font-family: Inter, system-ui, sans-serif; font-weight: 400; }
 .ink-hand { text-shadow: none; }
 @media (max-width: 600px) { .hand-grid { grid-template-columns: repeat(auto-fill, minmax(70px, 1fr)); } .hand-grid .hand-cell { height: 92px; } .hand-word .hand-cell { width: 64px; height: 94px; } }
+
+/* Kariertes Blatt für Aufgaben ohne Platz */
+.heft-holder { display: flex; flex-direction: column; gap: 8px; margin-top: 18px; }
+.heft-paper { background-color: #fff; color: #111; background-image: linear-gradient(rgba(70, 110, 170, .28) 1px, transparent 1px), linear-gradient(90deg, rgba(70, 110, 170, .28) 1px, transparent 1px); background-size: .8em .8em; padding: .8em 1.6em 2.4em 2.8em; border-radius: 16px; box-shadow: 0 10px 30px rgba(0, 0, 0, .4); min-height: 12em; overflow: hidden; }
+.heft-paper .hand-halo { display: none; }
+.heft-entry { margin-top: 2.033em; }
+.heft-entry:first-child { margin-top: .853em; }
+.heft-paper.typed .heft-entry { font-weight: 600; line-height: 1.6em; white-space: pre-wrap; margin-top: 1.6em; }
+.heft-paper.typed .heft-entry:first-child { margin-top: .9em; }

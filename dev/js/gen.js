@@ -282,8 +282,13 @@ export async function solveSheet(item, onStep = null) {
     if (!state.files[fid]?.mime?.startsWith('image/') || item.annot[fid]) continue;
     try {
       const res = await generate({ system: P.baseSystem(subject), parts: [{ text: P.annotatePrompt(item.loesung) }, await partOf(fid)], json: true, temperature: 0.1 });
-      item.annot[fid] = (res.eintraege || []).filter((e) => Array.isArray(e.box) && e.box.length === 4 && e.box.every((n) => Number.isFinite(Number(n))) && ['text', 'kreuz', 'markieren', 'kreis', 'pruefen'].includes(e.art))
-        .map((e) => ({ ...e, box: e.box.map((n) => Math.max(0, Math.min(1000, Number(n)))) }));
+      const all = res.eintraege || [];
+      item.annot[fid] = [
+        ...all.filter((e) => Array.isArray(e.box) && e.box.length === 4 && e.box.every((n) => Number.isFinite(Number(n))) && ['text', 'kreuz', 'markieren', 'kreis', 'pruefen'].includes(e.art))
+          .map((e) => ({ ...e, box: e.box.map((n) => Math.max(0, Math.min(1000, Number(n)))) })),
+        // Kein Platz auf der Seite → kommt aufs karierte Blatt
+        ...all.filter((e) => e.art === 'heft' && String(e.text || '').trim()).map((e) => ({ aufgabe: String(e.aufgabe || ''), art: 'heft', text: String(e.text) })),
+      ];
     } catch (e) { if (e?.notYet) throw e; console.warn('Eintragen fehlgeschlagen', e?.message); }
   }
   delete item.building;

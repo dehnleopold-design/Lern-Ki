@@ -2,7 +2,7 @@ import { state, loadState, save, replaceState, clearAll, allBlobs, putBlob, uid,
 import { startSync, syncNow, syncStatus, onSyncStatus, deleteCloudData, push, requestJob, backgroundAvailable, cloudInfo, cloudBackupInfo, reloadFromCloud, restoreCloudBackup } from './sync.js';
 import { deleteAccount } from './auth.js';
 import { DEV } from './env.js';
-import { handView, handActive, handSVG, drawHand, handVersion, handReady, handCount } from './hand.js';
+import { handView, handActive, handSVG, drawHand, handVersion, handReady, handCount, handLines, HAND_EM } from './hand.js';
 import { authEnabled, initAuth, signInGoogle, signInEmail, registerEmail, resetPassword, signOutUser, currentUser, authErrorText } from './auth.js';
 import { generate, aiReady, listGeminiModels, pickDefaultModel, AIError, onAIStatus, FALLBACK_PRESETS, listOpenAIModels, pickFallbackModel, fallbackReady } from './ai.js';
 import { addFile, removeFile, filePart, thumbURL, pickFiles } from './files.js';
@@ -26,7 +26,7 @@ setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, JELLY_STYLES, setJellyStyle, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.63-dev.2';
+const APP_VERSION = '2.63-dev.3';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -2060,6 +2060,7 @@ function annotatedPage(fid, entries, show) {
   const texts = [];
   const hand = handActive();
   for (const e of entries) {
+    if (!Array.isArray(e.box)) continue; // "heft"-Einträge stehen auf dem karierten Blatt
     const st = pos(e.box);
     if (e.art === 'text') { const t = h('div', { class: `ink ink-text ${hand ? 'ink-hand' : ''}`, style: st }, cleanText(e.text || '')); texts.push([t, e.box, cleanText(e.text || '')]); add(layer, t); }
     else if (e.art === 'kreuz') add(layer, h('div', { class: 'ink ink-cross', style: st, html: SVG_CROSS }));
@@ -2155,12 +2156,83 @@ async function renderSolvedImage(fid, entries) {
   return new Promise((res, rej) => cv.toBlob((b) => (b ? res(b) : rej(new Error('Bild konnte nicht erstellt werden.'))), 'image/png'));
 }
 
+// ---------- Kariertes Blatt: Aufgaben, für die auf der Seite kein Platz ist (z. B. Schulbuch)
+const heftOf = (entries) => (entries || []).filter((e) => e.art === 'heft' && e.text);
+const heftText = (e) => `${e.aufgabe ? `${String(e.aufgabe).replace(/\)$/, '')}) ` : ''}${cleanText(e.text)}`;
+const HEFT_PITCH = 1.6; // Zeilenabstand in em = zwei Kästchen (ein Kästchen = 0.8 em)
+
+function heftPaper(entries) {
+  const hand = handActive();
+  const paper = h('div', { class: `heft-paper ${hand ? '' : 'typed'}` });
+  const fill = () => {
+    const W = paper.clientWidth;
+    if (!W) return;
+    const fs = Math.max(13, Math.min(22, W / 36));
+    paper.style.fontSize = `${fs}px`;
+    const inner = W / fs - 4.4; // Ränder links/rechts in em
+    paper.replaceChildren(...entries.map((e, i) => (hand
+      ? h('div', { class: 'heft-entry' }, handSVG(heftText(e), inner, i + 11, HEFT_PITCH / HAND_EM))
+      : h('div', { class: 'heft-entry' }, heftText(e)))));
+  };
+  new ResizeObserver(fill).observe(paper);
+  requestAnimationFrame(fill);
+  return paper;
+}
+
+async function renderHeftImage(entries) {
+  try { await document.fonts?.load('600 20px Inter'); } catch {}
+  const hand = handActive();
+  const W = 1600, S = 40, EMPX = S / 0.8, PITCH = 2 * S, X = 3 * S, MAXW = W - X - 2 * S;
+  const lineH = HEFT_PITCH / HAND_EM;
+  const probe = document.createElement('canvas').getContext('2d');
+  const typedLines = (txt) => {
+    probe.font = `600 ${EMPX * 0.9}px Inter, system-ui, sans-serif`;
+    const out = [];
+    for (const para of txt.split('\n')) {
+      let line = '';
+      for (const w of para.split(/ +/)) { const t = line ? `${line} ${w}` : w; if (line && probe.measureText(t).width > MAXW) { out.push(line); line = w; } else line = t; }
+      out.push(line);
+    }
+    return out;
+  };
+  const blocks = entries.map((e, i) => { const txt = heftText(e); return { txt, n: hand ? handLines(txt, MAXW / EMPX, i + 11) : typedLines(txt).length }; });
+  const H = Math.max(W * 0.5, 3 * S + blocks.reduce((a, b) => a + (b.n - 1) * PITCH + 2 * PITCH, 0) + 2 * S);
+  const cv = document.createElement('canvas');
+  cv.width = W; cv.height = Math.ceil(H / S) * S;
+  const c = cv.getContext('2d');
+  c.fillStyle = '#fff'; c.fillRect(0, 0, cv.width, cv.height);
+  c.strokeStyle = 'rgba(70,110,170,.28)'; c.lineWidth = 1.5;
+  c.beginPath();
+  for (let x = 0; x <= W; x += S) { c.moveTo(x + 0.5, 0); c.lineTo(x + 0.5, cv.height); }
+  for (let y = 0; y <= cv.height; y += S) { c.moveTo(0, y + 0.5); c.lineTo(W, y + 0.5); }
+  c.stroke();
+  let base = 3 * S;
+  blocks.forEach((b, i) => {
+    if (hand) drawHand(c, b.txt, X, base - 0.66 * EMPX * HAND_EM, EMPX, MAXW, '#111', i + 11, lineH, false);
+    else { c.fillStyle = '#111'; c.font = `600 ${EMPX * 0.9}px Inter, system-ui, sans-serif`; c.textBaseline = 'alphabetic'; typedLines(b.txt).forEach((ln, k) => c.fillText(ln, X, base + k * PITCH)); }
+    base += (b.n - 1) * PITCH + 2 * PITCH;
+  });
+  return new Promise((res, rej) => cv.toBlob((bl) => (bl ? res(bl) : rej(new Error('Bild konnte nicht erstellt werden.'))), 'image/png'));
+}
+
+function heftImage(fid, entries) {
+  const list = heftOf(entries);
+  const key = `heft:${fid}:${list.length}:${handVersion()}`;
+  if (!solvedPng.has(key)) solvedPng.set(key, renderHeftImage(list).catch((e) => { solvedPng.delete(key); throw e; }));
+  return solvedPng.get(key);
+}
+
 const solvedFileName = (item, i, n) => `${(subjectById(item.subjectId)?.name || 'Blatt').replace(/[^\wäöüÄÖÜß -]+/g, '')}-Lösung${n > 1 ? `-Seite-${i + 1}` : ''}.png`;
 
 // Teilen-Menü von iOS: „Bild sichern“ (Mediathek), „In Dateien sichern“, AirDrop … – sonst Download
 async function saveSolvedImages(item, fids) {
   try {
-    const files = await Promise.all(fids.map(async (fid, i) => new File([await solvedImage(fid, item.annot[fid])], solvedFileName(item, item.fileIds.indexOf(fid), item.fileIds.length), { type: 'image/png' })));
+    const files = [];
+    for (const fid of fids) {
+      const name = solvedFileName(item, item.fileIds.indexOf(fid), item.fileIds.length);
+      if (item.annot[fid].some((e) => Array.isArray(e.box)) || !heftOf(item.annot[fid]).length) files.push(new File([await solvedImage(fid, item.annot[fid])], name, { type: 'image/png' }));
+      if (heftOf(item.annot[fid]).length) files.push(new File([await heftImage(fid, item.annot[fid])], name.replace(/\.png$/, '-Heft.png'), { type: 'image/png' }));
+    }
     if (navigator.canShare?.({ files })) {
       try { await navigator.share({ files }); } catch (e) { if (e?.name !== 'AbortError') throw e; }
       return;
@@ -2170,11 +2242,11 @@ async function saveSolvedImages(item, fids) {
   } catch (e) { toast(errorMsg(e), 'error'); }
 }
 
-async function copySolvedImage(item, fid) {
+async function copySolvedImage(item, fid, heft = false) {
   try {
     if (!navigator.clipboard?.write || !window.ClipboardItem) throw new Error('Kopieren wird hier nicht unterstützt – nutze „Sichern“.');
     // Safari verlangt, dass das Bild als Versprechen übergeben wird (sonst geht die Nutzer-Geste verloren)
-    await navigator.clipboard.write([new ClipboardItem({ 'image/png': solvedImage(fid, item.annot[fid]) })]);
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': heft ? heftImage(fid, item.annot[fid]) : solvedImage(fid, item.annot[fid]) })]);
     toast('Bild mit Lösungen kopiert.', 'ok');
   } catch (e) { toast(e?.name === 'NotAllowedError' ? 'Kopieren wurde nicht erlaubt.' : errorMsg(e), 'error'); }
 }
@@ -2283,10 +2355,17 @@ function viewSolved({ id }) {
                 const box = h('div', { class: `annot-scroll ${ui.inkZoom ? 'zoomed' : ''}` }, page);
                 const zoomBtn = h('button', { class: 'zoom-btn', 'aria-label': 'Vergrößern', onclick: () => { ui.inkZoom = !ui.inkZoom; box.classList.toggle('zoomed', ui.inkZoom); zoomBtn.replaceChildren(icon(ui.inkZoom ? 'minus' : 'plus', 20)); } }, icon(ui.inkZoom ? 'minus' : 'plus', 20));
                 solvedImage(fid, item.annot[fid]).catch(() => {}); // schon vorbereiten, damit Kopieren/Sichern sofort klappt
-                return h('div', { class: 'annot-holder' }, box, zoomBtn,
+                const heft = heftOf(item.annot[fid]);
+                if (heft.length) heftImage(fid, item.annot[fid]).catch(() => {});
+                return [h('div', { class: 'annot-holder' }, box, zoomBtn,
                   h('div', { class: 'annot-actions' },
                     h('button', { class: 'btn small', onclick: () => copySolvedImage(item, fid) }, icon('layers', 16), 'Kopieren'),
-                    h('button', { class: 'btn small', onclick: () => saveSolvedImages(item, [fid]) }, icon('download', 16), 'Sichern / Teilen')));
+                    h('button', { class: 'btn small', onclick: () => saveSolvedImages(item, [fid]) }, icon('download', 16), heft.length ? 'Sichern (mit Heft)' : 'Sichern / Teilen'))),
+                heft.length && ui.inkShow ? h('div', { class: 'heft-holder' },
+                  h('div', { class: 'label' }, `Im Heft – kein Platz auf dem Blatt (${heft.map((e) => e.aufgabe).filter(Boolean).join(', ') || heft.length})`),
+                  heftPaper(heft),
+                  h('div', { class: 'annot-actions' },
+                    h('button', { class: 'btn small', onclick: () => copySolvedImage(item, fid, true) }, icon('layers', 16), 'Kopieren'))) : null];
               });
               if (pages.length > 1) out.push(h('button', { class: 'btn block', onclick: () => saveSolvedImages(item, pages) }, icon('download', 18), `Alle ${pages.length} Seiten sichern`));
               out.push(h('p', { class: 'muted small center' }, '„Sichern / Teilen“ öffnet das Teilen-Menü: „Bild sichern“ legt es in die Mediathek, „In Dateien sichern“ in die Dateien-App. Das Bild enthält die Lösungen.'));

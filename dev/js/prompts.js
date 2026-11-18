@@ -536,12 +536,14 @@ Arten ("art"):
 - "kreuz": Kästchen ankreuzen. box = das Kästchen.
 - "markieren": Wort/Textstelle markieren oder unterstreichen. box = die Textstelle.
 - "kreis": etwas einkreisen. box = das Einzukreisende.
+- "heft": Für diese Aufgabe gibt es auf der Seite KEINEN Platz zum Hinschreiben (z. B. Schulbuch, „Schreibe ins Heft“, Erklär- oder Rechenaufgaben ohne Lücke/Linien). KEINE box. "text" = die vollständige Lösung so, wie ein guter Schüler sie ins Heft schreibt: Rechenweg Schritt für Schritt, Antwortsatz, bei Erklärungen ganze Sätze. Zeilenumbrüche als \\n. Nie in gedruckten Text oder Bilder schreiben – lieber "heft".
 - "pruefen": Der Schüler hat hier SCHON etwas hingeschrieben. box = seine Antwort, "ok" = true/false, "text" = bei falsch die richtige Lösung (kurz), bei richtig leer.
 
 Regeln: nur Aufgaben auf DIESER Seite; fachlich korrekt (nutze die Lösungen unten); nur normale Schrift-Zeichen, kein LaTeX, keine HTML-Tags.
 
 Gib NUR JSON zurück:
-{ "eintraege": [ { "aufgabe": "1a", "art": "text", "text": "…", "box": [400, 120, 430, 900] } ] }
+{ "eintraege": [ { "aufgabe": "1a", "art": "text", "text": "…", "box": [400, 120, 430, 900] }, { "aufgabe": "1c", "art": "heft", "text": "…" } ] }
+Jede Aufgabe der Seite kommt vor: entweder auf dem Blatt (mit box) oder als "heft".
 
 LÖSUNGEN ZUM BLATT:
 ${loesung}`;

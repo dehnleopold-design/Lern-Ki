@@ -9,6 +9,7 @@ import { state, save } from './store.js';
 import { h, add, icon, toast, confirmDialog } from './ui.js';
 
 export const LINES = { asc: 0.12, mid: 0.42, base: 0.72, desc: 0.92 };
+export const HAND_EM = 0.7 / (0.72 - 0.12); // 1 Einheit in em
 const CAP = LINES.base - LINES.asc;       // 0.6
 const EM = 0.7 / CAP;                     // 1 Einheit = 1.1667 em (Großbuchstabe ≈ 0.7 em wie bei Inter)
 const GAP = 0.06;                         // Abstand zwischen Buchstaben
@@ -55,7 +56,7 @@ function variantOf(ch, seed) {
 }
 
 // Text in Zeilen und Buchstaben zerlegen (Einheiten wie oben). maxW in Einheiten.
-export function layout(text, maxW = Infinity, seed = 1) {
+export function layout(text, maxW = Infinity, seed = 1, lineH = LINE_H) {
   const lines = [];
   let n = 0;
   for (const para of String(text || '').split(/\n/)) {
@@ -78,7 +79,7 @@ export function layout(text, maxW = Infinity, seed = 1) {
     }
     lines.push(line);
   }
-  return { lines, w: Math.max(0.1, ...lines.map((l) => l.w)), h: Math.max(1, lines.length) * LINE_H + 0.05 };
+  return { lines, w: Math.max(0.1, ...lines.map((l) => l.w)), h: (Math.max(1, lines.length) - 1) * lineH + 1 };
 }
 
 // Glatter Pfad durch die Punkte (Mittelpunkte als Kurvenstützen)
@@ -95,8 +96,8 @@ function pathD(s, ox, oy) {
 
 const SVGNS = 'http://www.w3.org/2000/svg';
 // SVG in em: Größe richtet sich nach der Schriftgröße des Elternelements. maxWidthEm = verfügbare Breite.
-export function handSVG(text, maxWidthEm = Infinity, seed = 1) {
-  const L = layout(text, maxWidthEm / EM, seed);
+export function handSVG(text, maxWidthEm = Infinity, seed = 1, lineH = LINE_H) {
+  const L = layout(text, maxWidthEm / EM, seed, lineH);
   const svg = document.createElementNS(SVGNS, 'svg');
   svg.setAttribute('viewBox', `-0.04 0.02 ${(L.w + 0.08).toFixed(3)} ${L.h.toFixed(3)}`);
   svg.setAttribute('class', 'hand-svg');
@@ -105,7 +106,7 @@ export function handSVG(text, maxWidthEm = Infinity, seed = 1) {
   const ds = [];
   const texts = [];
   L.lines.forEach((line, li) => {
-    const oy = li * LINE_H - 0.06;
+    const oy = li * lineH - 0.06;
     for (const it of line.items) {
       if (it.v) for (const s of it.v.s) ds.push(pathD(s, it.x, oy + it.dy));
       else texts.push({ ch: it.ch, x: it.x, y: oy + LINES.base });
@@ -124,10 +125,10 @@ export function handSVG(text, maxWidthEm = Infinity, seed = 1) {
 }
 
 // Auf ein Canvas zeichnen. emPx = Schriftgröße in Pixeln, maxW in Pixeln.
-export function drawHand(c, text, x, y, emPx, maxW, color, seed = 1) {
+export function drawHand(c, text, x, y, emPx, maxW, color, seed = 1, lineH = LINE_H, halo = true) {
   const u = emPx * EM;
-  const L = layout(text, maxW / u, seed);
-  const each = (fn) => L.lines.forEach((line, li) => { const oy = li * LINE_H - 0.06; for (const it of line.items) fn(it, oy); });
+  const L = layout(text, maxW / u, seed, lineH);
+  const each = (fn) => L.lines.forEach((line, li) => { const oy = li * lineH - 0.06; for (const it of line.items) fn(it, oy); });
   const stroke = (style, w) => {
     c.strokeStyle = style; c.lineWidth = w * u; c.lineCap = 'round'; c.lineJoin = 'round';
     c.beginPath();
@@ -143,9 +144,9 @@ export function drawHand(c, text, x, y, emPx, maxW, color, seed = 1) {
     });
     c.stroke();
   };
-  stroke('rgba(255,255,255,.9)', STROKE * 2.6);
+  if (halo) stroke('rgba(255,255,255,.9)', STROKE * 2.6);
   stroke(color, STROKE);
-  c.fillStyle = color; c.font = `600 ${(CAP / 0.72) * u}px Inter, system-ui, sans-serif`; c.textBaseline = 'alphabetic';
+  c.fillStyle = color; c.font = `400 ${(CAP / 0.72) * u}px Inter, system-ui, sans-serif`; c.textBaseline = 'alphabetic';
   each((it, oy) => { if (!it.v) c.fillText(it.ch, x + it.x * u, y + (oy + LINES.base) * u); });
   return L.h * u;
 }
@@ -313,3 +314,6 @@ export function handView({ topbar, back }) {
   drawTabs(); drawPage(); drawPreview(); drawStatus();
   return root;
 }
+
+// Wie viele Zeilen ein Text in der Handschrift braucht (für das karierte Blatt)
+export function handLines(text, maxWEm, seed = 1) { return layout(text, maxWEm / EM, seed).lines.length; }
