@@ -26,7 +26,7 @@ setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, JELLY_STYLES, setJellyStyle, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.63-dev.6';
+const APP_VERSION = '2.63-dev.7';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -617,7 +617,7 @@ function aiSetupBlock(compact = false, onChange = null) {
         h('button', { class: `seg-btn ${s.provider === 'gemini' ? 'active' : ''}`, onclick: () => { s.provider = 'gemini'; save(); draw(); } }, 'Google Gemini (empfohlen)'),
         h('button', { class: `seg-btn ${s.provider === 'openai' ? 'active' : ''}`, onclick: () => { s.provider = 'openai'; save(); draw(); } }, 'Anderer Anbieter')),
       s.provider === 'gemini' ? geminiBlock() : openaiBlock(),
-      s.provider === 'gemini' && !compact ? fallbackBlock() : null);
+      ...(s.provider === 'gemini' && !compact ? [fallbackBlock()] : []));
   };
   const geminiBlock = () => {
     const status = h('div', { class: 'muted small' }, s.apiKey && s.model ? `Verbunden · Modell: ${s.model}` : '');
