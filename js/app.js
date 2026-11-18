@@ -2,6 +2,7 @@ import { state, loadState, save, replaceState, clearAll, allBlobs, putBlob, uid,
 import { startSync, syncNow, syncStatus, onSyncStatus, deleteCloudData, push, requestJob, backgroundAvailable, cloudInfo, cloudBackupInfo, reloadFromCloud, restoreCloudBackup } from './sync.js';
 import { deleteAccount } from './auth.js';
 import { DEV } from './env.js';
+import { handView, handActive, handSVG, drawHand, handVersion, handReady, handCount, handLines, layoutWidth, HAND_EM, mathTokens } from './hand.js';
 import { authEnabled, initAuth, signInGoogle, signInEmail, registerEmail, resetPassword, signOutUser, currentUser, authErrorText } from './auth.js';
 import { generate, aiReady, listGeminiModels, pickDefaultModel, AIError, onAIStatus, FALLBACK_PRESETS, listOpenAIModels, pickFallbackModel, fallbackReady } from './ai.js';
 import { addFile, removeFile, filePart, thumbURL, pickFiles } from './files.js';
@@ -26,7 +27,7 @@ setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, JELLY_STYLES, setJellyStyle, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.67 (18.11.)';
+const APP_VERSION = '2.68 (18.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -196,7 +197,7 @@ function designSheet(tab = designTab) {
   const body = h('div');
   const seg = () => h('div', { class: 'seg design-tabs' }, [['stil', 'Stil'], ['farben', 'Farben'], ['qualle', 'Qualle'], ['extras', 'Extras']].map(([k, l]) =>
     h('button', { class: `seg-btn ${designTab === k ? 'active' : ''}`, onclick: () => { designTab = k; draw(); } }, l)));
-  const draw = () => body.replaceChildren(seg(), ...(designTab === 'stil' ? skinPane() : designTab === 'farben' ? colorPane() : designTab === 'qualle' ? jellyPane() : extrasPane()));
+  const draw = () => body.replaceChildren(seg(), ...(designTab === 'stil' ? skinPane() : designTab === 'farben' ? colorPane() : designTab === 'qualle' ? jellyPane() : extrasPane()).filter(Boolean)); // ohne leere Einträge (sonst steht „null“ da)
   const lockBadge = (info) => h('span', { class: 'lock-badge' }, '🔒', `${info.have}/${info.need}`);
   const statRow = () => { const st = stats(); return h('div', { class: 'stat-row' }, h('div', {}, h('b', {}, `${streak()} 🔥`), 'Tage am Stück'), h('div', {}, h('b', {}, String(st.units)), 'Einheiten'), h('div', {}, h('b', {}, String(st.quizzes)), 'Quizze'), h('div', {}, h('b', {}, String(st.perfect)), 'mit 100 %')); };
   const redraw = () => { render(); draw(); };
@@ -288,7 +289,7 @@ function render() {
   applyTheme();
   app.replaceChildren();
   if (!state.profile && !['onboarding', 'login'].includes(route.name)) route = { name: 'onboarding', params: {} };
-  const views = { login: viewLogin, onboarding: viewOnboarding, prepare: viewPrepare, plan: viewPlan, pick: viewPick, vocab: viewVocab, solve: viewSolveNew, solved: viewSolved, vnew: viewVocabNew, vset: viewVocabSet, vwords: viewVocabWords, vplan: viewVocabPlan, vquiz: viewVocabQuiz, vtests: viewVocabTests, files: viewFiles, week: viewWeek, wimport: viewWeekImport, todo: viewTodos, notes: viewNotes, notebook: viewNotebook, calendar: viewCalendar, newExam: viewNewExam, session: viewSession, subjects: viewSubjects, subject: viewSubject, tutor: viewTutor, settings: viewSettings, play: viewPlay };
+  const views = { login: viewLogin, onboarding: viewOnboarding, prepare: viewPrepare, plan: viewPlan, pick: viewPick, vocab: viewVocab, solve: viewSolveNew, solved: viewSolved, vnew: viewVocabNew, vset: viewVocabSet, vwords: viewVocabWords, vplan: viewVocabPlan, vquiz: viewVocabQuiz, vtests: viewVocabTests, files: viewFiles, week: viewWeek, wimport: viewWeekImport, todo: viewTodos, notes: viewNotes, notebook: viewNotebook, calendar: viewCalendar, newExam: viewNewExam, session: viewSession, subjects: viewSubjects, subject: viewSubject, tutor: viewTutor, settings: viewSettings, play: viewPlay, hand: () => handView({ topbar, back: () => go('settings') }) };
   const seq = ++renderSeq;
   const v = (views[route.name] || viewPlan)(route.params);
   // Hat die Ansicht beim Aufbauen selbst weitergeleitet (go/render), steht die neue Seite schon da – nicht mit dieser überschreiben
@@ -617,7 +618,7 @@ function aiSetupBlock(compact = false, onChange = null) {
         h('button', { class: `seg-btn ${s.provider === 'gemini' ? 'active' : ''}`, onclick: () => { s.provider = 'gemini'; save(); draw(); } }, 'Google Gemini (empfohlen)'),
         h('button', { class: `seg-btn ${s.provider === 'openai' ? 'active' : ''}`, onclick: () => { s.provider = 'openai'; save(); draw(); } }, 'Anderer Anbieter')),
       s.provider === 'gemini' ? geminiBlock() : openaiBlock(),
-      s.provider === 'gemini' && !compact ? fallbackBlock() : null);
+      ...(s.provider === 'gemini' && !compact ? [fallbackBlock()] : []));
   };
   const geminiBlock = () => {
     const status = h('div', { class: 'muted small' }, s.apiKey && s.model ? `Verbunden · Modell: ${s.model}` : '');
@@ -762,13 +763,14 @@ function viewPlan() {
   if (!exam) {
     add(screen,
       h('header', { class: 'topbar' }, h('span', { class: 'iconbtn-spacer' }), h('div', { class: 'topbar-title' }, `Hi ${state.profile.name}!`), h('span', { class: 'iconbtn-spacer' })),
-      h('main', { class: 'content narrow center' },
+      h('main', { class: 'content narrow' },
         planSeg(),
+        h('div', { class: 'plan-empty' },
         mascot(140),
         h('h1', { class: 'display' }, 'Welche Klausur steht an?'),
         (() => { const next = allExamDates().filter((x) => daysUntil(x.date) >= 0 && !x.examId).slice(0, 3); return next.length ? [h('div', { class: 'label' }, 'Anstehende Prüfungen'), h('div', { class: 'menu' }, next.map(examRow))] : null; })(),
         h('p', { class: 'muted' }, 'Leg eine Klausur an, lade deine Arbeitsblätter hoch – ich baue dir daraus Lernzettel, Quizze, Aufgaben und eine Probeklassenarbeit.'),
-        h('button', { class: 'btn primary', onclick: () => startNewExam() }, 'Klausur anlegen')),
+        h('button', { class: 'btn primary', onclick: () => startNewExam() }, 'Klausur anlegen'))),
       tabbar('plan'));
     return screen;
   }
@@ -776,12 +778,13 @@ function viewPlan() {
   if (exam.building && !exam.plan) {
     add(screen,
       h('header', { class: 'topbar' }, h('span', { class: 'iconbtn-spacer' }), h('div', { class: 'topbar-title' }, subjectById(exam.subjectId)?.name || 'Klausur'), h('button', { class: 'iconbtn', 'aria-label': 'Klausuren', onclick: () => examSheet() }, icon('more'))),
-      h('main', { class: 'content narrow center' },
+      h('main', { class: 'content narrow' },
         planSeg(),
+        h('div', { class: 'plan-empty' },
         mascot(130),
         h('h1', { class: 'display' }, 'Dein Plan entsteht gerade'),
         h('p', { class: 'muted' }, ui.busy[`prep:${exam.id}`] ? 'Jelly liest deine Unterlagen …' : backgroundAvailable() ? 'Jelly arbeitet im Hintergrund daran, sobald die App geschlossen ist.' : 'Tippe auf „Weitermachen“, damit Jelly den Plan fertig baut.'),
-        h('button', { class: 'btn primary', onclick: () => go('prepare', { examId: exam.id }) }, 'Hier weitermachen')),
+        h('button', { class: 'btn primary', onclick: () => go('prepare', { examId: exam.id }) }, 'Hier weitermachen'))),
       tabbar('plan'));
     return screen;
   }
@@ -1983,8 +1986,35 @@ const solvedList = () => (state.solved ||= []);
 let nsv = null;
 
 function startSolve(subjectId = null) {
-  nsv = { subjectId: subjectId || state.subjects[0]?.id || null, fileIds: [], note: '', links: '' };
+  nsv = { subjectId: subjectId || state.subjects[0]?.id || null, fileIds: [], note: '', links: '', opts: solveOpts() };
   go('solve');
+}
+
+// Einstellungen für eine Hausaufgabe – gemerkt als Vorgabe fürs nächste Blatt
+const SOLVE_DEFAULTS = { font: 'auto', detail: 'normal', place: 'auto', steps: true };
+const solveOpts = () => ({ ...SOLVE_DEFAULTS, ...(state.settings.solveOpts || {}) });
+const fontOf = (opts) => (opts?.font === 'hand' || (opts?.font !== 'print' && state.settings.handOn)) && handReady();
+function solveOptionsBlock(opts) {
+  const box = h('div', { class: 'card stack solve-opts' });
+  const set = (k, v) => { opts[k] = v; state.settings.solveOpts = { ...opts }; if (k === 'font') state.settings.handOn = v === 'hand'; save(); draw(); };
+  const seg = (k, items) => h('div', { class: 'seg' }, items.map(([v, l, dis]) => h('button', { class: `seg-btn ${opts[k] === v ? 'active' : ''}`, disabled: dis || undefined, onclick: () => set(k, v) }, l)));
+  const draw = () => {
+    if (opts.font === 'auto') opts.font = fontOf(opts) ? 'hand' : 'print';
+    box.replaceChildren(...[
+      h('div', { class: 'label' }, 'Schrift'),
+      seg('font', [['hand', '✍️ Handschrift', !handReady()], ['print', '🔤 Druckschrift']]),
+      !handReady() ? h('p', { class: 'muted small' }, 'Für Handschrift: ', h('button', { class: 'link-small', onclick: () => go('hand') }, 'Handschrift einrichten')) : null,
+      h('div', { class: 'label' }, 'Wie ausführlich?'),
+      seg('detail', [['kurz', 'Kurz'], ['normal', 'Normal'], ['ausfuehrlich', 'Ausführlich']]),
+      h('p', { class: 'muted small' }, { kurz: 'Nur das Nötige – Stichpunkte, Ergebnisse.', normal: 'Vollständige Antworten, so wie man sie abgibt.', ausfuehrlich: 'Ganze Sätze mit Begründung, Beispielen und Rechenweg.' }[opts.detail]),
+      h('div', { class: 'label' }, 'Wohin mit den Lösungen?'),
+      seg('place', [['auto', 'Automatisch'], ['blatt', 'Aufs Blatt'], ['heft', 'Ins Heft']]),
+      h('p', { class: 'muted small' }, { auto: 'Aufs Blatt, wo Platz ist (auch in Tabellen, notfalls im vergrößerten Ausschnitt) – sonst kariertes Blatt.', blatt: 'Alles aufs Blatt, auch klein und in Tabellen. Nur wo gar nichts frei ist, kommt es ins Heft.', heft: 'Alles ordentlich auf karierte Seiten – wie im Heft.' }[opts.place]),
+      h('label', { class: 'hand-toggle' }, h('input', { type: 'checkbox', checked: opts.steps, onchange: (e) => set('steps', e.target.checked) }),
+        h('span', {}, h('b', {}, 'Rechenweg und Begründung zeigen'), h('small', { class: 'muted' }, 'Aus: nur die Ergebnisse')))].filter(Boolean));
+  };
+  draw();
+  return box;
 }
 
 function viewSolveNew() {
@@ -2014,6 +2044,8 @@ function viewSolveNew() {
       h('div', { class: 'chips' }, state.subjects.map((sub) => h('button', { class: `chip ${nsv.subjectId === sub.id ? 'active' : ''}`, onclick: () => { nsv.subjectId = sub.id; render(); } }, sub.name))),
       h('div', { class: 'label' }, 'Seiten'),
       grid,
+      h('div', { class: 'label' }, 'So soll die Hausaufgabe aussehen'),
+      solveOptionsBlock(nsv.opts ||= solveOpts()),
       h('div', { class: 'label' }, 'Links (optional, z. B. LEIFIphysik)'),
       (() => {
         const ta = h('textarea', { class: 'input', rows: 2, placeholder: 'Link von der Lehrkraft hier einfügen – auch mehrere', value: nsv.links, oninput: (e) => { nsv.links = e.target.value; } });
@@ -2039,7 +2071,7 @@ function parseLinks(text) {
 
 function startSolveBuild() {
   const subject = subjectById(nsv.subjectId);
-  const item = { id: uid(), subjectId: nsv.subjectId, fileIds: [...nsv.fileIds], links: parseLinks(nsv.links), note: nsv.note.trim(), loesung: null, titel: `${subject?.name || 'Blatt'} · ${new Date().toLocaleDateString('de-DE')}`, ersteAufgabe: '', chat: [], createdAt: Date.now(), annot: {}, building: true };
+  const item = { id: uid(), subjectId: nsv.subjectId, fileIds: [...nsv.fileIds], links: parseLinks(nsv.links), note: nsv.note.trim(), opts: { ...(nsv.opts || solveOpts()) }, loesung: null, titel: `${subject?.name || 'Blatt'} · ${new Date().toLocaleDateString('de-DE')}`, ersteAufgabe: '', chat: [], createdAt: Date.now(), annot: {}, building: true };
   solvedList().unshift(item);
   save();
   nsv = null;
@@ -2050,35 +2082,228 @@ function startSolveBuild() {
 const SVG_CROSS = '<svg viewBox="0 0 10 10" preserveAspectRatio="none"><path d="M1.5 1.5 L8.5 8.5 M8.5 1.5 L1.5 8.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" fill="none"/></svg>';
 const SVG_CHECK = '<svg viewBox="0 0 10 10"><path d="M1.5 5.5 L4 8 L8.8 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>';
 
+// Wie eine Antwort in ihr Feld geschrieben wird: so groß, wie das Feld hoch ist (begrenzt nach Blattbreite),
+// in einer Zeile, wenn sie passt (sonst etwas kleiner oder umgebrochen) – und mit der Grundlinie auf der Unterkante
+// des Felds, also auf der Schreiblinie. Gibt Zeilen, Schriftgröße, Zeilenabstand und Grundlinien (ab Feld-Oberkante).
+const INK_COLOR = '#16131f';
+const SUP_CHARS = { 0: '⁰', 1: '¹', 2: '²', 3: '³', 4: '⁴', 5: '⁵', 6: '⁶', 7: '⁷', 8: '⁸', 9: '⁹', '+': '⁺', '-': '⁻', '=': '⁼', '(': '⁽', ')': '⁾', a: 'ᵃ', b: 'ᵇ', c: 'ᶜ', d: 'ᵈ', e: 'ᵉ', f: 'ᶠ', g: 'ᵍ', h: 'ʰ', i: 'ⁱ', j: 'ʲ', k: 'ᵏ', l: 'ˡ', m: 'ᵐ', n: 'ⁿ', o: 'ᵒ', p: 'ᵖ', r: 'ʳ', s: 'ˢ', t: 'ᵗ', u: 'ᵘ', v: 'ᵛ', w: 'ʷ', x: 'ˣ', y: 'ʸ', z: 'ᶻ' };
+// Druckschrift: 1,3^x → 1,3ˣ, * → · usw. (wie die Handschrift, nur mit Schriftzeichen)
+const typedMath = (t) => mathTokens(t).map(({ ch, sup }) => (sup ? SUP_CHARS[ch] || SUP_CHARS[ch.toLowerCase()] || ch : ch)).join('');
+const inkProbe = () => (inkProbe.c ||= document.createElement('canvas').getContext('2d'));
+function inkPlace(txt, boxW, boxH, W, hand, seed, minScale = 0.72, forceSize = null) {
+  const measure = (t, size) => { const c = inkProbe(); c.font = `600 ${size}px Inter, system-ui, sans-serif`; return c.measureText(t).width; };
+  const wrap = (size) => {
+    if (hand) return handLines(txt, boxW / size, seed);
+    const out = [];
+    for (const para of txt.split('\n')) {
+      let line = '';
+      for (const w of para.split(/\s+/)) { const t = line ? `${line} ${w}` : w; if (line && measure(t, size) > boxW) { out.push(line); line = w; } else line = t; }
+      out.push(line);
+    }
+    return out;
+  };
+  const count = (l) => (Array.isArray(l) ? l.length : l);
+  // Passt Text in dieser Größe ins Feld? (keine Zeile breiter als das Feld, alle Zeilen innerhalb der Höhe)
+  const tooWide = (size) => hand ? false : txt.split('\n').some((p) => p.split(/\s+/).some((w) => measure(w, size) > boxW * 1.02));
+  const fits = (size) => { const n = count(wrap(size)); return !tooWide(size) && (n - 1) * size * 1.25 + size <= boxH * 0.95 && (!hand || layoutWidthMax(size) <= boxW * 1.02); };
+  const layoutWidthMax = (size) => Math.max(...txt.split(/\s+/).map((w) => layoutWidth(w, seed))) * HAND_EM * size;
+  if (!hand) txt = typedMath(txt);
+  const size0 = Math.max(W * 0.007, Math.min(W * 0.024, boxH * 0.62));
+  let size = size0, overflow = false;
+  if (forceSize) size = forceSize;
+  else if (!fits(size0)) {
+    // Größte Schrift suchen, mit der alles ins Feld passt – aber nicht kleiner als minScale
+    let lo = size0 * minScale, hi = size0;
+    if (!fits(lo)) { overflow = true; size = lo; }
+    else { for (let k = 0; k < 9; k++) { const mid = (lo + hi) / 2; if (fits(mid)) lo = mid; else hi = mid; } size = lo; }
+  }
+  const lines = wrap(size);
+  const n = count(lines);
+  const pitch = size * 1.25;
+  const last = boxH - size * 0.1;
+  return { size, lines, n, pitch, first: last - (n - 1) * pitch, overflow, txt };
+}
+
+// Gleich große Felder (z. B. Zellen einer Tabelle) bekommen dieselbe Schriftgröße – sonst sieht es unruhig aus
+function uniformSizes(items) {
+  return items.map((it, i) => {
+    const peers = items.filter((o) => Math.abs(o.boxH / it.boxH - 1) < 0.3 && Math.abs(o.boxW / it.boxW - 1) < 0.35);
+    const min = Math.min(...peers.map((o) => o.pl.size));
+    return min < it.pl.size * 0.98 ? min : null;
+  });
+}
+
+// ---------- Platz prüfen: Steht im vorgesehenen Feld schon gedruckter Text (z. B. Schulbuchseite)?
+// Jelly schaut sich dafür die Pixel des Fotos an: Schreiblinien (fast ganz dunkle Zeilen) und Tabellenstriche
+// zählen nicht, alles andere Dunkle ist Text oder Bild → dort wird nicht geschrieben.
+function boxOccupied(px, W, H, box) {
+  const bx0 = (box[1] / 1000) * W, bx1 = (box[3] / 1000) * W, by0 = (box[0] / 1000) * H, by1 = (box[2] / 1000) * H;
+  const x0 = Math.max(0, Math.round(bx0 + (bx1 - bx0) * 0.02)), x1 = Math.min(W, Math.round(bx1 - (bx1 - bx0) * 0.02));
+  const y0 = Math.max(0, Math.round(by0 + (by1 - by0) * 0.18)), y1 = Math.min(H, Math.round(by1 - (by1 - by0) * 0.2));
+  const w = x1 - x0, hgt = y1 - y0;
+  if (w < 8 || hgt < 3) return false;
+  const lum = new Float32Array(w * hgt);
+  for (let y = 0; y < hgt; y++) for (let x = 0; x < w; x++) { const i = ((y0 + y) * W + x0 + x) * 4; lum[y * w + x] = 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2]; }
+  const sorted = Float32Array.from(lum).sort();
+  const bg = sorted[Math.floor(sorted.length * 0.9)];
+  const thr = Math.min(bg * 0.62, bg - 45);
+  const dark = (i) => lum[i] < thr;
+  // Schreiblinien: Zeilen, die fast über die ganze Breite dunkel sind (Text erreicht das nie)
+  const rowFrac = new Float32Array(hgt);
+  for (let y = 0; y < hgt; y++) { let d = 0; for (let x = 0; x < w; x++) d += dark(y * w + x); rowFrac[y] = d / w; }
+  const skipRow = new Uint8Array(hgt);
+  for (let y = 0; y < hgt; y++) if (rowFrac[y] > 0.7) { skipRow[y] = 1; if (y) skipRow[y - 1] = 1; if (y + 1 < hgt) skipRow[y + 1] = 1; }
+  const rows = [...skipRow.keys()].filter((y) => !skipRow[y]);
+  if (rows.length < 2) return false;
+  // Tabellenstriche: Spalten, die über die ganze Höhe dunkel sind
+  const skipCol = new Uint8Array(w);
+  for (let x = 0; x < w; x++) { let d = 0; for (const y of rows) d += dark(y * w + x); if (d / rows.length > 0.6) skipCol[x] = 1; }
+  const inkRow = (y) => { let d = 0, t = 0; for (let x = 0; x < w; x++) { if (skipCol[x]) continue; t++; d += dark(y * w + x); } return t ? d / t : 0; };
+  // Text = mehrere aufeinanderfolgende Zeilen mit Tinte (gepunktete Linien sind nur 1–3 Pixel hoch)
+  let run = 0, best = 0, n = 0;
+  for (let y = 0; y < hgt; y++) {
+    const f = skipRow[y] ? 0 : inkRow(y);
+    if (!skipRow[y]) n += f;
+    run = f > 0.06 ? run + 1 : 0; best = Math.max(best, run);
+  }
+  return best >= Math.max(4, Math.round(hgt * 0.22)) || n / rows.length > 0.05;
+}
+
+// Einmal pro Blatt: Seitenverhältnis merken und belegte Felder markieren (e.blocked)
+async function checkSheetSpace(item) {
+  if (item.spaceV === 2) return false;
+  item.aspect ||= {};
+  for (const fid of item.fileIds) {
+    const list = item.annot?.[fid];
+    if (!list?.length) continue;
+    const url = await thumbURL(fid);
+    if (!url) continue;
+    const img = new Image();
+    try { await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; }); } catch { continue; }
+    const W = 900, H = Math.max(1, Math.round((W * img.naturalHeight) / img.naturalWidth));
+    item.aspect[fid] = H / W;
+    const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    const c = cv.getContext('2d', { willReadFrequently: true }); c.drawImage(img, 0, 0, W, H);
+    const px = c.getImageData(0, 0, W, H).data;
+    for (const e of list) if (e.art === 'text' && Array.isArray(e.box)) e.blocked = boxOccupied(px, W, H, e.box) || undefined;
+    // Steht alles Auszufüllende nur in einem kleinen Teil des Fotos (Tabelle am Beamer, Blatt weit weg),
+    // schreibt Jelly in einen vergrößerten Ausschnitt – dann passt die Schrift lesbar in die Felder
+    const boxes = list.filter((e) => Array.isArray(e.box) && !e.blocked).map((e) => e.box);
+    item.crop ||= {};
+    delete item.crop[fid];
+    if (boxes.length) {
+      let y0 = Math.min(...boxes.map((b) => b[0])), x0 = Math.min(...boxes.map((b) => b[1])), y1 = Math.max(...boxes.map((b) => b[2])), x1 = Math.max(...boxes.map((b) => b[3]));
+      // Großzügiger Rand, damit Aufgabe, Tabellenkopf und Zeilennamen mit im Bild sind
+      const bw = x1 - x0, bh = y1 - y0;
+      const mx = Math.max(60, bw * 0.4), myTop = Math.max(90, bh * 0.6), myBot = Math.max(50, bh * 0.2);
+      y0 = Math.max(0, y0 - myTop); y1 = Math.min(1000, y1 + myBot); x0 = Math.max(0, x0 - mx); x1 = Math.min(1000, x1 + mx * 0.6);
+      if ((y1 - y0) * (x1 - x0) < 0.45 * 1000 * 1000 && (x1 - x0) < 820) item.crop[fid] = [Math.round(y0), Math.round(x0), Math.round(y1), Math.round(x1)];
+    }
+  }
+  item.spaceV = 2;
+  save();
+  return true;
+}
+
+// Was aufs Foto kommt und was aufs karierte Blatt: belegte Felder und Antworten, die nicht in ihre Zeile passen,
+// wandern komplett (ganze Aufgabe) aufs karierte Blatt – lieber ordentlich im Heft als gequetscht oder über Text.
+function sheetEntries(item, fid) {
+  const raw = item.annot?.[fid] || [];
+  const place = item.opts?.place || 'auto';
+  const crop = place !== 'heft' ? item.crop?.[fid] : null;
+  const aspect0 = item.aspect?.[fid] || 1.35;
+  // Felder in Ausschnitt-Koordinaten umrechnen (0–1000 bezogen auf den Ausschnitt)
+  const all = crop ? raw.map((e) => (Array.isArray(e.box) ? { ...e, box: [
+    ((e.box[0] - crop[0]) / (crop[2] - crop[0])) * 1000, ((e.box[1] - crop[1]) / (crop[3] - crop[1])) * 1000,
+    ((e.box[2] - crop[0]) / (crop[2] - crop[0])) * 1000, ((e.box[3] - crop[1]) / (crop[3] - crop[1])) * 1000] } : e)) : raw;
+  const aspect = crop ? (aspect0 * (crop[2] - crop[0])) / (crop[3] - crop[1]) : aspect0;
+  const hand = handActive();
+  const key = (e) => String(e.aufgabe || '').trim() || e;
+  const moved = new Set();
+  for (const e of all) {
+    if (e.art !== 'text' || !Array.isArray(e.box)) continue;
+    if (place === 'heft' || e.blocked) { moved.add(key(e)); continue; }
+    if (place === 'blatt') continue; // „Aufs Blatt“: lieber klein als im Heft
+    const pl = inkPlace(cleanText(e.text || ''), (e.box[3] - e.box[1]), ((e.box[2] - e.box[0]) / 1000) * 1000 * aspect, 1000, hand, 1);
+    if (pl.overflow) moved.add(key(e));
+  }
+  let out = all;
+  if (moved.size) {
+    out = [];
+    const groups = new Map();
+    for (const e of all) {
+      if (e.art === 'text' && moved.has(key(e))) {
+        const k = key(e);
+        if (!groups.has(k)) { const g = { aufgabe: typeof k === 'string' ? k : '', art: 'heft', text: '' }; groups.set(k, g); out.push(g); }
+        const g = groups.get(k); g.text = g.text ? `${g.text} ${cleanText(e.text || '')}` : cleanText(e.text || '');
+      } else out.push(e);
+    }
+    out = [...out.filter((e) => e.art !== 'heft'), ...out.filter((e) => e.art === 'heft')];
+  }
+  if (crop && !out.some((e) => Array.isArray(e.box))) return out; // nichts mehr auf dem Blatt → kein Ausschnitt nötig
+  out.crop = crop || null;
+  out.minScale = place === 'blatt' ? 0.45 : 0.72;
+  return out;
+}
+
+// Umschalter Handschrift / Druckschrift (auch während Jelly noch löst)
+function fontSwitch(onChange) {
+  if (!handReady()) return h('p', { class: 'muted small center' }, 'Lösungen in deiner Handschrift? ', h('button', { class: 'link-small', onclick: () => go('hand') }, 'Handschrift einrichten'));
+  const wrap = h('div', { class: 'seg font-switch' });
+  const draw = () => {
+    const cur = state.settings.handOn ? 'hand' : 'print';
+    wrap.replaceChildren(...[['hand', '✍️ Handschrift'], ['print', '🔤 Druckschrift']].map(([k, l]) =>
+      h('button', { class: `seg-btn ${cur === k ? 'active' : ''}`, onclick: () => { if (cur === k) return; state.settings.handOn = k === 'hand'; save(); draw(); onChange?.(); } }, l)));
+  };
+  draw();
+  return wrap;
+}
+
 function annotatedPage(fid, entries, show) {
   const wrap = h('div', { class: `annot-wrap ${show ? '' : 'hide-ink'}` });
   const img = h('img', { alt: 'Arbeitsblatt' });
+  const crop = entries.crop;
+  if (crop) {
+    // Nur den Ausschnitt zeigen: Bild vergrößert und verschoben, der Rahmen hat das Seitenverhältnis des Ausschnitts
+    wrap.classList.add('cropped');
+    const cw = crop[3] - crop[1], ch = crop[2] - crop[0];
+    Object.assign(img.style, { position: 'absolute', width: `${(1000 / cw) * 100}%`, left: `${(-crop[1] / cw) * 100}%`, top: `${(-crop[0] / ch) * 100}%` });
+    img.addEventListener('load', () => { wrap.style.aspectRatio = `${(cw * img.naturalWidth) / (ch * img.naturalHeight)}`; fit(); });
+  }
   add(wrap, img);
   const layer = h('div', { class: 'annot-layer' });
   add(wrap, layer);
   const pos = (b) => ({ top: `${b[0] / 10}%`, left: `${b[1] / 10}%`, height: `${(b[2] - b[0]) / 10}%`, width: `${(b[3] - b[1]) / 10}%` });
   const texts = [];
+  const hand = handActive();
   for (const e of entries) {
+    if (!Array.isArray(e.box)) continue; // "heft"-Einträge stehen auf dem karierten Blatt
     const st = pos(e.box);
-    if (e.art === 'text') { const t = h('div', { class: 'ink ink-text', style: st }, cleanText(e.text || '')); texts.push([t, e.box]); add(layer, t); }
+    if (e.art === 'text') { const t = h('div', { class: `ink ink-text ${hand ? 'ink-hand' : ''}`, style: st }, cleanText(e.text || '')); texts.push([t, e.box, cleanText(e.text || '')]); add(layer, t); }
     else if (e.art === 'kreuz') add(layer, h('div', { class: 'ink ink-cross', style: st, html: SVG_CROSS }));
     else if (e.art === 'markieren') add(layer, h('div', { class: 'ink ink-mark', style: st }));
     else if (e.art === 'kreis') add(layer, h('div', { class: 'ink ink-circle', style: st }));
     else if (e.art === 'pruefen') {
       add(layer, h('div', { class: `ink ink-check ${e.ok ? 'ok' : 'bad'}`, style: { top: st.top, height: st.height, left: `${Math.min(97, e.box[3] / 10)}%` }, html: e.ok ? SVG_CHECK : SVG_CROSS }));
-      if (!e.ok && e.text) { const t = h('div', { class: 'ink ink-text ink-fix', style: { ...st, top: `${e.box[2] / 10}%` } }, cleanText(e.text)); texts.push([t, e.box]); add(layer, t); }
+      if (!e.ok && e.text) { const t = h('div', { class: `ink ink-text ink-fix ${hand ? 'ink-hand' : ''}`, style: { ...st, top: `${e.box[2] / 10}%` } }, cleanText(e.text)); texts.push([t, e.box, cleanText(e.text)]); add(layer, t); }
     }
   }
   // Schriftgröße an die Zeilenhöhe im Foto anpassen
   // Schriftgröße: klein und gleichmäßig (nach Blattbreite), höchstens so hoch wie das Feld
   const fit = () => {
-    const W = img.clientWidth, H = img.clientHeight;
+    const W = wrap.clientWidth, H = wrap.clientHeight;
     if (!W || !H) return;
-    const base = W * 0.0105;
-    for (const [t, b] of texts) {
-      const boxH = ((b[2] - b[0]) / 1000) * H;
-      t.style.fontSize = `${Math.max(6, Math.min(base, boxH * 0.75))}px`;
-    }
+    const meas = texts.map(([t, b, txt], i) => { const boxW = ((b[3] - b[1]) / 1000) * W, boxH = ((b[2] - b[0]) / 1000) * H; return { boxW, boxH, pl: inkPlace(txt, boxW, boxH, W, hand, i + 1, entries.minScale) }; });
+    const uni = uniformSizes(meas);
+    texts.forEach(([t, b, txt], i) => {
+      const { boxW, boxH } = meas[i];
+      const pl = uni[i] ? inkPlace(txt, boxW, boxH, W, hand, i + 1, entries.minScale, uni[i]) : meas[i].pl;
+      t.style.fontSize = `${pl.size}px`;
+      // Inhalt so setzen, dass die Grundlinie der letzten Zeile auf der Schreiblinie (Unterkante) liegt
+      t.replaceChildren(hand
+        ? h('div', { class: 'ink-lines', style: { top: `${pl.first / pl.size - 0.7467}em` } }, handSVG(txt, boxW / pl.size, i + 1, 1.25 / HAND_EM))
+        : h('div', { class: 'ink-lines typed', style: { top: `${pl.first / pl.size - 0.99}em` } }, pl.lines.join('\n')));
+    });
   };
   img.onload = fit;
   if (window.ResizeObserver) new ResizeObserver(fit).observe(wrap);
@@ -2089,7 +2314,7 @@ function annotatedPage(fid, entries, show) {
 // ---------- Gelöstes Blatt als echtes Bild (Foto + Lösungen), zum Kopieren und Sichern
 const solvedPng = new Map(); // "fid:AnzahlEinträge" → Promise<Blob>
 function solvedImage(fid, entries) {
-  const key = `${fid}:${entries.length}`;
+  const key = `${fid}:${entries.length}:${entries.filter((e) => e.art === 'heft').length}:${handVersion()}:${entries.crop || ''}:${entries.minScale || ''}`;
   if (!solvedPng.has(key)) solvedPng.set(key, renderSolvedImage(fid, entries).catch((e) => { solvedPng.delete(key); throw e; }));
   return solvedPng.get(key);
 }
@@ -2100,33 +2325,34 @@ async function renderSolvedImage(fid, entries) {
   const img = new Image();
   await new Promise((res, rej) => { img.onload = res; img.onerror = () => rej(new Error('Foto konnte nicht geladen werden.')); img.src = url; });
   try { await document.fonts?.load('700 20px Inter'); } catch {}
-  const scale = Math.min(1, 2600 / Math.max(img.naturalWidth, img.naturalHeight));
-  const W = Math.round(img.naturalWidth * scale), H = Math.round(img.naturalHeight * scale);
+  const cr = entries.crop || [0, 0, 1000, 1000];
+  const sx = (cr[1] / 1000) * img.naturalWidth, sy = (cr[0] / 1000) * img.naturalHeight;
+  const sw = ((cr[3] - cr[1]) / 1000) * img.naturalWidth, sh = ((cr[2] - cr[0]) / 1000) * img.naturalHeight;
+  const scale = Math.min(entries.crop ? 2.5 : 1, 2600 / Math.max(sw, sh)); // Ausschnitt darf hochskaliert werden
+  const W = Math.round(sw * scale), H = Math.round(sh * scale);
   const cv = document.createElement('canvas');
   cv.width = W; cv.height = H;
   const c = cv.getContext('2d');
-  c.drawImage(img, 0, 0, W, H);
-  const INK = '#4b2bd6', RED = '#c62828', GREEN = '#1f9d55';
+  c.imageSmoothingQuality = 'high';
+  c.drawImage(img, sx, sy, sw, sh, 0, 0, W, H);
+  const INK = INK_COLOR, RED = '#c62828', GREEN = '#1f9d55';
   const box = (b) => ({ x: (b[1] / 1000) * W, y: (b[0] / 1000) * H, w: ((b[3] - b[1]) / 1000) * W, h: ((b[2] - b[0]) / 1000) * H });
   const lw = Math.max(2, W * 0.0028);
   c.lineCap = 'round'; c.lineJoin = 'round';
   // Text wie in der Ansicht: klein und gleichmäßig, bricht an der Feldbreite um, weißer Rand für Lesbarkeit
-  const text = (str, r, color, boxH) => {
-    const size = Math.max(W * 0.006, Math.min(W * 0.0105, boxH * 0.75));
-    c.font = `700 ${size}px Inter, system-ui, sans-serif`;
-    c.textBaseline = 'top';
-    const lines = [];
-    for (const para of String(str).split(/\n/)) {
-      let line = '';
-      for (const word of para.split(/\s+/)) {
-        const test = line ? `${line} ${word}` : word;
-        if (line && c.measureText(test).width > Math.max(r.w, size * 4)) { lines.push(line); line = word; } else line = test;
-      }
-      lines.push(line);
-    }
-    lines.forEach((ln, i) => {
-      const y = r.y + i * size * 1.2;
-      c.lineWidth = size * 0.32; c.strokeStyle = 'rgba(255,255,255,.92)'; c.strokeText(ln, r.x, y);
+  const hand = handActive();
+  let seed = 0;
+  const tItems = entries.filter((e) => e.art === 'text' && Array.isArray(e.box)).map((e) => { const r = box(e.box); return { e, boxW: r.w, boxH: r.h, pl: inkPlace(cleanText(e.text || ''), r.w, r.h, W, hand, 1, entries.minScale) }; });
+  const uniC = uniformSizes(tItems);
+  const forced = new Map(tItems.map((t, i) => [t.e, uniC[i]]));
+  const text = (str, r, color, boxH, force = null) => {
+    const pl = inkPlace(str, r.w, boxH, W, hand, ++seed, entries.minScale, force);
+    if (hand) { drawHand(c, str, r.x, r.y + pl.first - 0.66 * pl.size * HAND_EM, pl.size, r.w, color, seed, 1.25 / HAND_EM); return; }
+    c.font = `600 ${pl.size}px Inter, system-ui, sans-serif`;
+    c.textBaseline = 'alphabetic';
+    pl.lines.forEach((ln, i) => {
+      const y = r.y + pl.first + i * pl.pitch;
+      c.lineWidth = pl.size * 0.32; c.strokeStyle = 'rgba(255,255,255,.92)'; c.strokeText(ln, r.x, y);
       c.fillStyle = color; c.fillText(ln, r.x, y);
     });
   };
@@ -2134,7 +2360,7 @@ async function renderSolvedImage(fid, entries) {
   for (const e of entries) {
     if (!Array.isArray(e.box)) continue;
     const r = box(e.box);
-    if (e.art === 'text') text(cleanText(e.text || ''), r, INK, r.h);
+    if (e.art === 'text') text(cleanText(e.text || ''), r, INK, r.h, forced.get(e));
     else if (e.art === 'kreuz') cross(r, INK);
     else if (e.art === 'markieren') { c.save(); c.globalCompositeOperation = 'multiply'; c.fillStyle = 'rgba(255, 221, 0, .45)'; c.fillRect(r.x, r.y, r.w, r.h); c.restore(); }
     else if (e.art === 'kreis') { c.strokeStyle = INK; c.lineWidth = lw; c.beginPath(); c.ellipse(r.x + r.w / 2, r.y + r.h / 2, r.w / 2 + lw * 2, r.h / 2 + lw * 2, 0, 0, Math.PI * 2); c.stroke(); }
@@ -2148,12 +2374,132 @@ async function renderSolvedImage(fid, entries) {
   return new Promise((res, rej) => cv.toBlob((b) => (b ? res(b) : rej(new Error('Bild konnte nicht erstellt werden.'))), 'image/png'));
 }
 
+// ---------- Kariertes Blatt: Aufgaben, für die auf der Seite kein Platz ist (z. B. Schulbuch)
+// Wie eine karierte Seite in GoodNotes: Hochformat (A4), 28 kleine hellgraue Kästchen in der Breite,
+// Aufgabennummer im Kreis, geschrieben wird in jeder zweiten Kästchenreihe. Alle Maße in em (1 Kästchen = 0.8 em).
+const heftOf = (entries) => (entries || []).filter((e) => e.art === 'heft' && e.text);
+const heftLabel = (e) => String(e.aufgabe || '').replace(/^Aufgabe\s*/i, '').replace(/\)$/, '').trim();
+const HEFT = { sq: 0.8, cols: 28, pitch: 1.6, first: 2.4, textX: 2.8, right: 1.2, bottom: 1.6 };
+HEFT.w = HEFT.cols * HEFT.sq;                  // 22.4 em
+HEFT.h = HEFT.w * Math.SQRT2;                  // A4
+HEFT.inner = HEFT.w - HEFT.textX - HEFT.right; // Textbreite
+HEFT.lines = Math.floor((HEFT.h - HEFT.bottom - HEFT.first) / HEFT.pitch) + 1;
+const HEFT_INK = '#111';
+const typedProbe = () => (typedProbe.c ||= document.createElement('canvas').getContext('2d'));
+// Gedruckte Zeilen (wenn die Handschrift aus ist), Breiten in em bei Schriftgröße 0.9 em
+function typedLines(txt, maxEm) {
+  const c = typedProbe(); c.font = '600 100px Inter, system-ui, sans-serif';
+  const wEm = (t) => (c.measureText(t).width / 100) * 0.9;
+  const out = [];
+  for (const para of txt.split('\n')) {
+    let line = '';
+    for (const w of para.split(/ +/)) { const t = line ? `${line} ${w}` : w; if (line && wEm(t) > maxEm) { out.push(line); line = w; } else line = t; }
+    out.push(line);
+  }
+  return out;
+}
+// Einträge auf Seiten verteilen: jede Aufgabe bleibt zusammen, danach eine Zeile frei
+function heftLayout(entries) {
+  const hand = handActive();
+  const pages = [[]];
+  let used = 0;
+  entries.forEach((e, i) => {
+    // Kurze Nummer (1, 2b, c) kommt in den Kreis, lange Namen („1 (Definition)“) werden zur ersten Zeile
+    const lab = heftLabel(e);
+    const short = lab.length <= 3;
+    let raw = cleanText(e.text);
+    if (lab && !short) raw = `${lab}:\n${raw}`;
+    const txt = hand ? raw : typedMath(raw);
+    const n = hand ? handLines(txt, HEFT.inner, i + 11) : typedLines(txt, HEFT.inner).length;
+    if (used && used + n > HEFT.lines) { pages.push([]); used = 0; }
+    pages.at(-1).push({ e, txt, label: short ? lab : '', seed: i + 11, line: used, n });
+    used += n + 1;
+  });
+  return pages.map((items) => ({ items, h: Math.max(HEFT.h, HEFT.first + (Math.max(...items.map((it) => it.line + it.n)) - 1) * HEFT.pitch + HEFT.bottom + 0.8) }));
+}
+
+function heftPaper(entries) {
+  const hand = handActive();
+  const wrap = h('div', { class: 'heft-pages' });
+  const fill = () => {
+    const W = wrap.clientWidth;
+    if (!W) return;
+    const fs = W / HEFT.w;
+    wrap.replaceChildren(...heftLayout(entries).map((pg) => {
+      const page = h('div', { class: 'heft-paper', style: { fontSize: `${fs}px`, height: `${pg.h}em` } });
+      for (const it of pg.items) {
+        const base = HEFT.first + it.line * HEFT.pitch; // Grundlinie der ersten Zeile
+        if (it.label) add(page, h('div', { class: `heft-num ${it.label.length > 2 ? 'long' : ''}`, style: { top: `${base - 1.16}em`, left: `${1.5 - 0.78}em` } }, hand ? handSVG(it.label, 3, it.seed + 500) : it.label));
+        add(page, hand
+          ? h('div', { class: 'heft-entry', style: { top: `${base - 0.7467}em`, left: `${HEFT.textX}em` } }, handSVG(it.txt, HEFT.inner, it.seed, HEFT.pitch / HAND_EM))
+          : h('div', { class: 'heft-entry typed', style: { top: `${base - 1.15}em`, left: `${HEFT.textX}em`, width: `${HEFT.inner}em` } }, typedLines(it.txt, HEFT.inner).join('\n')));
+      }
+      return page;
+    }));
+  };
+  new ResizeObserver(fill).observe(wrap);
+  requestAnimationFrame(fill);
+  return wrap;
+}
+
+async function renderHeftImages(entries) {
+  try { await document.fonts?.load('600 20px Inter'); } catch {}
+  const hand = handActive();
+  const W = 1240, EMPX = W / HEFT.w, S = HEFT.sq * EMPX; // 1 em in Pixeln, 1 Kästchen
+  const blobs = [];
+  for (const pg of heftLayout(entries)) {
+    const cv = document.createElement('canvas');
+    cv.width = W; cv.height = Math.round(pg.h * EMPX);
+    const c = cv.getContext('2d');
+    c.fillStyle = '#fff'; c.fillRect(0, 0, cv.width, cv.height);
+    c.strokeStyle = 'rgba(0,0,0,.13)'; c.lineWidth = 1.4;
+    c.beginPath();
+    for (let x = S; x < W; x += S) { c.moveTo(x, 0); c.lineTo(x, cv.height); }
+    for (let y = S; y < cv.height; y += S) { c.moveTo(0, y); c.lineTo(W, y); }
+    c.stroke();
+    for (const it of pg.items) {
+      const base = (HEFT.first + it.line * HEFT.pitch) * EMPX;
+      if (it.label) {
+        const cx = 1.5 * EMPX, cy = base - 0.38 * EMPX, r = 0.78 * EMPX;
+        c.strokeStyle = HEFT_INK; c.lineWidth = EMPX * 0.06; c.beginPath(); c.ellipse(cx, cy, r, r * 1.05, -0.2, 0, Math.PI * 2); c.stroke();
+        // Nummer mittig in den Kreis: Breite messen, dann zentriert zeichnen
+        const k = it.label.length > 2 ? 0.75 : 1;
+        const lw = hand ? layoutWidth(it.label, it.seed + 500) * EMPX * k * HAND_EM : 0;
+        if (hand) drawHand(c, it.label, cx - lw / 2, cy + 0.36 * EMPX * k - 0.66 * EMPX * k * HAND_EM, EMPX * k, 3 * EMPX, HEFT_INK, it.seed + 500, undefined, false);
+        else { c.fillStyle = HEFT_INK; c.font = `600 ${EMPX * 0.8 * k}px Inter, system-ui, sans-serif`; c.textAlign = 'center'; c.fillText(it.label, cx, cy + 0.28 * EMPX * k); c.textAlign = 'left'; }
+      }
+      const x = HEFT.textX * EMPX;
+      if (hand) drawHand(c, it.txt, x, base - 0.66 * EMPX * HAND_EM, EMPX, HEFT.inner * EMPX, HEFT_INK, it.seed, HEFT.pitch / HAND_EM, false);
+      else { c.fillStyle = HEFT_INK; c.font = `600 ${EMPX * 0.9}px Inter, system-ui, sans-serif`; typedLines(it.txt, HEFT.inner).forEach((ln, k) => c.fillText(ln, x, base + k * HEFT.pitch * EMPX)); }
+    }
+    blobs.push(await new Promise((res, rej) => cv.toBlob((bl) => (bl ? res(bl) : rej(new Error('Bild konnte nicht erstellt werden.'))), 'image/png')));
+  }
+  return blobs;
+}
+
+// → Promise<Blob[]> (eine Datei pro Heftseite)
+function heftImage(fid, entries) {
+  const list = heftOf(entries);
+  const key = `heft:${fid}:${list.length}:${handVersion()}`;
+  if (!solvedPng.has(key)) solvedPng.set(key, renderHeftImages(list).catch((e) => { solvedPng.delete(key); throw e; }));
+  return solvedPng.get(key);
+}
+
 const solvedFileName = (item, i, n) => `${(subjectById(item.subjectId)?.name || 'Blatt').replace(/[^\wäöüÄÖÜß -]+/g, '')}-Lösung${n > 1 ? `-Seite-${i + 1}` : ''}.png`;
 
 // Teilen-Menü von iOS: „Bild sichern“ (Mediathek), „In Dateien sichern“, AirDrop … – sonst Download
-async function saveSolvedImages(item, fids) {
+async function saveSolvedImages(item, fids, heftOnly = false) {
   try {
-    const files = await Promise.all(fids.map(async (fid, i) => new File([await solvedImage(fid, item.annot[fid])], solvedFileName(item, item.fileIds.indexOf(fid), item.fileIds.length), { type: 'image/png' })));
+    const files = [];
+    for (const fid of fids) {
+      const name = solvedFileName(item, item.fileIds.indexOf(fid), item.fileIds.length);
+      const ents = sheetEntries(item, fid);
+      if (!heftOnly && (ents.some((e) => Array.isArray(e.box)) || !heftOf(ents).length)) files.push(new File([await solvedImage(fid, ents)], name, { type: 'image/png' }));
+      if (heftOf(ents).length) {
+        const pages = await heftImage(fid, ents);
+        pages.forEach((bl, k) => files.push(new File([bl], name.replace(/\.png$/, `-Heft${pages.length > 1 ? `-${k + 1}` : ''}.png`), { type: 'image/png' })));
+      }
+    }
     if (navigator.canShare?.({ files })) {
       try { await navigator.share({ files }); } catch (e) { if (e?.name !== 'AbortError') throw e; }
       return;
@@ -2163,11 +2509,11 @@ async function saveSolvedImages(item, fids) {
   } catch (e) { toast(errorMsg(e), 'error'); }
 }
 
-async function copySolvedImage(item, fid) {
+async function copySolvedImage(item, fid, heft = false) {
   try {
     if (!navigator.clipboard?.write || !window.ClipboardItem) throw new Error('Kopieren wird hier nicht unterstützt – nutze „Sichern“.');
     // Safari verlangt, dass das Bild als Versprechen übergeben wird (sonst geht die Nutzer-Geste verloren)
-    await navigator.clipboard.write([new ClipboardItem({ 'image/png': solvedImage(fid, item.annot[fid]) })]);
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': heft ? heftImage(fid, sheetEntries(item, fid)).then((pages) => pages[0]) : solvedImage(fid, sheetEntries(item, fid)) })]);
     toast('Bild mit Lösungen kopiert.', 'ok');
   } catch (e) { toast(e?.name === 'NotAllowedError' ? 'Kopieren wurde nicht erlaubt.' : errorMsg(e), 'error'); }
 }
@@ -2198,6 +2544,11 @@ function viewSolved({ id }) {
   const item = solvedList().find((x) => x.id === id);
   if (!item) { go('subjects'); return h('div'); }
   const subject = subjectById(item.subjectId);
+  if (!item.building && item.spaceV !== 2 && Object.keys(item.annot || {}).length && !ui.busy[`space:${item.id}`]) {
+    ui.busy[`space:${item.id}`] = true;
+    const here = route;
+    checkSheetSpace(item).then((changed) => { delete ui.busy[`space:${item.id}`]; if (changed && route === here) render(); }).catch(() => { delete ui.busy[`space:${item.id}`]; item.spaceV = 2; });
+  }
   if (item.building) {
     const main = h('main', { class: 'content narrow' });
     pending(main, `s:${item.id}`, 'Ich löse dein Arbeitsblatt …', ['Blatt lesen & Aufgaben lösen', 'Lösungen aufs Blatt schreiben'], () => solveSheet(item, () => save()));
@@ -2238,7 +2589,7 @@ function viewSolved({ id }) {
           const o = sheet('Blatt', [h('div', { class: 'menu' },
             menuRow('refresh', 'Nochmal lösen lassen', 'Gleiche Seiten, neue Lösung', async () => {
               o.remove();
-              nsv = { subjectId: item.subjectId, fileIds: [...item.fileIds], note: item.note || '', processing: true };
+              nsv = { subjectId: item.subjectId, fileIds: [...item.fileIds], note: item.note || '', links: (item.links || []).join('\n'), opts: { ...(item.opts || solveOpts()) } };
               solvedList().splice(solvedList().indexOf(item), 1); save(); go('solve');
             }),
             menuRow('trash', 'Löschen', null, async () => {
@@ -2267,19 +2618,30 @@ function viewSolved({ id }) {
         if (view === 'blatt') {
           ui.inkShow ??= true;
           return [seg,
+            fontSwitch(() => render()),
             h('div', { class: 'row gap center' }, h('button', { class: 'btn small', onclick: () => { ui.inkShow = !ui.inkShow; render(); } }, ui.inkShow ? 'Lösungen ausblenden' : 'Lösungen einblenden')),
             h('p', { class: 'muted small center' }, 'Die Position der Einträge ist geschätzt – bei schrägen Fotos kann sie etwas verrutschen. Alles Wichtige steht unter „Ausführlich“.'),
             ...(() => {
               const pages = imgs.filter((fid) => item.annot?.[fid]);
               const out = pages.map((fid) => {
-                const page = annotatedPage(fid, item.annot[fid], ui.inkShow);
+                const ents = sheetEntries(item, fid);
+                const page = annotatedPage(fid, ents, ui.inkShow);
+                const cropNote = ents.crop ? h('p', { class: 'muted small center' }, 'Vergrößerter Ausschnitt – so passt alles lesbar in die Felder. Das ganze Foto: unten bei „Original ansehen“.') : null;
                 const box = h('div', { class: `annot-scroll ${ui.inkZoom ? 'zoomed' : ''}` }, page);
                 const zoomBtn = h('button', { class: 'zoom-btn', 'aria-label': 'Vergrößern', onclick: () => { ui.inkZoom = !ui.inkZoom; box.classList.toggle('zoomed', ui.inkZoom); zoomBtn.replaceChildren(icon(ui.inkZoom ? 'minus' : 'plus', 20)); } }, icon(ui.inkZoom ? 'minus' : 'plus', 20));
-                solvedImage(fid, item.annot[fid]).catch(() => {}); // schon vorbereiten, damit Kopieren/Sichern sofort klappt
-                return h('div', { class: 'annot-holder' }, box, zoomBtn,
+                solvedImage(fid, ents).catch(() => {}); // schon vorbereiten, damit Kopieren/Sichern sofort klappt
+                const heft = heftOf(ents);
+                if (heft.length) heftImage(fid, ents).catch(() => {});
+                return [cropNote, h('div', { class: 'annot-holder' }, box, zoomBtn,
                   h('div', { class: 'annot-actions' },
                     h('button', { class: 'btn small', onclick: () => copySolvedImage(item, fid) }, icon('layers', 16), 'Kopieren'),
-                    h('button', { class: 'btn small', onclick: () => saveSolvedImages(item, [fid]) }, icon('download', 16), 'Sichern / Teilen')));
+                    h('button', { class: 'btn small', onclick: () => saveSolvedImages(item, [fid]) }, icon('download', 16), heft.length ? 'Sichern (mit Heft)' : 'Sichern / Teilen'))),
+                heft.length && ui.inkShow ? h('div', { class: 'heft-holder' },
+                  h('div', { class: 'label' }, `Im Heft – kein Platz auf dem Blatt (${heft.map((e) => e.aufgabe).filter(Boolean).join(', ') || heft.length})`),
+                  heftPaper(heft),
+                  h('div', { class: 'annot-actions' },
+                    h('button', { class: 'btn small', onclick: () => copySolvedImage(item, fid, true) }, icon('layers', 16), 'Kopieren'),
+                    h('button', { class: 'btn small', onclick: () => saveSolvedImages(item, [fid], true) }, icon('download', 16), 'Als Bild sichern'))) : null];
               });
               if (pages.length > 1) out.push(h('button', { class: 'btn block', onclick: () => saveSolvedImages(item, pages) }, icon('download', 18), `Alle ${pages.length} Seiten sichern`));
               out.push(h('p', { class: 'muted small center' }, '„Sichern / Teilen“ öffnet das Teilen-Menü: „Bild sichern“ legt es in die Mediathek, „In Dateien sichern“ in die Dateien-App. Das Bild enthält die Lösungen.'));
@@ -3619,7 +3981,8 @@ function viewSettings() {
         menuRow('bell', 'Mitteilungen', (() => { const p = pushSettings(); return p.enabled && deviceRegistered() ? `An · Erinnerung um ${p.time} Uhr` : 'Erinnerungen, Klausur morgen, Jelly ist fertig …'; })(), () => pushSheet()),
         menuRow('play', 'Beim Warten', `Spiele, Schach & Video · beim Warten läuft: ${waitName(waitModeOf())}`, () => go('play')),
         menuRow('zap', 'Offline-Tutor', 'KI direkt auf dem Gerät – auch ohne Internet', () => offlineSheet()),
-        menuRow('mic', 'Jelly Voice', 'Unterricht aufnehmen – Notizen & Lernzettel daraus', () => { location.href = 'voice/'; })),
+        menuRow('pencil', 'Meine Handschrift', handReady() ? (state.settings.handOn ? 'An – der Blatt-Löser schreibt in deiner Schrift' : 'Aus – gespeichert, aber nicht benutzt') : handCount() ? 'Angefangen – noch nicht fertig' : 'Buchstaben nachzeichnen, dann löst Jelly in deiner Schrift', () => go('hand')),
+        menuRow('mic', 'Jelly Voice', 'Unterricht aufnehmen – Notizen & Lernzettel daraus', () => { location.href = DEV ? '../voice/' : 'voice/'; })),
       authEnabled && !bootedUid ? h('div', { class: 'menu' },
         menuRow('key', 'Konto & Sync einrichten', 'Anmelden – dann hast du alles auf iPad und Handy', () => openAccountSetup())) : null,
       authEnabled && bootedUid ? h('div', { class: 'menu' },

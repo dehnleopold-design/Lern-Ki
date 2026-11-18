@@ -142,43 +142,106 @@ function snake() {
 
 // ---------------------------------------------------------------- Straßen-Flitzer
 function racer() {
-  let W, H, lane, laneX, target, px, cars, coins, speed, dist, spawn, coin, bonus, stripe, accent;
+  let W, H, laneX, target, px, cars, coins, speed, dist, spawn, coin, bonus, stripe, accent, tilt;
   const LANES = 3;
-  const carColors = ['#ef4444', '#3b82f6', '#f59e0b', '#10b981', '#e5e7eb', '#a855f7'];
-  const drawCar = (c, x, y, w, hh, col, player) => {
-    c.fillStyle = 'rgba(0,0,0,.35)'; roundRect(c, x - w / 2 + 3, y - hh / 2 + 5, w, hh, 10); c.fill();
-    c.fillStyle = col; roundRect(c, x - w / 2, y - hh / 2, w, hh, 10); c.fill();
-    c.fillStyle = 'rgba(20,25,40,.8)'; roundRect(c, x - w / 2 + 6, y - hh / 2 + (player ? 14 : hh - 30), w - 12, 16, 5); c.fill();
-    c.fillStyle = player ? '#fff7cc' : '#ffb4b4'; c.fillRect(x - w / 2 + 5, y - hh / 2 + (player ? 2 : hh - 6), 8, 4); c.fillRect(x + w / 2 - 13, y - hh / 2 + (player ? 2 : hh - 6), 8, 4);
-  };
+  const REL = 0.4; // alle Autos fahren gleich schnell -> sie überholen sich nie und stapeln sich nicht
+  const TYPES = [
+    { kind: 'auto', len: 1.75, cols: ['#ef4444', '#3b82f6', '#10b981', '#f8fafc', '#64748b'] },
+    { kind: 'sport', len: 1.6, cols: ['#f97316', '#e11d48', '#0ea5e9', '#facc15'] },
+    { kind: 'taxi', len: 1.75, cols: ['#facc15'] },
+    { kind: 'van', len: 2.25, cols: ['#e2e8f0', '#94a3b8', '#7c3aed'] },
+  ];
+  const shade = (hex, k) => { const n = parseInt(hex.slice(1), 16); const f = (v) => Math.max(0, Math.min(255, Math.round(v * k))); return `rgb(${f(n >> 16)},${f((n >> 8) & 255)},${f(n & 255)})`; };
+  // Auto von oben, Front zeigt nach oben
+  function drawCar(c, x, y, w, len, col, kind, player) {
+    const hh = w * len, L = x - w / 2, T = y - hh / 2;
+    c.fillStyle = 'rgba(0,0,0,.32)'; roundRect(c, L + 4, T + 7, w, hh, w * 0.28); c.fill();
+    // Räder
+    c.fillStyle = '#111827';
+    for (const ry of [T + hh * 0.17, T + hh * 0.72]) { roundRect(c, L - w * 0.07, ry, w * 0.16, hh * 0.16, 3); c.fill(); roundRect(c, L + w * 0.91, ry, w * 0.16, hh * 0.16, 3); c.fill(); }
+    // Karosserie mit Glanz
+    const g = c.createLinearGradient(L, 0, L + w, 0);
+    g.addColorStop(0, shade(col, 0.72)); g.addColorStop(0.35, col); g.addColorStop(0.65, col); g.addColorStop(1, shade(col, 0.72));
+    c.fillStyle = g; roundRect(c, L, T, w, hh, kind === 'van' ? w * 0.16 : w * 0.3); c.fill();
+    // Spiegel
+    c.fillStyle = shade(col, 0.6); roundRect(c, L - w * 0.1, T + hh * 0.33, w * 0.12, w * 0.12, 3); c.fill(); roundRect(c, L + w * 0.98, T + hh * 0.33, w * 0.12, w * 0.12, 3); c.fill();
+    const glass = c.createLinearGradient(0, T, 0, T + hh); glass.addColorStop(0, '#9fd3ff'); glass.addColorStop(1, '#1e3a5f');
+    if (kind === 'van') {
+      c.fillStyle = glass; roundRect(c, L + w * 0.12, T + hh * 0.08, w * 0.76, hh * 0.13, 4); c.fill();
+      c.fillStyle = shade(col, 0.9); roundRect(c, L + w * 0.1, T + hh * 0.26, w * 0.8, hh * 0.68, 4); c.fill();
+      c.strokeStyle = shade(col, 0.7); c.lineWidth = 1.5; for (let k = 1; k < 4; k++) { c.beginPath(); c.moveTo(L + w * 0.14, T + hh * (0.26 + k * 0.17)); c.lineTo(L + w * 0.86, T + hh * (0.26 + k * 0.17)); c.stroke(); }
+    } else {
+      c.fillStyle = glass; roundRect(c, L + w * 0.14, T + hh * 0.24, w * 0.72, hh * 0.17, w * 0.12); c.fill();       // Frontscheibe
+      c.fillStyle = shade(col, kind === 'sport' ? 0.55 : 0.85); roundRect(c, L + w * 0.16, T + hh * 0.42, w * 0.68, hh * 0.28, w * 0.1); c.fill(); // Dach
+      c.fillStyle = glass; roundRect(c, L + w * 0.18, T + hh * 0.71, w * 0.64, hh * 0.1, w * 0.1); c.fill();        // Heckscheibe
+    }
+    if (kind === 'sport' || player) { c.fillStyle = player ? '#ffffff' : 'rgba(255,255,255,.85)'; c.fillRect(x - w * 0.11, T + 2, w * 0.07, hh - 4); c.fillRect(x + w * 0.04, T + 2, w * 0.07, hh - 4); }
+    if (kind === 'taxi') { c.fillStyle = '#111827'; roundRect(c, x - w * 0.2, T + hh * 0.5, w * 0.4, hh * 0.08, 3); c.fill(); c.fillStyle = '#fde68a'; c.font = `800 ${Math.round(w * 0.14)}px Inter, sans-serif`; c.textAlign = 'center'; c.fillText('TAXI', x, T + hh * 0.575); c.textAlign = 'left'; }
+    // Lichter: vorne weiß-gelb, hinten rot
+    c.fillStyle = '#fff7cc'; roundRect(c, L + w * 0.08, T + 2, w * 0.2, hh * 0.05, 3); c.fill(); roundRect(c, L + w * 0.72, T + 2, w * 0.2, hh * 0.05, 3); c.fill();
+    c.fillStyle = '#ef4444'; roundRect(c, L + w * 0.08, T + hh - hh * 0.05 - 2, w * 0.2, hh * 0.05, 3); c.fill(); roundRect(c, L + w * 0.72, T + hh - hh * 0.05 - 2, w * 0.2, hh * 0.05, 3); c.fill();
+    if (player) { c.save(); c.globalAlpha = 0.1; c.fillStyle = '#fde68a'; c.beginPath(); c.moveTo(L + w * 0.1, T); c.lineTo(L - w * 0.3, T - hh * 0.9); c.lineTo(L + w * 1.3, T - hh * 0.9); c.lineTo(L + w * 0.9, T); c.fill(); c.restore(); }
+  }
+  // Sichere Spur: dort erscheint nie ein Auto. Sie wechselt nur zur Nachbarspur und erst, wenn genug Platz
+  // zum Umsetzen ist – so gibt es immer einen Weg vorbei, auch bei versetzt fahrenden Autos.
+  let safe = 1, safeTimer = 4, oldSafe = -1;
+  const topY = (l) => Math.min(Infinity, ...cars.filter((k) => k.lane === l).map((k) => k.y - k.len * W * 0.08));
+  function laneOk(l, cw) {
+    if (l === safe) return false;
+    if (cars.some((k) => k.lane === l && k.y < k.len * cw * 0.5 + cw * 1.4)) return false; // Abstand in derselben Spur
+    // Alte sichere Spur erst wieder befahren, wenn das letzte Auto der neuen sicheren Spur weit genug weg ist
+    if (l === oldSafe) {
+      const gap = cw * 5 + speed * (1 - REL) * 0.5;
+      if (topY(safe) < gap) return false;
+      oldSafe = -1;
+    }
+    return true;
+  }
   return {
     over: false,
-    init(_, w, hh) { W = w; H = hh; laneX = (i) => W * (0.2 + i * 0.3); lane = target = 1; px = laneX(1); cars = []; coins = []; speed = 260; dist = 0; spawn = 0.6; coin = 1.2; bonus = 0; stripe = 0; accent = css('--accent', '#8b5cf6'); },
+    init(_, w, hh) { W = w; H = hh; laneX = (i) => W * (0.2 + i * 0.3); target = 1; safe = 1; safeTimer = 4; oldSafe = -1; px = laneX(1); cars = []; coins = []; speed = 260; dist = 0; spawn = 0.6; coin = 1.2; bonus = 0; stripe = 0; tilt = 0; accent = css('--accent', '#8b5cf6'); },
     input(type, d) {
       if (type === 'tap' && d) target = Math.max(0, Math.min(LANES - 1, target + (d.x < W / 2 ? -1 : 1)));
       if ((type === 'swipe' || type === 'key') && (d === 'left' || d === 'right')) target = Math.max(0, Math.min(LANES - 1, target + (d === 'left' ? -1 : 1)));
     },
     step(dt) {
       speed += dt * 9; dist += speed * dt; stripe = (stripe + speed * dt) % 60;
-      px += (laneX(target) - px) * Math.min(1, dt * 14);
+      const nx = px + (laneX(target) - px) * Math.min(1, dt * 14); tilt = (nx - px) / Math.max(dt, 1e-3) / 900; px = nx;
       spawn -= dt; coin -= dt;
-      if (spawn <= 0) { const l = Math.floor(Math.random() * LANES); cars.push({ x: laneX(l), y: -60, v: rnd(0.25, 0.55), col: carColors[Math.floor(Math.random() * carColors.length)] }); spawn = Math.max(0.35, 1.0 - speed / 1400) + rnd(0, .3); }
+      const cw = W * 0.16;
+      safeTimer -= dt;
+      if (safeTimer <= 0 && oldSafe < 0) { oldSafe = safe; safe = safe === 1 ? (Math.random() < 0.5 ? 0 : 2) : 1; safeTimer = rnd(3, 6); }
+      if (spawn <= 0) {
+        const tp = TYPES[Math.floor(Math.random() * TYPES.length)];
+        const n = Math.random() < Math.min(0.45, speed / 1200) ? 2 : 1; // manchmal zwei nebeneinander
+        const lanes = [0, 1, 2].filter((l) => laneOk(l, cw)).sort(() => Math.random() - 0.5).slice(0, n);
+        for (const lane of lanes) cars.push({ lane, x: laneX(lane), y: -cw * tp.len, len: tp.len, kind: tp.kind, col: tp.cols[Math.floor(Math.random() * tp.cols.length)] });
+        spawn = Math.max(0.42, 1.05 - speed / 1400) + rnd(0, .3);
+      }
       if (coin <= 0) { coins.push({ x: laneX(Math.floor(Math.random() * LANES)), y: -30 }); coin = rnd(1, 2.2); }
-      const py = H - 90, cw = W * 0.16, ch = cw * 1.7;
-      for (const car of cars) { car.y += speed * (1 - car.v) * dt; if (Math.abs(car.x - px) < cw * 0.85 && Math.abs(car.y - py) < ch * 0.85) this.over = true; }
-      for (const k of coins) { k.y += speed * dt; if (!k.got && Math.abs(k.x - px) < cw * 0.7 && Math.abs(k.y - py) < ch * 0.6) { k.got = true; bonus += 25; } }
-      cars = cars.filter((c) => c.y < H + 80); coins = coins.filter((k) => k.y < H + 40 && !k.got);
+      const py = H - 90, pl = 1.7;
+      for (const car of cars) {
+        car.y += speed * (1 - REL) * dt;
+        if (Math.abs(car.x - px) < cw * 0.85 && Math.abs(car.y - py) < (cw * car.len + cw * pl) / 2 * 0.86) this.over = true;
+      }
+      for (const k of coins) {
+        k.y += speed * dt;
+        if (cars.some((car) => Math.abs(car.x - k.x) < 2 && Math.abs(car.y - k.y) < cw * car.len / 2 + 14)) k.hidden = true; // keine Münze unter Autos
+        if (!k.got && !k.hidden && Math.abs(k.x - px) < cw * 0.7 && Math.abs(k.y - py) < cw * pl * 0.6) { k.got = true; bonus += 25; }
+      }
+      cars = cars.filter((c) => c.y < H + 120); coins = coins.filter((k) => k.y < H + 40 && !k.got);
     },
     draw(c) {
       c.fillStyle = '#2f9e44'; c.fillRect(0, 0, W, H);
+      c.fillStyle = 'rgba(0,0,0,.08)'; for (let y = (stripe * 1.0) % 80 - 80; y < H; y += 80) { c.fillRect(0, y, W * 0.05, 40); c.fillRect(W * 0.95, y + 40, W * 0.05, 40); }
       c.fillStyle = '#3a3f4a'; c.fillRect(W * 0.05, 0, W * 0.9, H);
       c.fillStyle = '#e5e7eb'; c.fillRect(W * 0.05, 0, 4, H); c.fillRect(W * 0.95 - 4, 0, 4, H);
       c.fillStyle = 'rgba(255,255,255,.75)';
       for (const lx of [W * 0.35, W * 0.65]) for (let y = -60 + stripe; y < H; y += 60) c.fillRect(lx - 3, y, 6, 30);
-      const cw = W * 0.16, ch = cw * 1.7;
-      for (const k of coins) { c.fillStyle = '#fbbf24'; c.beginPath(); c.arc(k.x, k.y, cw * 0.22, 0, 7); c.fill(); c.fillStyle = '#fde68a'; c.beginPath(); c.arc(k.x - 2, k.y - 2, cw * 0.1, 0, 7); c.fill(); }
-      for (const car of cars) drawCar(c, car.x, car.y, cw, ch, car.col, false);
-      drawCar(c, px, H - 90, cw, ch, accent, true);
+      const cw = W * 0.16;
+      for (const k of coins) { if (k.hidden) continue; c.fillStyle = '#fbbf24'; c.beginPath(); c.arc(k.x, k.y, cw * 0.22, 0, 7); c.fill(); c.fillStyle = '#fde68a'; c.beginPath(); c.arc(k.x - 2, k.y - 2, cw * 0.1, 0, 7); c.fill(); }
+      for (const car of cars) drawCar(c, car.x, car.y, cw, car.len, car.col, car.kind, false);
+      c.save(); c.translate(px, H - 90); c.rotate(Math.max(-0.18, Math.min(0.18, tilt))); drawCar(c, 0, 0, cw, 1.7, accent.startsWith('#') ? accent : '#8b5cf6', 'sport', true); c.restore();
     },
     score: () => Math.floor(dist / 40) + bonus,
   };

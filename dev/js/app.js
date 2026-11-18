@@ -17,6 +17,7 @@ import { SEASONS, applySeason, activeSeason, seasonName } from './seasons.js';
 import { openFile, fileKindLabel } from './viewer.js';
 import { chessPanel } from './chess.js';
 import { GAMES, isGame, gamePanel } from './games.js';
+import { PUSH_TYPES, pushSettings, pushSupport, enablePush, disablePush, deviceRegistered, publishPushProfile, startPushProfileSync } from './push.js';
 import { checkAccess, redeemCode, cachedAccess, normalizeCode, accessPerks } from './license.js';
 import { initNotes, viewNotes, viewNotebook } from './notes.js';
 import { splitNotebook, guessSubject, baseName } from './goodnotes.js';
@@ -26,7 +27,7 @@ setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, JELLY_STYLES, setJellyStyle, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.63-dev.10';
+const APP_VERSION = '2.69-dev.1';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -1073,7 +1074,7 @@ function waitPanel(title) {
     bar.style.width = `${Math.max(3, Math.round(((done + running) / Math.max(1, steps.length)) * 100))}%`;
   };
   const el = h('div', { class: 'wait' },
-    waitContent(state.settings.waitMode),
+    waitSlot((id) => { state.settings.waitMode = id; save(); }),
     h('div', { class: 'wait-card' },
       h('div', { class: 'row gap' }, mascot(52, 'think'), h('div', { class: 'wait-title' }, title)),
       h('div', { class: 'progress' }, bar),
@@ -3840,7 +3841,25 @@ const waitName = (id) => WAIT_OPTIONS.find((x) => x.id === id)?.name || 'Video';
 function waitContent(mode) {
   if (mode === 'chess') return chessPanel();
   if (isGame(mode)) return gamePanel(mode);
-  return waitVideo();
+  return waitVideo() || h('div', { class: 'card muted' }, 'Kein Video eingestellt – unter Mehr → Beim Warten → Zahnrad einen YouTube-Link eintragen.');
+}
+// Spiel/Schach/Video mit ☰-Auswahl darüber; wechseln geht jederzeit, ohne die Seite zu verlassen
+function waitSlot(onPick, start = waitModeOf()) {
+  let cur = start;
+  const slot = h('div', { class: 'wait-slot' }, waitContent(cur));
+  const label = h('span', { class: 'ws-label' });
+  const menu = h('div', { class: 'ws-menu', hidden: true });
+  const drawLabel = () => { const o = WAIT_OPTIONS.find((x) => x.id === cur); label.replaceChildren(h('span', { class: 'ws-emoji' }, o?.emoji || ''), o?.name || ''); };
+  const drawMenu = () => menu.replaceChildren(...WAIT_OPTIONS.map((x) => h('button', { class: `ws-item ${x.id === cur ? 'on' : ''}`, onclick: () => {
+    menu.hidden = true;
+    if (x.id === cur) return;
+    cur = x.id; onPick?.(cur); drawLabel(); slot.replaceChildren(waitContent(cur));
+  } }, h('span', { class: 'ws-emoji' }, x.emoji), x.name, x.id === cur ? icon('check', 16) : null)));
+  const btn = h('button', { class: 'iconbtn ws-btn', 'aria-label': 'Spiel wechseln', onclick: (e) => { e.stopPropagation(); drawMenu(); menu.hidden = !menu.hidden; } }, icon('menu', 22));
+  drawLabel();
+  const bar = h('div', { class: 'ws-bar' }, label, btn, menu);
+  document.addEventListener('click', (e) => { if (!menu.hidden && !bar.contains(e.target)) menu.hidden = true; });
+  return h('div', { class: 'ws' }, bar, slot);
 }
 function waitAreaSheet() {
   const st = state.settings;
@@ -3865,6 +3884,36 @@ function waitAreaSheet() {
       h('button', { class: st.waitConfirm ? 'on' : '', onclick: () => { st.waitConfirm = true; save(); reopen(); } }, icon('checkc', 24), 'Mit Haken bestätigen')),
     h('p', { class: 'muted small' }, st.waitConfirm ? 'Du bleibst im Wartebereich, bis du „Fertig – ansehen“ drückst – so kannst du dein Spiel, Video oder die Partie zu Ende bringen.' : 'Sobald alles fertig ist, springt Jelly direkt zum Ergebnis.'),
   ]);
+}
+
+// ---------- Push-Mitteilungen (Mehr → Mitteilungen)
+function pushSheet() {
+  const body = h('div', { class: 'stack' });
+  let busy = false;
+  const draw = () => {
+    const p = pushSettings();
+    const sup = pushSupport();
+    const on = p.enabled && deviceRegistered();
+    body.replaceChildren(
+      h('p', { class: 'muted small' }, 'Jelly erinnert dich ans Lernen und sagt Bescheid, wenn etwas fertig ist – auch wenn die App geschlossen ist.'),
+      !sup.ok ? h('div', { class: 'card warn small' }, sup.text) : null,
+      sup.ok && !on ? h('button', { class: 'btn primary block', disabled: busy, onclick: async () => {
+        busy = true; draw();
+        try { await enablePush(); toast('Mitteilungen sind an. 🔔', 'ok'); } catch (e) { toast(errorMsg(e), 'error'); }
+        busy = false; draw(); render();
+      } }, icon('bell', 18), busy ? 'Einen Moment …' : 'Mitteilungen erlauben') : null,
+      on ? h('div', { class: 'card small' }, '🔔 Mitteilungen sind auf diesem Gerät an.') : null,
+      h('div', { class: 'label' }, 'Was Jelly dir schicken darf'),
+      h('div', { class: 'menu' }, PUSH_TYPES.map((t) => h('label', { class: 'menu-row push-row' },
+        h('span', { class: 'menu-text' }, h('span', { class: 'menu-label' }, t.name), h('span', { class: 'menu-sub' }, t.sub)),
+        h('input', { type: 'checkbox', class: 'switch', checked: p.types[t.id] !== false, onchange: (e) => { p.types[t.id] = e.target.checked; save(); publishPushProfile(); } })))),
+      h('div', { class: 'label' }, 'Uhrzeit der täglichen Erinnerung'),
+      h('input', { class: 'input', type: 'time', value: p.time, onchange: (e) => { if (e.target.value) { p.time = e.target.value; save(); publishPushProfile(); render(); } } }),
+      h('p', { class: 'muted small' }, 'Zwischen 21:30 und 7:00 Uhr schickt Jelly nichts. Höchstens zwei Mitteilungen auf einmal.'),
+      on ? h('button', { class: 'btn ghost block danger-text', onclick: async () => { await disablePush(); toast('Mitteilungen aus.'); draw(); render(); } }, 'Mitteilungen ausschalten') : null);
+  };
+  draw();
+  sheet('Mitteilungen', [body]);
 }
 
 // ---------- Offline-Tutor (Mehr → Offline-Tutor)
@@ -3914,12 +3963,10 @@ function offlineSheet() {
 let playTab = null;
 function viewPlay() {
   const tab = playTab || waitModeOf();
-  const content = tab === 'video' ? (waitVideo() || h('div', { class: 'card muted' }, 'Kein Video eingestellt – oben rechts beim Zahnrad einen YouTube-Link eintragen.')) : waitContent(tab);
   return h('div', { class: 'screen' },
     h('header', { class: 'topbar' }, h('button', { class: 'iconbtn', 'aria-label': 'Zurück', onclick: () => go('settings') }, icon('back')), h('div', { class: 'topbar-title' }, 'Beim Warten'), h('button', { class: 'iconbtn', 'aria-label': 'Einstellungen', onclick: () => waitAreaSheet() }, icon('gear'))),
     h('main', { class: 'content narrow' },
-      h('div', { class: 'game-pick' }, WAIT_OPTIONS.map((x) => h('button', { class: tab === x.id ? 'on' : '', onclick: () => { playTab = x.id; render(); } }, h('span', { class: 'gp-emoji' }, x.emoji), x.name))),
-      h('div', { class: 'wait' }, content)));
+      h('div', { class: 'wait' }, waitSlot((id) => { playTab = id; }, tab))));
 }
 
 function viewSettings() {
@@ -3931,6 +3978,7 @@ function viewSettings() {
     h('main', { class: 'content narrow' },
       h('div', { class: 'menu' },
         menuRow('sparkles', 'KI-Verbindung', aiSub, () => sheet('KI-Verbindung', [aiSetupBlock(false)])),
+        menuRow('bell', 'Mitteilungen', (() => { const p = pushSettings(); return p.enabled && deviceRegistered() ? `An · Erinnerung um ${p.time} Uhr` : 'Erinnerungen, Klausur morgen, Jelly ist fertig …'; })(), () => pushSheet()),
         menuRow('play', 'Beim Warten', `Spiele, Schach & Video · beim Warten läuft: ${waitName(waitModeOf())}`, () => go('play')),
         menuRow('zap', 'Offline-Tutor', 'KI direkt auf dem Gerät – auch ohne Internet', () => offlineSheet()),
         menuRow('pencil', 'Meine Handschrift', handReady() ? (state.settings.handOn ? 'An – der Blatt-Löser schreibt in deiner Schrift' : 'Aus – gespeichert, aber nicht benutzt') : handCount() ? 'Angefangen – noch nicht fertig' : 'Buchstaben nachzeichnen, dann löst Jelly in deiner Schrift', () => go('hand')),
@@ -4203,6 +4251,7 @@ async function handleUser(user) {
   await loadState();
   // Neuere Daten von einem anderen Gerät holen (max. 10 s warten, dann im Hintergrund weiter)
   let booted = false;
+  try { startPushProfileSync(); } catch (e) { console.warn(e); }
   const synced = startSync(user, { info: () => ({
     version: APP_VERSION, klasse: state.profile?.grade ? `${state.profile.grade}${xp().klasse ? ` (${xp().klasse})` : ''}` : (xp().klasse || ''),
     counts: { faecher: state.subjects.length, klausuren: state.exams.length, vokabellisten: (state.vocab?.sets || []).length, blaetter: (state.solved || []).length, dateien: Object.keys(state.files || {}).length, stunden: (state.timetable?.lessons || []).length },

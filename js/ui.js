@@ -111,8 +111,16 @@ function renderBlocks(lines) {
     }
     if (/^\|/.test(t)) {
       const rows = [];
-      while (i < lines.length && /^\s*\|/.test(lines[i])) { rows.push(lines[i]); i++; }
-      out.push(renderTable(rows));
+      const cells = (r) => r.trim().replace(/^\||\|$/g, '').split('|').length;
+      while (i < lines.length && /^\s*\|/.test(lines[i])) {
+        let row = lines[i]; i++;
+        // Zeilenumbrüche in einer Zelle (die KI schreibt manchmal Listen hinein): Folgezeilen gehören noch zur Zeile,
+        // solange sie weniger Spalten hat als der Kopf – sonst zerfällt die Tabelle
+        while (rows.length && cells(row) < cells(rows[0]) && i < lines.length && lines[i].trim() && !/^\s*\|/.test(lines[i])) { row += `\u2063${lines[i].trim()}`; i++; }
+        if (rows.length && cells(row) < cells(rows[0]) && i < lines.length && /^\s*\|/.test(lines[i]) && !/\|\s*$/.test(row)) { row += `\u2063${lines[i].trim().replace(/^\|/, '')}`; i++; }
+        rows.push(row);
+      }
+      out.push(renderTable(rows).replace(/\u2063/g, '<br>'));
       continue;
     }
     if ((m = t.match(/^(#{1,4})\s+(.*)$/))) {

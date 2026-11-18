@@ -791,7 +791,7 @@ input.input[type=date]::-webkit-date-and-time-value, input.input[type=time]::-we
 .wait-mode button { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 16px 10px; border-radius: 16px; background: var(--surface-2); border: 2px solid transparent; font-weight: 700; }
 .wait-mode button.on { border-color: var(--accent); }
 /* Mit Schach darf der Warte-Bereich auf dem iPad breiter sein als der Text darunter */
-.wait:has(> .ch) { width: min(1040px, calc(100vw - 32px)); margin-left: calc(50% - min(520px, 50vw - 16px)); }
+.wait:has(.ch) { width: min(1040px, calc(100vw - 32px)); margin-left: calc(50% - min(520px, 50vw - 16px)); }
 .ch-act span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 @container (max-width: 420px) { .ch-act { font-size: .68rem; } }
 .play-seg { margin-bottom: 14px; }
@@ -865,7 +865,7 @@ html, body { overflow-x: hidden; }
 @container (max-width: 600px) { .ch-game .ch-caps.bot { order: -1; } }
 .ch-cap svg { filter: drop-shadow(0 0 1.2px rgba(255, 255, 255, .55)); }
 /* Im Warte-Bildschirm das Brett etwas tiefer, damit die oberste Reihe frei liegt */
-.wait:has(> .ch) { padding-top: 14px; }
+.wait:has(.ch) { padding-top: 14px; }
 .ch-casual { margin-left: auto; font-size: .72rem; font-weight: 700; color: var(--muted); border: 1px solid var(--line); padding: 2px 8px; border-radius: 99px; white-space: nowrap; }
 .ch-casual[hidden] { display: none; }
 .ch-me-face { background: none; overflow: hidden; padding: 0; }
@@ -1220,3 +1220,23 @@ html.has-userbg[data-skin] body::before { inset: calc(var(--bg-blur, 0px) * -2);
 .annot-wrap.cropped img { max-width: none; }
 .solve-opts .label:first-child { margin-top: 0; }
 .solve-opts .seg-btn:disabled { opacity: .45; }
+
+/* ---------- Beim Warten: ☰-Auswahl über dem Spiel ---------- */
+.ws { display: flex; flex-direction: column; gap: 10px; width: 100%; }
+.ws-bar { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 6px 6px 14px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); }
+.ws-label { display: flex; align-items: center; gap: 8px; font-family: var(--display); font-weight: 700; font-size: 1rem; }
+.ws-emoji { font-size: 1.25rem; line-height: 1; }
+.ws-btn { background: var(--surface-2); border-radius: 12px; }
+.ws-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 60; min-width: 220px; padding: 6px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); box-shadow: 0 16px 40px rgba(0,0,0,.4); display: flex; flex-direction: column; }
+.ws-menu[hidden] { display: none; }
+.ws-item { display: flex; align-items: center; gap: 10px; padding: 11px 12px; border-radius: 12px; text-align: left; font-weight: 600; color: var(--text); }
+.ws-item .icon { margin-left: auto; color: var(--accent); }
+.ws-item.on { background: var(--accent-soft); }
+.ws-item:active { background: var(--surface-2); }
+
+/* ---------- Mitteilungen ---------- */
+.push-row { cursor: pointer; }
+.switch { appearance: none; -webkit-appearance: none; flex-shrink: 0; width: 50px; height: 30px; border-radius: 15px; background: var(--surface-2); border: 1px solid var(--line); position: relative; transition: background .2s; margin: 0; }
+.switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 24px; height: 24px; border-radius: 50%; background: #fff; box-shadow: 0 2px 6px rgba(0,0,0,.3); transition: transform .2s; }
+.switch:checked { background: var(--accent); }
+.switch:checked::after { transform: translateX(20px); }

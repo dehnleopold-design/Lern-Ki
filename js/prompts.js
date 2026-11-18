@@ -525,23 +525,33 @@ DEINE LÖSUNGEN ZUM BLATT:
 ${solved.loesung}`;
 }
 
-export function annotatePrompt(loesung) {
+export function annotatePrompt(loesung, opts = {}) {
+  const detail = opts.detail || (state.settings?.sheetDetail === false ? 'kurz' : 'normal');
   return `Du siehst EINE Seite eines Arbeitsblatts/Arbeitshefts (Foto, evtl. schräg oder gebogen). Trage die Lösungen DIREKT AUF DEM BLATT ein – so, wie ein Schüler mit Stift: in die Lücke, auf die Schreiblinie unter der Aufgabe, Kreuz ins Kästchen, Markierung auf die Textstelle.
 
 Gib für JEDE Stelle auf DIESER Seite, an der etwas eingetragen, angekreuzt, markiert oder eingekreist werden muss, einen Eintrag mit genauer Position zurück.
 Position "box": [ymin, xmin, ymax, xmax] als ganze Zahlen von 0 bis 1000, relativ zur Bildhöhe/-breite (0,0 = oben links).
 
 Arten ("art"):
-- "text": Antwort hinschreiben. box = genau die freie Lücke oder die erste freie Schreiblinie, auf der die Antwort stehen soll (nicht die Aufgabenstellung!). "text" = die Antwort so kurz, wie man sie dort hinschreiben würde. Mehrere Linien: eine box über die freien Linien.
+- "text": Antwort hinschreiben. box = genau die freie Lücke oder die erste freie Schreiblinie, auf der die Antwort stehen soll (nicht die Aufgabenstellung!). ${detail === 'kurz' ? '"text" = die Antwort so kurz, wie man sie dort hinschreiben würde (Stichworte, Ergebnis).' : detail === 'ausfuehrlich' ? '"text" = eine ausführliche Antwort in ganzen Sätzen mit Begründung und Beispiel, so viel wie der freie Platz sinnvoll fasst; in eine kurze Lücke trotzdem nur das fehlende Wort.' : '"text" = die Antwort so, wie ein guter Schüler sie dort hinschreibt: in eine kurze Lücke nur das fehlende Wort; sind mehrere Schreiblinien frei, eine vollständige Antwort in ganzen Sätzen, die den Platz sinnvoll füllt, aber nicht überläuft.'}${opts.steps === false ? ' Nur Ergebnisse, kein Rechenweg, keine Begründung (außer die Aufgabe verlangt sie ausdrücklich).' : ''} Mehrere freie Schreiblinien: für JEDE Linie einen eigenen "text"-Eintrag (gleiche aufgabe), box = genau diese eine Linie: Unterkante = die gedruckte Linie, Höhe = Abstand zur Linie darüber, Breite = Linienlänge. Verteile die Antwort auf die Linien, pro Eintrag nur so viel Text, wie auf diese eine Linie passt.
 - "kreuz": Kästchen ankreuzen. box = das Kästchen.
 - "markieren": Wort/Textstelle markieren oder unterstreichen. box = die Textstelle.
 - "kreis": etwas einkreisen. box = das Einzukreisende.
+- "heft": Für diese Aufgabe gibt es auf der Seite KEINEN Platz zum Hinschreiben (z. B. Schulbuch, „Schreibe ins Heft“, Erklär- oder Rechenaufgaben ohne Lücke/Linien). KEINE box. "text" = die vollständige Lösung so, wie ein guter Schüler sie ins Heft schreibt: Rechenweg Schritt für Schritt, Antwortsatz, bei Erklärungen ganze Sätze. Zeilenumbrüche als \\n. Nie in gedruckten Text oder Bilder schreiben – lieber "heft".
 - "pruefen": Der Schüler hat hier SCHON etwas hingeschrieben. box = seine Antwort, "ok" = true/false, "text" = bei falsch die richtige Lösung (kurz), bei richtig leer.
 
-Regeln: nur Aufgaben auf DIESER Seite; fachlich korrekt (nutze die Lösungen unten); nur normale Schrift-Zeichen, kein LaTeX, keine HTML-Tags.
+Platz prüfen (sehr wichtig):
+- Eine box für "text" darf NUR wirklich leere Fläche abdecken: freie Lücke, leere Schreiblinie, leeres Kästchen oder leere Tabellenzelle. Nie über gedruckten Text, Überschriften, Bilder, Formeln oder Tabellenköpfe.
+- Leere Tabellenzellen sind Platz: dort stichpunktartig eintragen (kurz, damit es in die Zelle passt) – auch wenn die Aufgabe sagt, man solle die Tabelle abschreiben, und auch wenn die Tabelle auf einem Foto vom Beamer/Bildschirm ist.
+- Schulbuchseiten und Seiten ohne freie Linien/Lücken/Zellen haben in der Regel KEINEN Platz → "heft".${opts.place === 'heft' ? '\n- Der Schüler möchte ALLES im Heft: gib jede Aufgabe als "heft" zurück (nur "kreuz"/"markieren"/"kreis"/"pruefen" bleiben auf dem Blatt).' : opts.place === 'blatt' ? '\n- Der Schüler möchte möglichst ALLES auf dem Blatt: nutze jeden freien Platz (Ränder neben der Aufgabe, Zellen, Lücken) mit knapper Formulierung; "heft" nur, wenn wirklich gar nichts frei ist.' : ''}
+- Passt die Antwort nicht in den freien Platz (zu wenig Linien, zu kurze Lücke), nimm "heft" statt sie zu quetschen.
+- Wörter nie trennen: pro Linie nur ganze Wörter.
+Schreibweise: nur normale Schrift-Zeichen, kein LaTeX, keine HTML-Tags. Mathe: Mal als ·, Potenzen mit ^ (1,3^x, 10^(-3), x^2), Wurzel √, außerdem ≤ ≥ ≠ ≈ → °, Brüche als a/b.
+Regeln: nur Aufgaben auf DIESER Seite; fachlich korrekt (nutze die Lösungen unten).
 
 Gib NUR JSON zurück:
-{ "eintraege": [ { "aufgabe": "1a", "art": "text", "text": "…", "box": [400, 120, 430, 900] } ] }
+{ "eintraege": [ { "aufgabe": "1a", "art": "text", "text": "…", "box": [400, 120, 430, 900] }, { "aufgabe": "1c", "art": "heft", "text": "…" } ] }
+Jede Aufgabe der Seite kommt vor: entweder auf dem Blatt (mit box) oder als "heft".
 
 LÖSUNGEN ZUM BLATT:
 ${loesung}`;

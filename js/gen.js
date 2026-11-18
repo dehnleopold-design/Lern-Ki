@@ -269,7 +269,10 @@ export async function solveSheet(item, onStep = null) {
   const subject = subjectById(item.subjectId);
   if (!item.loesung) {
     const links = item.links || [];
-    const parts = [{ text: P.solvePrompt(subject, item.note || '', links, item.fileIds.length > 0) }];
+    // Wünsche aus den Einstellungen (Ausführlichkeit, Rechenweg) an die Lösung anhängen
+    const o = item.opts || {};
+    const wish = [o.detail === 'kurz' ? 'Halte die Lösungen kurz (Stichpunkte, Ergebnisse).' : o.detail === 'ausfuehrlich' ? 'Erkläre ausführlich, mit Begründung und Beispielen.' : '', o.steps === false ? 'Nur Ergebnisse, ohne Rechenweg (außer die Aufgabe verlangt ihn).' : ''].filter(Boolean).join(' ');
+    const parts = [{ text: P.solvePrompt(subject, [item.note || '', wish].filter(Boolean).join('\n'), links, item.fileIds.length > 0) }];
     for (const id of item.fileIds) parts.push(await partOf(id));
     const text = await generate({ system: P.baseSystem(subject), parts, temperature: 0.2, web: links.length > 0 });
     const first = text.match(/^##\s+(.*)$/m);
@@ -281,9 +284,14 @@ export async function solveSheet(item, onStep = null) {
   for (const fid of item.fileIds) {
     if (!state.files[fid]?.mime?.startsWith('image/') || item.annot[fid]) continue;
     try {
-      const res = await generate({ system: P.baseSystem(subject), parts: [{ text: P.annotatePrompt(item.loesung) }, await partOf(fid)], json: true, temperature: 0.1 });
-      item.annot[fid] = (res.eintraege || []).filter((e) => Array.isArray(e.box) && e.box.length === 4 && e.box.every((n) => Number.isFinite(Number(n))) && ['text', 'kreuz', 'markieren', 'kreis', 'pruefen'].includes(e.art))
-        .map((e) => ({ ...e, box: e.box.map((n) => Math.max(0, Math.min(1000, Number(n)))) }));
+      const res = await generate({ system: P.baseSystem(subject), parts: [{ text: P.annotatePrompt(item.loesung, item.opts || {}) }, await partOf(fid)], json: true, temperature: 0.1 });
+      const all = res.eintraege || [];
+      item.annot[fid] = [
+        ...all.filter((e) => Array.isArray(e.box) && e.box.length === 4 && e.box.every((n) => Number.isFinite(Number(n))) && ['text', 'kreuz', 'markieren', 'kreis', 'pruefen'].includes(e.art))
+          .map((e) => ({ ...e, box: e.box.map((n) => Math.max(0, Math.min(1000, Number(n)))) })),
+        // Kein Platz auf der Seite → kommt aufs karierte Blatt
+        ...all.filter((e) => e.art === 'heft' && String(e.text || '').trim()).map((e) => ({ aufgabe: String(e.aufgabe || ''), art: 'heft', text: String(e.text) })),
+      ];
     } catch (e) { if (e?.notYet) throw e; console.warn('Eintragen fehlgeschlagen', e?.message); }
   }
   delete item.building;

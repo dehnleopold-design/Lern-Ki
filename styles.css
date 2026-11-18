@@ -480,9 +480,9 @@ ul { margin: 4px 0; padding-left: 22px; }
 .ink-text { text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 2px #fff; }
 .ink-fix { color: #c62828; align-items: flex-start; }
 .ink-cross svg, .ink-check svg { width: 100%; height: 100%; display: block; }
-.ink-cross { color: #4b2bd6; }
+.ink-cross { color: #16131f; }
 .ink-mark { background: rgba(255, 221, 0, .45); border-radius: 3px; mix-blend-mode: multiply; }
-.ink-circle { border: 2.5px solid #4b2bd6; border-radius: 50%; margin: -3px; padding: 3px; box-sizing: content-box; }
+.ink-circle { border: 2.5px solid #16131f; border-radius: 50%; margin: -3px; padding: 3px; box-sizing: content-box; }
 .ink-check { aspect-ratio: 1; max-width: 6%; }
 .ink-check.ok { color: #1f9d55; }
 .ink-check.bad { color: #c62828; }
@@ -1161,6 +1161,65 @@ html.has-userbg[data-skin] body::before { inset: calc(var(--bg-blur, 0px) * -2);
 .dev-pins { position: fixed; inset: 0; pointer-events: none; z-index: 80; }
 .dev-pin { position: absolute; width: 30px; height: 30px; margin: -15px 0 0 -15px; border-radius: 50% 50% 50% 4px; display: grid; place-items: center; font-size: .95rem; background: #fff; border: 2px solid #f97316; box-shadow: 0 4px 12px rgba(0, 0, 0, .35); pointer-events: auto; animation: devPin .3s ease-out; }
 @keyframes devPin { from { transform: scale(.3); opacity: 0; } }
+
+/* ---------- Meine Handschrift */
+.hand-page { max-width: 1100px; }
+.hand-top { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+.hand-preview { min-height: 70px; padding: 10px 14px; border-radius: 14px; background: #fff; color: #1d1640; font-size: 26px; overflow-x: auto; }
+.hand-preview .hand-halo { display: none; }
+.hand-toggle { display: flex; align-items: flex-start; gap: 12px; padding: 6px 2px; }
+.hand-toggle input { width: 22px; height: 22px; margin-top: 2px; accent-color: var(--accent); flex-shrink: 0; }
+.hand-toggle span { display: flex; flex-direction: column; gap: 2px; }
+.hand-tabs { margin-bottom: 12px; }
+.hand-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 10px; }
+.hand-cell { position: relative; aspect-ratio: var(--w) / 1; background: #fff; border-radius: 12px; border: 2px solid transparent; overflow: hidden; }
+.hand-grid .hand-cell { aspect-ratio: auto; height: 116px; }
+.hand-cell.done { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+.hand-cell-cv { display: block; width: 100%; height: 100%; touch-action: none; }
+.hand-cell-x { position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; background: rgba(29, 22, 64, .08); color: #1d1640; opacity: 0; }
+.hand-cell.done .hand-cell-x { opacity: 1; }
+.hand-words { display: flex; flex-direction: column; gap: 14px; }
+.hand-word { display: flex; overflow-x: auto; padding-bottom: 2px; }
+.hand-word .hand-cell { width: 82px; height: 120px; flex-shrink: 0; border-radius: 0; border-width: 2px 0; }
+.hand-word .hand-cell:first-child { border-radius: 12px 0 0 12px; border-left-width: 2px; }
+.hand-word .hand-cell:last-child { border-radius: 0 12px 12px 0; border-right-width: 2px; }
+.hand-word .hand-cell + .hand-cell { box-shadow: inset 1px 0 0 rgba(90, 70, 200, .15); }
+.hand-svg { display: block; overflow: visible; }
+.hand-halo { fill: none; stroke: rgba(255, 255, 255, .9); stroke-linecap: round; stroke-linejoin: round; }
+.hand-ink { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
+.hand-fallback { fill: currentColor; font-family: Inter, system-ui, sans-serif; font-weight: 400; }
+.ink-hand { text-shadow: none; }
+@media (max-width: 600px) { .hand-grid { grid-template-columns: repeat(auto-fill, minmax(70px, 1fr)); } .hand-grid .hand-cell { height: 92px; } .hand-word .hand-cell { width: 64px; height: 94px; } }
+
+/* Kariertes Blatt für Aufgaben ohne Platz – wie eine karierte GoodNotes-Seite (A4 hoch, 28 Kästchen breit) */
+.heft-holder { display: flex; flex-direction: column; gap: 8px; margin-top: 18px; }
+.heft-pages { display: flex; flex-direction: column; gap: 14px; width: min(100%, 720px); margin: 0 auto; }
+.heft-paper { position: relative; width: 100%; background-color: #fff; color: #111; background-image: linear-gradient(rgba(0, 0, 0, .13) 1px, transparent 1px), linear-gradient(90deg, rgba(0, 0, 0, .13) 1px, transparent 1px); background-size: .8em .8em; background-position: -1px -1px; box-shadow: 0 10px 30px rgba(0, 0, 0, .4); overflow: hidden; }
+.heft-paper .hand-halo { display: none; }
+.heft-entry { position: absolute; }
+.heft-entry.typed { font-size: .9em; font-weight: 600; line-height: calc(1.6em / .9); white-space: pre; }
+.heft-num { position: absolute; width: 1.56em; height: 1.64em; border: .06em solid #111; border-radius: 50%; display: grid; place-items: center; font-size: 1em; font-weight: 600; transform: rotate(-8deg); }
+.heft-num .hand-svg { transform: rotate(8deg); }
+.heft-num.long .hand-svg, .heft-num.long { font-size: .8em; }
+
+/* Startseite ohne Klausur: Lernplan/Termine bleibt oben, der Rest steht mittig darunter */
+.plan-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 20px; padding-bottom: 8vh; }
+
+/* Lösungen auf dem Blatt: schwarz wie Kuli, Grundlinie auf der Schreiblinie */
+.ink { color: #16131f; }
+.ink-fix { color: #c62828; }
+.ink-lines { position: absolute; left: 0; white-space: pre; }
+.ink-lines.typed { line-height: 1.25em; font-weight: 600; }
+
+/* Handschrift / Druckschrift wählen */
+.font-switch { width: min(100%, 420px); margin: 0 auto; }
+.font-pick .label { text-align: center; }
+
+/* Vergrößerter Ausschnitt eines Blatts */
+.annot-wrap.cropped { overflow: hidden; }
+.annot-wrap.cropped img { max-width: none; }
+.solve-opts .label:first-child { margin-top: 0; }
+.solve-opts .seg-btn:disabled { opacity: .45; }
 
 /* ---------- Beim Warten: ☰-Auswahl über dem Spiel ---------- */
 .ws { display: flex; flex-direction: column; gap: 10px; width: 100%; }

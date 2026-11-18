@@ -2,7 +2,7 @@
 """Jelly Developer verwalten.
 
   python3 tools/dev.py reset              echtes Jelly → dev/ (Developer neu aufsetzen)
-  python3 tools/dev.py promote "2.61 (17.11.)"
+  python3 tools/dev.py promote "2.61 (17.11.)" [--merged]
                                           dev/ → echtes Jelly übertragen (mit neuer Versionsnummer)
   python3 tools/dev.py bump "2.61-dev.2"  nur die Developer-Version erhöhen (Update-Hinweis in Developer)
   python3 tools/dev.py status             zeigt, ob echtes Jelly / Developer seit dem letzten Abgleich geändert wurden
@@ -183,11 +183,12 @@ def reset(force=False):
     print(f'Developer neu aufgesetzt aus dem echten Jelly {root_version} → {dev_version()}')
 
 
-def promote(version):
+def promote(version, merged=False):
     base = load_base()
     if not base:
         sys.exit('Abbruch: dev/BASE fehlt – erst "reset".')
-    if root_hash() != base['root']:
+    # --merged: die direkten Änderungen am echten Jelly wurden bereits von Hand in dev/ übernommen
+    if root_hash() != base['root'] and not merged:
         sys.exit('Abbruch: Das echte Jelly wurde seit dem letzten Abgleich direkt geändert.\n'
                  'Diese Änderungen erst in dev/ übernehmen (oder bewusst verwerfen), sonst gehen sie verloren.')
     shutil.rmtree(p('js'))
@@ -227,7 +228,7 @@ if __name__ == '__main__':
     if a[0] == 'reset':
         reset('--force' in a)
     elif a[0] == 'promote' and len(a) > 1:
-        promote(a[1])
+        promote(a[1], '--merged' in a)
     elif a[0] == 'bump' and len(a) > 1:
         bump(a[1])
     elif a[0] == 'status':

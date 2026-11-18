@@ -142,7 +142,9 @@ export async function downloadLernzettel(head, markdown, look) {
     const scrollPos = window.scrollY;
     window.scrollTo(0, 0); // html2canvas rechnet sonst die Scrollposition mit ein
     const holder = document.createElement('div');
-    holder.style.cssText = 'position:absolute;left:0;top:0;width:760px;background:#fff;padding:0;z-index:-1';
+    // Außerhalb des Bildschirms aufbauen (html2pdf zeichnet eine Kopie davon) – sonst schimmert es
+    // bei durchsichtigen Hintergründen (Designs) durch die App und verschiebt die Ansicht
+    holder.style.cssText = 'position:fixed;left:-12000px;top:0;width:760px;background:#fff;padding:0;pointer-events:none';
     holder.innerHTML = html;
     document.body.append(holder);
     try {
