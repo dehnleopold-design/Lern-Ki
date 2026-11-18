@@ -13,6 +13,8 @@
 //  3. Die App übernimmt die Ergebnisse beim nächsten Öffnen.
 // Ist die App offen, wird pausiert (sonst teilen sich App und Funktion die Gratis-Limits des Schlüssels).
 
+import { notifyDone } from './push.mjs';
+export { runPush } from './push.mjs';
 import { setState, state } from '../js/store.js';
 import * as G from '../js/gen.js';
 
@@ -25,7 +27,7 @@ class Paused extends Error {}
 
 const label = (e) => (e?.status ? `Fehler ${e.status}` : e?.notYet ? 'Datei fehlt noch' : (e?.constructor?.name || 'Fehler'));
 
-export function makeWorker(db, { deadline, log = console.log }) {
+export function makeWorker(db, { deadline, log = console.log, messaging = null }) {
   const userRef = (uid) => db.collection('users').doc(uid);
   const timeLeft = () => Date.now() < deadline;
 
@@ -243,7 +245,10 @@ export function makeWorker(db, { deadline, log = console.log }) {
       return;
     }
     log(`${tag}: ${res.made} erstellt, ${res.failed} fehlgeschlagen, ${res.left} offen.`);
-    if (!res.left) await job.ref.delete();
+    if (!res.left) {
+      await job.ref.delete();
+      if (res.made) await notifyDone(db, messaging, uid, type, log).catch((e) => log(`Push: ${e?.message}`));
+    }
     else await retryLater(`${res.left} offen`, (info.attempts || 0) + 1);
   }
 

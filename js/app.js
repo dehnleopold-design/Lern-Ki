@@ -16,6 +16,7 @@ import { SEASONS, applySeason, activeSeason, seasonName } from './seasons.js';
 import { openFile, fileKindLabel } from './viewer.js';
 import { chessPanel } from './chess.js';
 import { GAMES, isGame, gamePanel } from './games.js';
+import { PUSH_TYPES, pushSettings, pushSupport, enablePush, disablePush, deviceRegistered, publishPushProfile, startPushProfileSync } from './push.js';
 import { checkAccess, redeemCode, cachedAccess, normalizeCode, accessPerks } from './license.js';
 import { initNotes, viewNotes, viewNotebook } from './notes.js';
 import { splitNotebook, guessSubject, baseName } from './goodnotes.js';
@@ -25,7 +26,7 @@ setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, JELLY_STYLES, setJellyStyle, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.65 (18.11.)';
+const APP_VERSION = '2.66 (18.11.)';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -3523,6 +3524,36 @@ function waitAreaSheet() {
   ]);
 }
 
+// ---------- Push-Mitteilungen (Mehr → Mitteilungen)
+function pushSheet() {
+  const body = h('div', { class: 'stack' });
+  let busy = false;
+  const draw = () => {
+    const p = pushSettings();
+    const sup = pushSupport();
+    const on = p.enabled && deviceRegistered();
+    body.replaceChildren(
+      h('p', { class: 'muted small' }, 'Jelly erinnert dich ans Lernen und sagt Bescheid, wenn etwas fertig ist – auch wenn die App geschlossen ist.'),
+      !sup.ok ? h('div', { class: 'card warn small' }, sup.text) : null,
+      sup.ok && !on ? h('button', { class: 'btn primary block', disabled: busy, onclick: async () => {
+        busy = true; draw();
+        try { await enablePush(); toast('Mitteilungen sind an. 🔔', 'ok'); } catch (e) { toast(errorMsg(e), 'error'); }
+        busy = false; draw(); render();
+      } }, icon('bell', 18), busy ? 'Einen Moment …' : 'Mitteilungen erlauben') : null,
+      on ? h('div', { class: 'card small' }, '🔔 Mitteilungen sind auf diesem Gerät an.') : null,
+      h('div', { class: 'label' }, 'Was Jelly dir schicken darf'),
+      h('div', { class: 'menu' }, PUSH_TYPES.map((t) => h('label', { class: 'menu-row push-row' },
+        h('span', { class: 'menu-text' }, h('span', { class: 'menu-label' }, t.name), h('span', { class: 'menu-sub' }, t.sub)),
+        h('input', { type: 'checkbox', class: 'switch', checked: p.types[t.id] !== false, onchange: (e) => { p.types[t.id] = e.target.checked; save(); publishPushProfile(); } })))),
+      h('div', { class: 'label' }, 'Uhrzeit der täglichen Erinnerung'),
+      h('input', { class: 'input', type: 'time', value: p.time, onchange: (e) => { if (e.target.value) { p.time = e.target.value; save(); publishPushProfile(); render(); } } }),
+      h('p', { class: 'muted small' }, 'Zwischen 21:30 und 7:00 Uhr schickt Jelly nichts. Höchstens zwei Mitteilungen auf einmal.'),
+      on ? h('button', { class: 'btn ghost block danger-text', onclick: async () => { await disablePush(); toast('Mitteilungen aus.'); draw(); render(); } }, 'Mitteilungen ausschalten') : null);
+  };
+  draw();
+  sheet('Mitteilungen', [body]);
+}
+
 // ---------- Offline-Tutor (Mehr → Offline-Tutor)
 function offlineSheet() {
   const body = h('div', { class: 'stack' });
@@ -3585,6 +3616,7 @@ function viewSettings() {
     h('main', { class: 'content narrow' },
       h('div', { class: 'menu' },
         menuRow('sparkles', 'KI-Verbindung', aiSub, () => sheet('KI-Verbindung', [aiSetupBlock(false)])),
+        menuRow('bell', 'Mitteilungen', (() => { const p = pushSettings(); return p.enabled && deviceRegistered() ? `An · Erinnerung um ${p.time} Uhr` : 'Erinnerungen, Klausur morgen, Jelly ist fertig …'; })(), () => pushSheet()),
         menuRow('play', 'Beim Warten', `Spiele, Schach & Video · beim Warten läuft: ${waitName(waitModeOf())}`, () => go('play')),
         menuRow('zap', 'Offline-Tutor', 'KI direkt auf dem Gerät – auch ohne Internet', () => offlineSheet()),
         menuRow('mic', 'Jelly Voice', 'Unterricht aufnehmen – Notizen & Lernzettel daraus', () => { location.href = 'voice/'; })),
@@ -3856,6 +3888,7 @@ async function handleUser(user) {
   await loadState();
   // Neuere Daten von einem anderen Gerät holen (max. 10 s warten, dann im Hintergrund weiter)
   let booted = false;
+  try { startPushProfileSync(); } catch (e) { console.warn(e); }
   const synced = startSync(user, { info: () => ({
     version: APP_VERSION, klasse: state.profile?.grade ? `${state.profile.grade}${xp().klasse ? ` (${xp().klasse})` : ''}` : (xp().klasse || ''),
     counts: { faecher: state.subjects.length, klausuren: state.exams.length, vokabellisten: (state.vocab?.sets || []).length, blaetter: (state.solved || []).length, dateien: Object.keys(state.files || {}).length, stunden: (state.timetable?.lessons || []).length },

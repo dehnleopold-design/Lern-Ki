@@ -6,6 +6,7 @@
 //  - lernkiJob:      neuer/aktualisierter Auftrag in users/{uid}/bgjobs
 //  - lernkiPresence: die App wurde geschlossen (users/{uid}/bgpresence/app)
 //  - lernkiSweep:    alle 10 Minuten, falls etwas liegen geblieben ist
+//  - lernkiPush:     alle 15 Minuten Push-Mitteilungen (Erinnerung, Serie, Klausur, To-dos)
 
 import { onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
@@ -13,6 +14,7 @@ import { setGlobalOptions } from 'firebase-functions/v2';
 import { logger } from 'firebase-functions';
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
+import { getMessaging } from 'firebase-admin/messaging';
 import { mkdir, writeFile } from 'node:fs/promises';
 
 // concurrency 1: Die App-Module halten den Stand global – pro Instanz immer nur ein Konto gleichzeitig.
@@ -46,7 +48,7 @@ async function loadWorker() {
 
 async function worker(started) {
   const mod = await loadWorker();
-  return mod.makeWorker(db, { deadline: started + RUN_MS, log: (m) => logger.info(m) });
+  return mod.makeWorker(db, { deadline: started + RUN_MS, log: (m) => logger.info(m), messaging: getMessaging() });
 }
 
 export const lernkiJob = onDocumentWritten('users/{uid}/bgjobs/{key}', async (event) => {
@@ -65,4 +67,12 @@ export const lernkiPresence = onDocumentWritten('users/{uid}/bgpresence/app', as
 export const lernkiSweep = onSchedule({ schedule: 'every 10 minutes', timeoutSeconds: 540 }, async () => {
   const w = await worker(Date.now());
   await w.sweep();
+});
+
+// Push-Mitteilungen: Erinnerungen, Lernserie, Klausur morgen, fällige To-dos (Logik in server/push.mjs)
+export const lernkiPush = onSchedule({ schedule: 'every 15 minutes', timeoutSeconds: 300 }, async () => {
+  const mod = await loadWorker();
+  if (!mod.runPush) return;
+  const n = await mod.runPush(db, getMessaging(), (m) => logger.info(m));
+  if (n) logger.info(`Push: ${n} Mitteilungen verschickt.`);
 });

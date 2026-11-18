@@ -104,6 +104,18 @@ Einrichtung (einmalig):
    ```
    Fragt das Programm nach einer Anmeldung, `npx -y firebase-tools@latest login --no-localhost` ausführen und den Anweisungen folgen, danach den Befehl wiederholen.
 
+## Push-Mitteilungen
+
+Jelly kann Mitteilungen schicken (Mehr → Mitteilungen): **Jelly ist fertig** (Hintergrund-Auftrag erledigt), **tägliche Lern-Erinnerung** (nur wenn heute noch nicht gelernt), **Lernserie in Gefahr** (ab 19 Uhr), **Klausur morgen** (ab 16 Uhr am Vortag) und **To-dos fällig** (ab 14 Uhr). Zwischen 21:30 und 7:00 Uhr kommt nichts, höchstens zwei auf einmal.
+
+- Auf iPhone/iPad nur, wenn Jelly über „Zum Home-Bildschirm“ installiert ist und von dort geöffnet wird (ab iOS/iPadOS 16.4). Braucht ein Konto.
+- Die App speichert pro Gerät ein Token (`users/{uid}/pushtokens`) und eine kleine Übersicht (`users/{uid}/pushinfo/profile`: Uhrzeit, Arten, letzter Lerntag, Serie, Klausurtermine mit Fachname, fällige To-dos mit Titel). Keine Lerninhalte.
+- Verschickt wird von `server/push.mjs` über die Cloud Function `lernkiPush` (alle 15 Minuten) bzw. direkt vom Hintergrund-Worker.
+
+Einrichtung (einmalig):
+1. Firebase-Konsole → Projekteinstellungen → **Cloud Messaging** → Web-Push-Zertifikate → **Schlüsselpaar generieren**. Den öffentlichen Schlüssel in `js/firebase-config.js` bei `pushVapidKey` eintragen.
+2. Die Cloud Functions neu hochladen (gleicher Befehl wie oben unter „Einrichtung“, Blaze-Tarif nötig).
+
 ## Jelly Control (Kontoübersicht)
 
 Unter `/control/` liegt eine eigene kleine Web-App (eigenes Symbol, „Zum Home-Bildschirm“ möglich), die alle Jelly-Konten mit Kennzahlen zeigt: Name, E-Mail, registriert seit, zuletzt aktiv, Version, Gerät, Klasse, KI eingerichtet, Anzahl Fächer/Klausuren/Vokabellisten/Blätter/Dateien/Stunden. **Keine Lerninhalte.**

@@ -17,3 +17,8 @@ export const authActive = true;
 // Hintergrund-Funktion (functions/, Firebase Cloud Functions, braucht den Blaze-Tarif).
 // Erst auf true setzen, wenn sie hochgeladen ist – sonst verspricht die App etwas, das nicht passiert.
 export const backgroundFunctions = false;
+
+// Push-Mitteilungen: öffentlicher Web-Push-Schlüssel (VAPID) aus der Firebase-Konsole →
+// Projekteinstellungen → Cloud Messaging → Web-Push-Zertifikate → „Schlüsselpaar generieren“.
+// Nicht geheim. Leer = Mitteilungen in der App als „noch nicht eingerichtet“ anzeigen.
+export const pushVapidKey = '';
