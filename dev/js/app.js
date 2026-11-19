@@ -27,7 +27,7 @@ setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, JELLY_STYLES, setJellyStyle, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.71-dev.1';
+const APP_VERSION = '2.71-dev.2';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -2576,16 +2576,88 @@ async function copySolvedImage(item, fid, heft = false) {
   } catch (e) { toast(e?.name === 'NotAllowedError' ? 'Kopieren wurde nicht erlaubt.' : errorMsg(e), 'error'); }
 }
 
-// Jede "## Aufgabe …" wird ein eigener Block; die Lösung ist zum Selbsttesten erst zugeklappt.
-function solvedSheet(item, openAll) {
-  const lines = item.loesung.split(/\r?\n/);
+// Lösungstext in Abschnitte teilen: jede "## Aufgabe …" ist ein Abschnitt
+function loesungSections(item) {
   const sections = [];
-  let pre = [];
+  const pre = [];
   let cur = null;
-  for (const line of lines) {
+  for (const line of String(item.loesung || '').split(/\r?\n/)) {
     const m = line.match(/^##\s+(.*)$/);
     if (m) { cur = { title: m[1], body: [] }; sections.push(cur); } else if (cur) cur.body.push(line); else pre.push(line);
   }
+  return { pre, sections };
+}
+
+// Markdown → schlichter Text, so wie man ihn ins Heft schreibt (Listen mit Strich, keine Sternchen/Rauten)
+function mdToHeftText(src) {
+  const out = [];
+  for (let line of String(src || '').split(/\r?\n/)) {
+    line = line.replace(/\s+$/, '');
+    if (/^\s*\|?\s*:?-{3,}/.test(line)) continue;                          // Tabellen-Trennzeile
+    if (/^\s*\|.*\|\s*$/.test(line)) line = line.replace(/^\s*\||\|\s*$/g, '').split('|').map((c) => c.trim()).filter(Boolean).join(' – ');
+    line = line.replace(/^#{1,6}\s+/, '')                                      // Überschriften
+      .replace(/^\s*>\s?/, '')                                                // Zitate
+      .replace(/^(\s*)[-*•]\s+/, '$1– ')                                      // Aufzählungen
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')                                // Links
+      .replace(/\*\*([^*]+)\*\*|__([^_]+)__/g, (_, a, b) => a || b)          // fett
+      .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1$2').replace(/`([^`]+)`/g, '$1');
+    out.push(cleanText(line));
+  }
+  return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+// Lösungen als Heft-Einträge (für Blätter ohne Foto, z. B. PDFs): eine Aufgabe = ein Eintrag
+function loesungHeft(item) {
+  const { sections } = loesungSections(item);
+  if (!sections.length) { const t = mdToHeftText(item.loesung); return t ? [{ art: 'heft', aufgabe: '', text: t }] : []; }
+  const list = []; // Einleitung der KI („Hier sind die Lösungen …“) gehört nicht ins Heft
+  for (const sec of sections) {
+    const m = sec.title.match(/^Aufgabe\s*([0-9]+[a-z]?(?:[.)][a-z0-9]+)?)\s*[–:.-]?\s*(.*)$/i);
+    const text = mdToHeftText(sec.body.join('\n'));
+    if (!text) continue;
+    list.push(m ? { art: 'heft', aufgabe: `Aufgabe ${m[1]}`, text } : { art: 'heft', aufgabe: mdToHeftText(sec.title), text });
+  }
+  return list;
+}
+
+// Heftseiten der Lösungen als Bilder (zwischengespeichert)
+function loesungHeftImages(item) {
+  const list = loesungHeft(item);
+  const key = `lheft:${item.id}:${list.length}:${String(item.loesung || '').length}:${handVersion()}`;
+  if (!solvedPng.has(key)) solvedPng.set(key, renderHeftImages(list).catch((e) => { solvedPng.delete(key); throw e; }));
+  return solvedPng.get(key);
+}
+function saveLoesungHeft(item) {
+  const cur = item.opts?.export || solveOpts().export || 'bild';
+  const go2 = async (fmt) => {
+    o.remove();
+    try {
+      const base = `${(subjectById(item.subjectId)?.name || 'Blatt').replace(/[^\wäöüÄÖÜß -]+/g, '')}-Lösung`;
+      const pages = await loesungHeftImages(item);
+      let files = pages.map((bl, k) => new File([bl], `${base}${pages.length > 1 ? `-Seite-${k + 1}` : ''}.png`, { type: 'image/png' }));
+      if (fmt !== 'bild') files = [new File([await pdfFromImages(files, item.titel || 'Jelly')], `${base}${fmt === 'goodnotes' ? '-GoodNotes' : ''}.pdf`, { type: 'application/pdf' })];
+      if (navigator.canShare?.({ files })) { try { await navigator.share({ files }); } catch (e) { if (e?.name !== 'AbortError') throw e; } return; }
+      for (const f of files) { const a = h('a', { href: URL.createObjectURL(f), download: f.name }); document.body.append(a); a.click(); a.remove(); }
+      toast(fmt === 'bild' ? 'Bild gespeichert.' : 'PDF gespeichert.', 'ok');
+    } catch (e) { toast(errorMsg(e), 'error'); }
+  };
+  const opt = (fmt, ic, title, sub) => menuRow(ic, title, sub, () => go2(fmt), fmt === cur ? 'is-default' : '');
+  const o = sheet('Sichern als …', [h('div', { class: 'menu' },
+    opt('bild', 'image', 'Bild', 'Jede Heftseite als Bild – „Bild sichern“ legt es in Fotos'),
+    opt('pdf', 'file', 'PDF', 'Alle Seiten in einer Datei'),
+    opt('goodnotes', 'notebook', 'GoodNotes', 'PDF – im Teilen-Menü „GoodNotes“ wählen'))]);
+}
+async function copyLoesungHeft(item) {
+  try {
+    if (!navigator.clipboard?.write || !window.ClipboardItem) throw new Error('Kopieren wird hier nicht unterstützt – nutze „Sichern“.');
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': loesungHeftImages(item).then((p) => p[0]) })]);
+    toast('Erste Heftseite kopiert.', 'ok');
+  } catch (e) { toast(e?.name === 'NotAllowedError' ? 'Kopieren wurde nicht erlaubt.' : errorMsg(e), 'error'); }
+}
+
+// Jede "## Aufgabe …" wird ein eigener Block; die Lösung ist zum Selbsttesten erst zugeklappt.
+function solvedSheet(item, openAll) {
+  const { pre, sections } = loesungSections(item);
   const doc = h('div', { class: 'sheet-doc' });
   if (pre.join('').trim()) add(doc, h('div', { html: md(pre.join('\n')) }));
   for (const sec of sections) {
@@ -2705,6 +2777,26 @@ function viewSolved({ id }) {
               out.push(h('p', { class: 'muted small center' }, '„Sichern / Teilen“ öffnet das Teilen-Menü: „Bild sichern“ legt es in die Mediathek, „In Dateien sichern“ in die Dateien-App. Das Bild enthält die Lösungen.'));
               return out;
             })()];
+        }
+        // Kein Foto (z. B. PDF): Jelly schreibt die Lösungen auf karierte Seiten – in deiner Handschrift, wenn sie eingerichtet ist
+        if (!imgs.length && item.loesung) {
+          ui.solveViewPdf ??= handReady() ? 'heft' : 'text';
+          const pv = ui.solveViewPdf;
+          const seg2 = h('div', { class: 'seg' },
+            h('button', { class: `seg-btn ${pv === 'heft' ? 'active' : ''}`, onclick: () => { ui.solveViewPdf = 'heft'; render(); } }, '✍️ Im Heft'),
+            h('button', { class: `seg-btn ${pv === 'text' ? 'active' : ''}`, onclick: () => { ui.solveViewPdf = 'text'; render(); } }, 'Ausführlich'));
+          if (pv === 'heft') {
+            const list = loesungHeft(item);
+            loesungHeftImages(item).catch(() => {}); // vorbereiten, damit Kopieren/Sichern sofort klappt
+            return [seg2, fontSwitch(() => render()),
+              h('p', { class: 'muted small center' }, handActive() ? 'Jelly hat die Lösungen in deiner Handschrift auf karierte Seiten geschrieben.' : 'Die Lösungen auf karierten Seiten – mit „✍️ Handschrift“ in deiner Schrift.'),
+              h('div', { class: 'heft-holder' }, heftPaper(list),
+                h('div', { class: 'annot-actions' },
+                  h('button', { class: 'btn small', onclick: () => copyLoesungHeft(item) }, icon('layers', 16), 'Kopieren'),
+                  h('button', { class: 'btn small', onclick: () => saveLoesungHeft(item) }, icon('download', 16), 'Sichern')))];
+          }
+          return [seg2, h('p', { class: 'muted small center' }, 'Versuch jede Aufgabe erst selbst, dann aufdecken. Die KI kann sich irren – bei Zweifeln nachfragen.'),
+            h('article', { class: 'lernzettel solve' }, solvedSheet(item, ui.solveOpen))];
         }
         return [seg, h('p', { class: 'muted small center' }, 'Versuch jede Aufgabe erst selbst, dann aufdecken. Die KI kann sich irren – bei Zweifeln nachfragen.'),
           h('article', { class: 'lernzettel solve' }, solvedSheet(item, ui.solveOpen))];
