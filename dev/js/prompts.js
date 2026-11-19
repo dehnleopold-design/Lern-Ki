@@ -506,9 +506,9 @@ REGELN
 FORMAT (genau so, die App klappt jede Aufgabe einzeln auf):
 ## Aufgabe 1 a) – kurze Wiedergabe der Aufgabenstellung
 ### Lösung
-(die Musterlösung, wie man sie abgeben würde${steps ? '' : ' – nur das Ergebnis bzw. die Antwort, OHNE Rechenweg, Herleitung oder Begründung, außer die Aufgabe verlangt sie ausdrücklich'})
+(die Musterlösung, wie man sie abgeben würde${steps ? ' – bei Rechenaufgaben MIT vollständiger Rechnung Schritt für Schritt, Einheiten und Antwortsatz' : ' – nur das Ergebnis bzw. die Antwort, OHNE Rechenweg, Herleitung oder Begründung, außer die Aufgabe verlangt sie ausdrücklich'})
 ${steps ? `### So kommst du drauf
-(Schritte/Begründung, kurz)
+(nur die Erklärung: warum man so vorgeht, welcher Ansatz/welche Formel – NICHT die Rechnung selbst; die steht vollständig unter „Lösung“)
 > [!WARN] Häufiger Fehler
 > …
 (optional; außerdem erlaubt: > [!TIP], > [!KEY], Tabellen mit | … |, Listen)` : `KEINEN Abschnitt „So kommst du drauf“, keine Erklärungen, Tipps oder Hinweise auf häufige Fehler – der Schüler hat den Rechenweg ausgeschaltet. Tabellen mit | … | und Listen sind erlaubt.`}
