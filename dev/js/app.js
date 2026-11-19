@@ -27,7 +27,7 @@ setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, JELLY_STYLES, setJellyStyle, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.71-dev.2';
+const APP_VERSION = '2.71-dev.3';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -2414,7 +2414,7 @@ function heftLayout(entries) {
     if (lab && !short) raw = `${lab}:\n${raw}`;
     const txt = hand ? raw : typedMath(raw);
     const n = hand ? handLines(txt, HEFT.inner, i + 11) : typedLines(txt, HEFT.inner).length;
-    if (used && used + n > HEFT.lines) { pages.push([]); used = 0; }
+    if (used && (e.newPage || used + n > HEFT.lines)) { pages.push([]); used = 0; }
     pages.at(-1).push({ e, txt, label: short ? lab : '', seed: i + 11, line: used, n });
     used += n + 1;
   });
@@ -2597,6 +2597,7 @@ function mdToHeftText(src) {
     if (/^\s*\|.*\|\s*$/.test(line)) line = line.replace(/^\s*\||\|\s*$/g, '').split('|').map((c) => c.trim()).filter(Boolean).join(' – ');
     line = line.replace(/^#{1,6}\s+/, '')                                      // Überschriften
       .replace(/^\s*>\s?/, '')                                                // Zitate
+      .replace(/\[!(?:WARN|TIP|KEY|NOTE|INFO|EXAMPLE)\]\s*/i, '')            // Hinweis-Kästen
       .replace(/^(\s*)[-*•]\s+/, '$1– ')                                      // Aufzählungen
       .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')                                // Links
       .replace(/\*\*([^*]+)\*\*|__([^_]+)__/g, (_, a, b) => a || b)          // fett
@@ -2606,17 +2607,35 @@ function mdToHeftText(src) {
   return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
-// Lösungen als Heft-Einträge (für Blätter ohne Foto, z. B. PDFs): eine Aufgabe = ein Eintrag
+// Eine Aufgabe in Lösung und Erklärung trennen: "### Lösung" (oder Text ohne Unterüberschrift) ist die Lösung;
+// "### So kommst du drauf", Rechenweg, Tipps und Hinweis-Kästen (> [!WARN] …) sind Erklärung.
+const ANSWER_HEAD = /^(lösung|musterlösung|antwort|ergebnis|lösungsvorschlag)\b/i;
+function splitAnswer(body) {
+  const answer = [], explain = [];
+  let mode = 'answer';
+  for (const line of body) {
+    const m = line.match(/^###\s+(.*)$/);
+    if (m) { mode = ANSWER_HEAD.test(m[1].trim()) ? 'answer' : 'explain'; continue; }
+    if (mode === 'answer' && /^\s*>/.test(line)) { explain.push(line); continue; } // Hinweis-Kasten mitten in der Lösung
+    (mode === 'answer' ? answer : explain).push(line);
+  }
+  return { answer: mdToHeftText(answer.join('\n')), explain: mdToHeftText(explain.join('\n')) };
+}
+
+// Lösungen als Heft-Einträge (für Blätter ohne Foto, z. B. PDFs): pro Aufgabe nur die Lösung.
+// Rechenweg/Erklärungen (falls vorhanden) kommen gesammelt auf eine eigene Seite „So kommst du drauf“.
 function loesungHeft(item) {
   const { sections } = loesungSections(item);
-  if (!sections.length) { const t = mdToHeftText(item.loesung); return t ? [{ art: 'heft', aufgabe: '', text: t }] : []; }
-  const list = []; // Einleitung der KI („Hier sind die Lösungen …“) gehört nicht ins Heft
+  if (!sections.length) { const t = splitAnswer(String(item.loesung || '').split(/\r?\n/)).answer; return t ? [{ art: 'heft', aufgabe: '', text: t }] : []; }
+  const list = [], why = []; // Einleitung der KI („Hier sind die Lösungen …“) gehört nicht ins Heft
   for (const sec of sections) {
     const m = sec.title.match(/^Aufgabe\s*([0-9]+[a-z]?(?:[.)][a-z0-9]+)?)\s*[–:.-]?\s*(.*)$/i);
-    const text = mdToHeftText(sec.body.join('\n'));
-    if (!text) continue;
-    list.push(m ? { art: 'heft', aufgabe: `Aufgabe ${m[1]}`, text } : { art: 'heft', aufgabe: mdToHeftText(sec.title), text });
+    const aufgabe = m ? `Aufgabe ${m[1]}` : mdToHeftText(sec.title);
+    const { answer, explain } = splitAnswer(sec.body);
+    if (answer) list.push({ art: 'heft', aufgabe, text: answer });
+    if (explain) why.push({ art: 'heft', aufgabe, text: explain });
   }
+  if (why.length) list.push({ art: 'heft', aufgabe: '', text: 'So kommst du drauf', newPage: true }, ...why);
   return list;
 }
 

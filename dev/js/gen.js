@@ -272,7 +272,7 @@ export async function solveSheet(item, onStep = null) {
     // Wünsche aus den Einstellungen (Ausführlichkeit, Rechenweg) an die Lösung anhängen
     const o = item.opts || {};
     const wish = [o.detail === 'kurz' ? 'Halte die Lösungen kurz (Stichpunkte, Ergebnisse).' : o.detail === 'ausfuehrlich' ? 'Erkläre ausführlich, mit Begründung und Beispielen.' : '', o.steps === false ? 'Nur Ergebnisse, ohne Rechenweg (außer die Aufgabe verlangt ihn).' : ''].filter(Boolean).join(' ');
-    const parts = [{ text: P.solvePrompt(subject, [item.note || '', wish].filter(Boolean).join('\n'), links, item.fileIds.length > 0) }];
+    const parts = [{ text: P.solvePrompt(subject, [item.note || '', wish].filter(Boolean).join('\n'), links, item.fileIds.length > 0, o.steps !== false) }];
     for (const id of item.fileIds) parts.push(await partOf(id));
     const text = await generate({ system: P.baseSystem(subject), parts, temperature: 0.2, web: links.length > 0 });
     const first = text.match(/^##\s+(.*)$/m);

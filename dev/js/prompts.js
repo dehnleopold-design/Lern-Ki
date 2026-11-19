@@ -483,7 +483,7 @@ ${words.map((w) => `- ${w.w} = ${w.t}${w.ex ? ` (Beispiel: ${w.ex})` : ''}`).joi
 }
 
 // ---------- 8. Arbeitsblatt lösen ----------
-export function solvePrompt(subject, note, links = [], hasFiles = true) {
+export function solvePrompt(subject, note, links = [], hasFiles = true, steps = true) {
   const { fach, teach } = langInfo(subject);
   const lang = fach
     ? `Sprache: Antworten in der Sprache, die die Aufgabe verlangt (${LANG_NAMES[fach]} bzw. bei Übersetzungen Deutsch). Erklärungen zu Grammatik und Fehlern auf Deutsch.`
@@ -506,12 +506,12 @@ REGELN
 FORMAT (genau so, die App klappt jede Aufgabe einzeln auf):
 ## Aufgabe 1 a) – kurze Wiedergabe der Aufgabenstellung
 ### Lösung
-(die Musterlösung, wie man sie abgeben würde)
-### So kommst du drauf
+(die Musterlösung, wie man sie abgeben würde${steps ? '' : ' – nur das Ergebnis bzw. die Antwort, OHNE Rechenweg, Herleitung oder Begründung, außer die Aufgabe verlangt sie ausdrücklich'})
+${steps ? `### So kommst du drauf
 (Schritte/Begründung, kurz)
 > [!WARN] Häufiger Fehler
 > …
-(optional; außerdem erlaubt: > [!TIP], > [!KEY], Tabellen mit | … |, Listen)
+(optional; außerdem erlaubt: > [!TIP], > [!KEY], Tabellen mit | … |, Listen)` : `KEINEN Abschnitt „So kommst du drauf“, keine Erklärungen, Tipps oder Hinweise auf häufige Fehler – der Schüler hat den Rechenweg ausgeschaltet. Tabellen mit | … | und Listen sind erlaubt.`}
 
 Nummeriere wie auf dem Blatt. Keine Einleitung, kein Schlusswort.`;
 }
