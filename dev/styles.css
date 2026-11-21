@@ -1265,3 +1265,21 @@ html.has-userbg[data-skin] body::before { inset: calc(var(--bg-blur, 0px) * -2);
 .set-tile-title { font-family: var(--display); font-weight: 800; font-size: 1.12rem; }
 .set-tile-sub { color: var(--muted); font-size: .85rem; line-height: 1.35; }
 .set-tile-go { position: absolute; top: 18px; right: 14px; color: var(--muted); }
+
+/* ---------- Vokabeln abfragen ---------- */
+.drill { gap: 16px; }
+.drill-dir { font-size: .85rem; }
+.drill-stats { display: flex; gap: 14px; justify-content: center; font-weight: 700; color: var(--muted); }
+.drill-stats .ok { color: var(--good); } .drill-stats .bad { color: var(--bad); }
+.drill-card { background: var(--surface); border: 2px solid var(--line); border-radius: var(--radius); padding: 34px 20px; text-align: center; display: flex; flex-direction: column; gap: 10px; transition: border-color .2s, background .2s; }
+.drill-card.is-ok { border-color: var(--good); background: color-mix(in srgb, var(--good) 10%, var(--surface)); }
+.drill-card.is-bad { border-color: var(--bad); background: color-mix(in srgb, var(--bad) 10%, var(--surface)); }
+.drill-from { color: var(--muted); font-size: .85rem; font-weight: 600; }
+.drill-word { font-family: var(--display); font-weight: 800; font-size: clamp(1.8rem, 6vw, 2.6rem); line-height: 1.15; word-break: break-word; }
+.drill-ex { color: var(--muted); font-style: italic; }
+.drill-input { font-size: 1.25rem; text-align: center; padding: 16px; }
+.drill .grow { flex: 1; }
+.drill-result { text-align: center; display: flex; flex-direction: column; gap: 6px; }
+.drill-verdict { font-family: var(--display); font-weight: 800; font-size: 1.4rem; }
+.drill-result.ok .drill-verdict { color: var(--good); } .drill-result.bad .drill-verdict { color: var(--bad); }
+.drill-solution { font-size: 1.35rem; font-weight: 700; }

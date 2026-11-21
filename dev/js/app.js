@@ -27,7 +27,7 @@ setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, JELLY_STYLES, setJellyStyle, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.71-dev.4';
+const APP_VERSION = '2.71-dev.5';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -289,7 +289,7 @@ function render() {
   applyTheme();
   app.replaceChildren();
   if (!state.profile && !['onboarding', 'login'].includes(route.name)) route = { name: 'onboarding', params: {} };
-  const views = { login: viewLogin, onboarding: viewOnboarding, prepare: viewPrepare, plan: viewPlan, pick: viewPick, vocab: viewVocab, solve: viewSolveNew, solved: viewSolved, vnew: viewVocabNew, vset: viewVocabSet, vwords: viewVocabWords, vplan: viewVocabPlan, vquiz: viewVocabQuiz, vtests: viewVocabTests, files: viewFiles, week: viewWeek, wimport: viewWeekImport, todo: viewTodos, notes: viewNotes, notebook: viewNotebook, calendar: viewCalendar, newExam: viewNewExam, session: viewSession, subjects: viewSubjects, subject: viewSubject, tutor: viewTutor, settings: viewSettings, play: viewPlay, hand: () => handView({ topbar, back: () => go('settings') }) };
+  const views = { login: viewLogin, onboarding: viewOnboarding, prepare: viewPrepare, plan: viewPlan, pick: viewPick, vocab: viewVocab, solve: viewSolveNew, solved: viewSolved, vnew: viewVocabNew, vset: viewVocabSet, vwords: viewVocabWords, vplan: viewVocabPlan, vquiz: viewVocabQuiz, vdrill: viewVocabDrill, vtests: viewVocabTests, files: viewFiles, week: viewWeek, wimport: viewWeekImport, todo: viewTodos, notes: viewNotes, notebook: viewNotebook, calendar: viewCalendar, newExam: viewNewExam, session: viewSession, subjects: viewSubjects, subject: viewSubject, tutor: viewTutor, settings: viewSettings, play: viewPlay, hand: () => handView({ topbar, back: () => go('settings') }) };
   const seq = ++renderSeq;
   const v = (views[route.name] || viewPlan)(route.params);
   // Hat die Ansicht beim Aufbauen selbst weitergeleitet (go/render), steht die neue Seite schon da – nicht mit dieser überschreiben
@@ -3039,6 +3039,7 @@ function viewVocabSet({ id }) {
           h('span', { class: 'next-title' }, `${entry.iso === isoDate(new Date()) ? 'Heute lernen' : `Lerntag ${fmtDate(entry.iso)}`} · ${entryWords} Vokabeln`), icon('play', 18))
           : h('div', { class: 'all-done' }, 'Lernplan geschafft – mach den Probe-Test!')),
       h('div', { class: 'vtiles' },
+        tile('cards', 'Abfragen', 'Eine Vokabel – du übersetzt', () => go('vdrill', { id })),
         tile('zap', 'Schnell-Quiz', '15 Vokabeln, sofort', () => startVocabQuiz(set, 'schnell')),
         tile('grad', 'Probe-Test', profile ? 'Im Stil deiner Lehrkraft' : 'Wie ein echter Test', () => startVocabQuiz(set, 'test'), 'final'),
         tile('calendar', 'Lernplan', `${(set.plan || []).filter((e) => e.done).length}/${(set.plan || []).length} Tage`, () => go('vplan', { id })),
@@ -3163,6 +3164,93 @@ function viewVocabQuiz({ id, mode }) {
     ],
   });
   return screen;
+}
+
+// ---------- Abfragen: immer eine Vokabel, übersetzen, sofort richtig/falsch – endlos zum Lernen
+function pickDrillWord(set, lastId) {
+  const pool = set.words.filter((w) => w.w && w.t && w.id !== lastId);
+  if (!pool.length) return set.words[0] || null;
+  // Unsichere Wörter (niedrige Kartei-Stufe, viele Fehler) kommen öfter dran
+  const weight = (w) => 1 + (5 - Math.min(5, w.box || 0)) * 2 + Math.min(6, w.wrong || 0);
+  let r = Math.random() * pool.reduce((a, w) => a + weight(w), 0);
+  for (const w of pool) { r -= weight(w); if (r <= 0) return w; }
+  return pool[pool.length - 1];
+}
+function viewVocabDrill({ id }) {
+  const set = vsetById(id);
+  if (!set) { go('vocab'); return h('div'); }
+  if (!set.words.some((w) => w.w && w.t)) { go('vset', { id }); toast('Diese Liste hat noch keine Vokabeln.'); return h('div'); }
+  const d = (ui.drill = ui.drill?.setId === id ? ui.drill : { setId: id, right: 0, wrong: 0, streak: 0, cur: null, ask: null, done: null });
+  set.drillDir ||= 'fd';
+  const main = h('main', { class: 'content narrow drill' });
+  const next = () => {
+    const w = pickDrillWord(set, d.cur);
+    d.cur = w?.id; d.done = null;
+    d.ask = set.drillDir === 'mix' ? (Math.random() < 0.5 ? 'fd' : 'df') : set.drillDir;
+    draw();
+  };
+  const word = () => set.words.find((x) => x.id === d.cur);
+  const mark = (w, ok, undo = false) => {
+    if (undo) { // „War doch richtig“: falsch-Wertung zurücknehmen
+      w.wrong = Math.max(0, (w.wrong || 0) - 1); d.wrong = Math.max(0, d.wrong - 1);
+      w.box = Math.max(w.box || 0, d.boxBefore ?? 0);
+    }
+    if (ok) { w.box = Math.min(5, (w.box || 0) + 1); w.right = (w.right || 0) + 1; d.right++; d.streak++; }
+    else { d.boxBefore = w.box || 0; w.box = 0; w.wrong = (w.wrong || 0) + 1; d.wrong++; d.streak = 0; }
+    save();
+  };
+  const check = (val, skip = false) => {
+    const w = word(); if (!w) return;
+    const fd = d.ask === 'fd';
+    const answers = variants(fd ? w.t : w.w);
+    const exact = !skip && checkInput(val, answers, true);
+    const ok = !skip && (exact || checkInput(val, answers, false));
+    mark(w, ok);
+    d.done = { ok, exact, given: val, skip };
+    draw();
+  };
+  const draw = () => {
+    if (d.onKey) { document.removeEventListener('keydown', d.onKey); d.onKey = null; }
+    const w = word();
+    if (!w) { next(); return; }
+    const fd = d.ask === 'fd';
+    const from = fd ? set.sprache || 'Fremdsprache' : 'Deutsch';
+    const to = fd ? 'Deutsch' : set.sprache || 'Fremdsprache';
+    const shown = fd ? w.w : w.t.split(';')[0].trim();
+    const solution = fd ? w.t.split(';').map((x) => x.trim()).filter(Boolean).join(' · ') : w.w;
+    const dirSeg = h('div', { class: 'seg drill-dir' }, [['fd', `${set.sprache || 'Fremd'} → Deutsch`], ['df', `Deutsch → ${set.sprache || 'Fremd'}`], ['mix', 'Gemischt']].map(([k, l]) =>
+      h('button', { class: `seg-btn ${set.drillDir === k ? 'active' : ''}`, onclick: () => { set.drillDir = k; save(); next(); } }, l)));
+    const stats = h('div', { class: 'drill-stats' }, h('span', { class: 'ok' }, `✓ ${d.right}`), h('span', { class: 'bad' }, `✗ ${d.wrong}`), d.streak >= 3 ? h('span', {}, `🔥 ${d.streak} in Folge`) : null);
+    const card = h('div', { class: `drill-card ${d.done ? (d.done.ok ? 'is-ok' : 'is-bad') : ''}` },
+      h('div', { class: 'drill-from' }, `${from} → ${to}`),
+      h('div', { class: 'drill-word' }, shown),
+      w.ex && fd && d.done ? h('div', { class: 'drill-ex' }, w.ex) : null);
+    if (!d.done) {
+      const inp = h('input', { class: 'input drill-input', placeholder: `Auf ${to} …`, autocapitalize: 'off', autocomplete: 'off', spellcheck: 'false', autocorrect: 'off',
+        onkeydown: (e) => { if (e.key === 'Enter' && inp.value.trim()) { e.preventDefault(); check(inp.value.trim()); } } });
+      main.replaceChildren(dirSeg, stats, card, inp,
+        h('div', { class: 'row gap' },
+          h('button', { class: 'btn ghost', onclick: () => check('', true) }, 'Weiß ich nicht'),
+          h('button', { class: 'btn primary grow', onclick: () => { if (inp.value.trim()) check(inp.value.trim()); else inp.focus(); } }, 'Prüfen')));
+      setTimeout(() => inp.focus(), 50);
+    } else {
+      const r = d.done;
+      const nextBtn = h('button', { class: 'btn primary block', onclick: next }, 'Weiter', icon('chev', 18));
+      main.replaceChildren(...[dirSeg, stats, card,
+        h('div', { class: `drill-result ${r.ok ? 'ok' : 'bad'}` },
+          h('div', { class: 'drill-verdict' }, r.ok ? (r.exact ? '✓ Richtig!' : '✓ Richtig – kleiner Tippfehler') : r.skip ? 'Das war:' : '✗ Leider falsch'),
+          !r.ok && !r.skip ? h('div', { class: 'muted small' }, `Deine Antwort: ${r.given}`) : null,
+          (!r.ok || !r.exact) ? h('div', { class: 'drill-solution' }, solution) : h('div', { class: 'muted small' }, solution)),
+        nextBtn,
+        !r.ok && !r.skip ? h('button', { class: 'link-small', onclick: () => { mark(word(), true, true); d.done = { ...r, ok: true, exact: true }; draw(); } }, 'War doch richtig') : null].filter(Boolean));
+      // Enter auf der Tastatur = Weiter
+      const onKey = (e) => { if (e.key === 'Enter' && main.isConnected && d.done) { e.preventDefault(); next(); } };
+      setTimeout(() => { if (d.done && main.isConnected) { d.onKey = onKey; document.addEventListener('keydown', onKey); } }, 150);
+      nextBtn.focus();
+    }
+  };
+  if (!d.cur || !word()) next(); else draw();
+  return h('div', { class: 'screen' }, topbar({ back: () => { ui.drill = null; go('vset', { id }); }, title: 'Abfragen' }), main);
 }
 
 function viewVocabTests({ sprache }) {
