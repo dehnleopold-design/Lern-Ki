@@ -5,6 +5,7 @@
   python3 tools/dev.py promote "2.61 (17.11.)" [--merged]
                                           dev/ → echtes Jelly übertragen (mit neuer Versionsnummer)
   python3 tools/dev.py bump "2.61-dev.2"  nur die Developer-Version erhöhen (Update-Hinweis in Developer)
+  python3 tools/dev.py accept-root        echtes Jelly wurde bewusst direkt geändert (gleiche Änderung auch in dev/)
   python3 tools/dev.py status             zeigt, ob echtes Jelly / Developer seit dem letzten Abgleich geändert wurden
 
 Sicherheitsnetz: dev/BASE merkt sich den Stand beider Seiten beim letzten Abgleich.
@@ -212,6 +213,13 @@ def bump(version):
     print(f'Developer-Version: {version}')
 
 
+def accept_root():
+    base = load_base() or {}
+    base['root'] = root_hash()
+    write(BASE, json.dumps(base, indent=2) + '\n')
+    print('Abgleich für das echte Jelly neu gesetzt (Developer-Stand unverändert).')
+
+
 def status():
     base = load_base()
     if not base:
@@ -231,6 +239,8 @@ if __name__ == '__main__':
         promote(a[1], '--merged' in a)
     elif a[0] == 'bump' and len(a) > 1:
         bump(a[1])
+    elif a[0] == 'accept-root':
+        accept_root()
     elif a[0] == 'status':
         status()
     else:

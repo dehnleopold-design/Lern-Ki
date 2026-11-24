@@ -239,6 +239,51 @@ async function loadBlob(uid, meta, fid) {
   return { mime, data };
 }
 
+// ---------- Klausur in das eigene Konto schicken (Jelly holt sie beim nächsten Öffnen ab, siehe js/inbox.js)
+const CHUNK = 700000;
+const pieces = (str) => { const out = []; for (let i = 0; i < str.length; i += CHUNK) out.push(str.slice(i, i + CHUNK)); return out.length ? out : ['']; };
+async function sendExam(u, meta, st, exam, btn) {
+  const me = auth.currentUser;
+  if (me.uid === u.uid) { toast('Das ist schon dein Konto.'); return; }
+  const subject = (st.subjects || []).find((s) => s.id === exam.subjectId) || {};
+  if (!confirm(`Klausur „${subject.name || 'Klausur'}“ von ${u.name || u.email} in dein eigenes Jelly-Konto kopieren?\n\nDas Original bleibt unverändert. Lernplan, Lernzettel, Quizze, Aufgaben und Material kommen mit – Fortschritt und Antworten nicht.`)) return;
+  btn.disabled = true; const label = btn.textContent;
+  try {
+    btn.textContent = 'Packe ein …';
+    const unitIds = new Set((exam.plan?.abschnitte || []).flatMap((a) => (a.einheiten || []).map((x) => x.id)));
+    const sessions = Object.fromEntries(Object.entries(st.sessions || {}).filter(([k, v]) => unitIds.has(k) || v?.examId === exam.id));
+    // Material samt aller Seiten mehrseitiger Dokumente
+    const want = new Set();
+    for (const id of exam.materialIds || []) { const g = st.files?.[id]?.group || id; for (const f of Object.values(st.files || {})) if ((f.group || f.id) === g) want.add(f.id); }
+    const files = {};
+    for (const id of want) if (st.files[id]) files[id] = st.files[id];
+    const pack = { from: u.name || u.email || '', exam, subject: { name: subject.name, short: subject.short, color: subject.color, language: subject.language, teacherProfile: subject.teacherProfile || '' }, sessions, files };
+    const tid = Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+    const inbox = (id) => F.doc(db, 'users', me.uid, 'inbox', id);
+    const json = pieces(JSON.stringify(pack));
+    for (const [i, d] of json.entries()) await F.setDoc(inbox(`${tid}_c${i}`), { d });
+    const fileList = [];
+    let k = 0;
+    for (const id of want) {
+      btn.textContent = `Dateien ${k + 1}/${want.size} …`;
+      const b = await loadBlob(u.uid, meta, id);
+      if (!b) continue;
+      const parts = pieces(b.data);
+      for (const [i, d] of parts.entries()) await F.setDoc(inbox(`${tid}_f${k}_${i}`), { d });
+      fileList.push({ id, n: parts.length, mime: b.mime });
+      k++;
+    }
+    // Kopf zuletzt – erst dann holt Jelly die Klausur ab (vorher wäre sie unvollständig)
+    await F.setDoc(inbox(tid), { type: 'exam', from: pack.from, title: subject.name || 'Klausur', at: Date.now(), n: json.length, files: fileList });
+    toast('Geschickt – öffne Jelly, dann ist die Klausur da.');
+    btn.textContent = '✓ In deinem Konto';
+  } catch (e) {
+    console.warn(e);
+    toast(e.code === 'permission-denied' ? 'Nicht erlaubt – nutzt du Jelly selbst mit diesem Konto?' : `Fehler: ${e.message}`);
+    btn.disabled = false; btn.textContent = label;
+  }
+}
+
 const htmlBox = (markdown, cls = 'md-box') => { const d = h('div', { class: cls }); d.innerHTML = md(markdown || ''); return d; };
 const paper = (markdown) => { const d = h('div', { class: 'sheet-doc paper' }); d.innerHTML = md(markdown || ''); return d; };
 
@@ -277,6 +322,7 @@ function drawContent(u, { meta, st }) {
         return h('div', { class: 'exam-box' },
           h('div', { class: 'name' }, `${subj(e.subjectId)?.name || 'Fach'}${e.date ? ` · ${new Date(e.date).toLocaleDateString('de-DE')}` : ''}`),
           h('div', { class: 'sub muted small' }, [e.plan?.themen?.length ? `${e.plan.themen.length} Themen` : 'noch kein Plan', e.topicsText ? `Notizen: ${e.topicsText.slice(0, 120)}` : ''].filter(Boolean).join(' · ')),
+          u.uid !== auth.currentUser?.uid ? h('button', { class: 'btn small send-exam', onclick: (ev) => sendExam(u, meta, st, e, ev.currentTarget) }, '⇢ In mein Konto kopieren') : null,
           h('div', { class: 'unit-list' }, units.map((un) => {
             const sess = st.sessions?.[un.id];
             const done = sess && (sess.lernzettel || sess.fragen || sess.aufgaben);

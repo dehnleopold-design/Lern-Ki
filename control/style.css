@@ -115,3 +115,6 @@ h3 { font-family: var(--display); margin: 18px 0 8px; }
 .tag.bad { color: var(--bad); background: color-mix(in srgb, var(--bad) 15%, transparent); }
 .btn.danger { color: var(--bad); }
 .access { margin: 6px 0 14px; padding: 12px; border-radius: 14px; background: var(--surface-2); }
+
+.send-exam { margin: 8px 0 4px; }
+.btn.small { padding: 8px 14px; font-size: .9rem; border-radius: 12px; }

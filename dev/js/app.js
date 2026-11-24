@@ -2,6 +2,7 @@ import { state, loadState, save, replaceState, clearAll, allBlobs, putBlob, uid,
 import { startSync, syncNow, syncStatus, onSyncStatus, deleteCloudData, push, requestJob, backgroundAvailable, cloudInfo, cloudBackupInfo, reloadFromCloud, restoreCloudBackup } from './sync.js';
 import { deleteAccount } from './auth.js';
 import { DEV } from './env.js';
+import { importInbox } from './inbox.js';
 import { handView, handActive, handSVG, drawHand, handVersion, handReady, handCount, handLines, layoutWidth, HAND_EM, mathTokens } from './hand.js';
 import { authEnabled, initAuth, signInGoogle, signInEmail, registerEmail, resetPassword, signOutUser, currentUser, authErrorText } from './auth.js';
 import { generate, aiReady, listGeminiModels, pickDefaultModel, AIError, onAIStatus, FALLBACK_PRESETS, listOpenAIModels, pickFallbackModel, fallbackReady } from './ai.js';
@@ -27,7 +28,7 @@ setPartLoader(filePart); // App liest Dateien aus dem Gerätespeicher
 import { cleanText, jellyTransition } from './ui.js';
 import { h, add, md, mdEl, mascot, speech, icon, JELLY_STYLES, setJellyStyle, toast, confirmDialog, isoDate, parseISO, fmtDate, relDay } from './ui.js';
 
-const APP_VERSION = '2.71-dev.5';
+const APP_VERSION = '2.71-dev.6';
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- Konstanten
@@ -4573,6 +4574,12 @@ async function handleUser(user) {
     toast(`Jelly hat im Hintergrund weitergearbeitet: ${txt}.`, 'ok');
   } });
   const started = Date.now();
+  // Posteingang: von Control geschickte Klausuren übernehmen, sobald der Abgleich durch ist
+  synced.then(() => importInbox(user)).then((got) => {
+    if (!got?.length) return;
+    for (const g of got) toast(`Klausur „${g.title}“${g.from ? ` von ${g.from}` : ''} übernommen.`, 'ok');
+    render();
+  }).catch((e) => console.warn('Posteingang', e));
   await Promise.race([synced, new Promise((r) => { const t = setInterval(() => { if (!ui.conflictOpen && Date.now() - started > 10000) { clearInterval(t); r(); } }, 300); })]);
   await boot(user);
   booted = true;
